@@ -1,0 +1,41 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.out
+*.test
+coverage.html
+
+# Local Environment Config
+.env
+.env.local
+docker-compose.override.yml
+
+# Checksums
+go.sum
+
+# Dependency directories (if used)
+vendor/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker Volumes (if mapped locally)
+postgres_data/
+redis_data/
+minio_data/
+
+# Temporary files
+tmp/

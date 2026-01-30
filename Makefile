@@ -1,7 +1,7 @@
 .PHONY: help build run test clean migrate-up migrate-down migrate-create docker-build docker-up docker-down dev
 
 # Variables
-APP_NAME=redwave-api
+APP_NAME=blueprint-audio
 DOCKER_COMPOSE=docker-compose
 GO=go
 MIGRATE=migrate
@@ -55,7 +55,13 @@ clean:
 	rm -f coverage.out coverage.html
 
 # Database migrations
-DB_URL=postgresql://postgres:postgres@localhost:5432/redwave?sslmode=disable
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
+# Database connection
+DB_URL=postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
 migrate-up:
 	@echo "Running migrations up..."
@@ -98,9 +104,7 @@ docker-build:
 docker-up:
 	@echo "Starting Docker containers..."
 	$(DOCKER_COMPOSE) up -d
-	@echo "Waiting for services to be ready..."
-	@sleep 5
-	@echo "Services started. Access:"
+	@echo "Services started!". Access:"
 	@echo "  API: http://localhost:8080"
 	@echo "  MinIO Console: http://localhost:9001 (user: minioadmin, pass: minioadmin)"
 	@echo "  PostgreSQL: localhost:5432"

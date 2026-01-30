@@ -8,17 +8,17 @@ services:
     image: postgres:15-alpine
     container_name: redwave_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: redwave
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - redwave_network
+      - blueprint-audio_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,15 +26,15 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: redwave_redis
+    container_name: blueprint-audio_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
-      - redwave_network
+      - blueprint-audio_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,20 +42,20 @@ services:
   # MinIO (S3-compatible storage for local development)
   minio:
     image: minio/minio:latest
-    container_name: redwave_minio
+    container_name: blueprint-audio_minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Web Console
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web Console
     volumes:
       - minio_data:/data
     networks:
-      - redwave_network
+      - blueprint-audio_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,42 +65,42 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: redwave_api
+    container_name: blueprint-audio_api
     ports:
       - "8080:8080"
     environment:
       # Server
       PORT: 8080
       ENV: development
-      
+
       # Database
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
-      DB_NAME: redwave
-      
+      DB_NAME: blueprint-audio
+
       # JWT
       JWT_SECRET: dev-secret-key-change-in-production
       JWT_EXPIRATION: 24h
-      
+
       # S3/MinIO
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
-      S3_BUCKET: redwave-assets
+      S3_BUCKET: blueprint-audio-assets
       S3_USE_SSL: "false"
       S3_REGION: us-east-1
-      
+
       # Razorpay (use test credentials for dev)
       RAZORPAY_KEY_ID: rzp_test_your_key
       RAZORPAY_KEY_SECRET: your_test_secret
-      
+
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ""
-      
+
       # CORS
       ALLOWED_ORIGINS: http://localhost:4200,http://localhost:4000
     depends_on:
@@ -113,7 +113,7 @@ services:
     volumes:
       - ./:/app
     networks:
-      - redwave_network
+      - blueprint-audio_network
     restart: unless-stopped
 
 volumes:
@@ -125,5 +125,5 @@ volumes:
     driver: local
 
 networks:
-  redwave_network:
+  blueprint-audio_network:
     driver: bridge
