@@ -27,7 +27,7 @@ func NewUserRepository(db *sqlx.DB) domain.UserRepository {
 // they are automatically set to the current time before insertion.
 // Returns an error if the database operation fails.
 func (r *pgUserRepository) CreateUser(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash,role,created_at,updated_at) VALUES (:id,:email,:password_hash,:name,:role,:created_at,:updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, role, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :role, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()

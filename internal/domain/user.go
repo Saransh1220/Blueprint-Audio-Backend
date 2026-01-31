@@ -9,6 +9,11 @@ import (
 
 type UserRole string
 
+const (
+	RoleArtist   UserRole = "artist"
+	RoleProducer UserRole = "producer"
+)
+
 // User represents a user in the system
 type User struct {
 	ID           uuid.UUID `json:"id" db:"id"`
