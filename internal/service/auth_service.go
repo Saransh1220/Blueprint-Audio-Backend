@@ -32,6 +32,14 @@ func NewAuthService(repo domain.UserRepository) *AuthService {
 // and persists the user to the repository. Returns the created user or an error if
 // password hashing, role validation, or repository creation fails.
 func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*domain.User, error) {
+	// Validation
+	if req.Email == "" || req.Password == "" || req.Name == "" {
+		return nil, errors.New("missing required fields")
+	}
+	if len(req.Password) < 8 {
+		return nil, errors.New("password must be at least 8 characters")
+	}
+
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err

@@ -1,12 +1,10 @@
-# Docker Compose Configuration for Red Wave Backend
-
-version: '3.8'
+# Docker Compose Configuration for Blueprint Audio Backend
 
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: redwave_postgres
+    container_name: blueprint-audio_postgres
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}

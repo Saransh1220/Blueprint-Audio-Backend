@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
 )
 
@@ -36,8 +37,17 @@ func (r *pgUserRepository) CreateUser(ctx context.Context, user *domain.User) er
 		user.UpdatedAt = time.Now()
 	}
 
+	// NamedExecContext is a sqlx feature! It uses the structure fields directly.
 	_, err := r.db.NamedExecContext(ctx, query, user)
-	return err
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok {
+			if pqErr.Code == "23505" { // Unique violation
+				return domain.ErrUserAlreadyExists
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // GetUserByEmail retrieves a user from the database by their email address.

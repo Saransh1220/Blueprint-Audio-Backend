@@ -119,6 +119,10 @@ docker-logs:
 
 logs: docker-logs
 
+logs-api:
+	@echo "Showing API logs..."
+	$(DOCKER_COMPOSE) logs -f api
+
 # Development environment
 dev: docker-up
 	@echo "Development environment ready!"
@@ -137,7 +141,7 @@ lint:
 # Initialize MinIO bucket for local development
 minio-setup:
 	@echo "Setting up MinIO bucket..."
-	docker exec redwave_minio mc alias set local http://localhost:9000 minioadmin minioadmin
-	docker exec redwave_minio mc mb local/redwave-assets || true
-	docker exec redwave_minio mc policy set public local/redwave-assets
-	@echo "MinIO bucket 'redwave-assets' created and set to public"
+	docker exec blueprint-audio_minio mc alias set local http://localhost:9000 minioadmin minioadmin
+	docker exec blueprint-audio_minio mc mb local/blueprint-audio-assets || true
+	docker exec blueprint-audio_minio mc policy set public local/blueprint-audio-assets
+	@echo "MinIO bucket 'blueprint-audio-assets' created and set to public"
