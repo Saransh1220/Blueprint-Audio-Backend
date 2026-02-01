@@ -48,4 +48,26 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(user); err != nil {
 		http.Error(w, `{"error": "failed to encode response"}`, http.StatusInternalServerError)
 	}
+
+}
+
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req service.LoginUserReq
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.service.LoginUser(r.Context(), req)
+	if err != nil {
+		if err == domain.ErrInvalidCredentials {
+			http.Error(w, `{"error": "invalid credentials"}`, http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }

@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/saransh1220/blueprint-audio/internal/domain"
 	"github.com/saransh1220/blueprint-audio/internal/mocks"
@@ -14,7 +15,7 @@ import (
 func TestRegisterUser_Success(t *testing.T) {
 	// Setup
 	mockRepo := new(mocks.MockUserRepository)
-	authService := service.NewAuthService(mockRepo)
+	authService := service.NewAuthService(mockRepo, "secret", time.Hour)
 	ctx := context.Background()
 
 	req := service.RegisterUserReq{
@@ -42,7 +43,7 @@ func TestRegisterUser_Success(t *testing.T) {
 
 func TestRegisterUser_InvalidInput(t *testing.T) {
 	mockRepo := new(mocks.MockUserRepository)
-	authService := service.NewAuthService(mockRepo)
+	authService := service.NewAuthService(mockRepo, "secret", time.Hour)
 	ctx := context.Background()
 
 	// Case 1: Empty Email
@@ -66,7 +67,7 @@ func TestRegisterUser_InvalidInput(t *testing.T) {
 
 func TestRegisterUser_InvalidRole(t *testing.T) {
 	mockRepo := new(mocks.MockUserRepository)
-	authService := service.NewAuthService(mockRepo)
+	authService := service.NewAuthService(mockRepo, "secret", time.Hour)
 	ctx := context.Background()
 
 	_, err := authService.RegisterUser(ctx, service.RegisterUserReq{

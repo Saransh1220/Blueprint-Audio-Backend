@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/saransh1220/blueprint-audio/internal/handler"
@@ -37,9 +38,18 @@ func main() {
 
 	log.Printf("Database Connected Successfully!")
 
-	userRepo := repository.NewUserRepository(db)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	jwtExpiryStr := os.Getenv("JWT_EXPIRATION")
+	if jwtSecret == "" {
+		jwtSecret = "default-dev-secret"
+	}
+	jwtExpiry, _ := time.ParseDuration(jwtExpiryStr)
+	if jwtExpiry == 0 {
+		jwtExpiry = 24 * time.Hour
+	}
 
-	authService := service.NewAuthService(userRepo)
+	userRepo := repository.NewUserRepository(db)
+	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
 
 	authHandler := handler.NewAuthHandler(authService)
 

@@ -19,3 +19,8 @@ func (m *MockAuthService) RegisterUser(ctx context.Context, req service.Register
 	}
 	return args.Get(0).(*domain.User), args.Error(1)
 }
+
+func (m *MockAuthService) LoginUser(ctx context.Context, req service.LoginUserReq) (string, error) {
+	args := m.Called(ctx, req)
+	return args.String(0), args.Error(1)
+}

@@ -26,7 +26,8 @@ func (r *Router) Setup() *http.ServeMux {
 	})
 
 	// API Routes
-	mux.HandleFunc("/register", r.authHandler.Register)
+	mux.HandleFunc("POST /register", r.authHandler.Register)
+	mux.HandleFunc("POST /login", r.authHandler.Login)
 
 	return mux
 }
