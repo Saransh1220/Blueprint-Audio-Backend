@@ -81,6 +81,11 @@ func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*d
 	return user, nil
 }
 
+// LoginUser authenticates a user by verifying their email and password credentials.
+// It takes a context and a LoginUserReq containing the user's email and password.
+// Returns a JWT token string on successful authentication, or an error if authentication fails.
+// Returns domain.ErrInvalidCredentials if the email is not found or password verification fails.
+// Returns domain.ErrInvalidCredentials for missing email or password to avoid revealing user existence.
 func (s *AuthService) LoginUser(ctx context.Context, req LoginUserReq) (string, error) {
 	if req.Email == "" || req.Password == "" {
 		return "", errors.New("Missing Email or Password")

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/saransh1220/blueprint-audio/internal/handler"
+	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/repository"
 	"github.com/saransh1220/blueprint-audio/internal/router"
 	"github.com/saransh1220/blueprint-audio/internal/service"
@@ -52,8 +53,9 @@ func main() {
 	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
 
 	authHandler := handler.NewAuthHandler(authService)
+	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
-	appRouter := router.NewRouter(authHandler)
+	appRouter := router.NewRouter(authHandler, authMiddleware)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 
