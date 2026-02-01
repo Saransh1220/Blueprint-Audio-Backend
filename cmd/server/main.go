@@ -60,7 +60,11 @@ func main() {
 	log.Printf("Server starting on port %s", port)
 
 	// Wrap specific handler with CORS middleware
-	handler := middleware.CORSMiddleware(mux)
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "http://localhost:4200" // Default fallback
+	}
+	handler := middleware.CORSMiddleware(mux, allowedOrigins)
 
 	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
