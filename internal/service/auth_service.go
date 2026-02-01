@@ -17,6 +17,10 @@ type RegisterUserReq struct {
 	Role     string
 }
 
+type AuthServiceInterface interface {
+	RegisterUser(ctx context.Context, req RegisterUserReq) (*domain.User, error)
+}
+
 type AuthService struct {
 	repo domain.UserRepository
 }
