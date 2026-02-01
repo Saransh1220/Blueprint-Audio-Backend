@@ -31,9 +31,7 @@ func (r *Router) Setup() *http.ServeMux {
 	// API Routes
 	mux.HandleFunc("POST /register", r.authHandler.Register)
 	mux.HandleFunc("POST /login", r.authHandler.Login)
-	mux.Handle("GET /me", r.authMiddleware.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("You are authenticated!🔓"))
-	})))
+	mux.Handle("GET /me", r.authMiddleware.RequireAuth(http.HandlerFunc(r.authHandler.Me)))
 
 	return mux
 }

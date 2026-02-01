@@ -21,6 +21,7 @@ type RegisterUserReq struct {
 type AuthServiceInterface interface {
 	RegisterUser(ctx context.Context, req RegisterUserReq) (*domain.User, error)
 	LoginUser(ctx context.Context, req LoginUserReq) (string, error)
+	GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error)
 }
 
 type AuthService struct {
@@ -110,4 +111,9 @@ func (s *AuthService) LoginUser(ctx context.Context, req LoginUserReq) (string, 
 		return "", err
 	}
 	return token, nil
+}
+
+// GetUser retrieves a user by their ID.
+func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	return s.repo.GetUserById(ctx, id)
 }

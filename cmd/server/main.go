@@ -59,7 +59,10 @@ func main() {
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	// Wrap specific handler with CORS middleware
+	handler := middleware.CORSMiddleware(mux)
+
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
+	"github.com/saransh1220/blueprint-audio/internal/middleware"
 
 	"github.com/saransh1220/blueprint-audio/internal/service"
 )
@@ -70,4 +72,21 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if !ok {
+		http.Error(w, `{"error": "user not authenticated"}`, http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.service.GetUser(r.Context(), userId)
+	if err != nil {
+		http.Error(w, `{"error": "user not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
 }
