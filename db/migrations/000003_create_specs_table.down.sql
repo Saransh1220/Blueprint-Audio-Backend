@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS spec_genres;
+DROP TABLE IF EXISTS specs;

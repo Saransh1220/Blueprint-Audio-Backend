@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_specs_tags;
+ALTER TABLE specs DROP COLUMN tags;

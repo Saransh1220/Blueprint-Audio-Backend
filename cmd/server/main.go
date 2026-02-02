@@ -50,12 +50,17 @@ func main() {
 	}
 
 	userRepo := repository.NewUserRepository(db)
+	specRepo := repository.NewSpecRepository(db)
+
+	specService := service.NewSpecService(specRepo)
 	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
 
+	specHandler := handler.NewSpecHandler(specService)
 	authHandler := handler.NewAuthHandler(authService)
+
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware)
+	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 
