@@ -48,20 +48,23 @@ type Spec struct {
 
 // LicenseOption defines the pricing and features for a specific spec.
 type LicenseOption struct {
-	ID          uuid.UUID   `json:"id" db:"id"`
-	SpecID      uuid.UUID   `json:"spec_id" db:"spec_id"`
-	LicenseType LicenseType `json:"type" db:"license_type"`
-	Name        string      `json:"name" db:"name"`
-	Price       float64     `json:"price" db:"price"`
-	Features    []string    `json:"features" db:"features"`
-	FileTypes   []string    `json:"file_types" db:"file_types"`
+	ID          uuid.UUID      `json:"id" db:"id"`
+	SpecID      uuid.UUID      `json:"spec_id" db:"spec_id"`
+	LicenseType LicenseType    `json:"type" db:"license_type"`
+	Name        string         `json:"name" db:"name"`
+	Price       float64        `json:"price" db:"price"`
+	Features    pq.StringArray `json:"features" db:"features"`
+	FileTypes   pq.StringArray `json:"file_types" db:"file_types"`
+	CreatedAt   time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at" db:"updated_at"`
 }
 
 // Genre represents a musical genre.
 type Genre struct {
-	ID   uuid.UUID `json:"id" db:"id"`
-	Name string    `json:"name" db:"name"`
-	Slug string    `json:"slug" db:"slug"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	Name      string    `json:"name" db:"name"`
+	Slug      string    `json:"slug" db:"slug"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 type SpecRepository interface {

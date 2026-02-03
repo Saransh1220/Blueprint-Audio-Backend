@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -13,33 +14,108 @@ import (
 )
 
 type SpecHandler struct {
-	service service.SpecService
+	service     service.SpecService
+	fileService service.FileService
 }
 
-func NewSpecHandler(service service.SpecService) *SpecHandler {
-	return &SpecHandler{service: service}
+func NewSpecHandler(service service.SpecService, fileService service.FileService) *SpecHandler {
+	return &SpecHandler{
+		service:     service,
+		fileService: fileService}
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var spec domain.Spec
-
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	// 1. Parse Multipart Form (Max 50MB)
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		http.Error(w, "file too large", http.StatusBadRequest)
 		return
 	}
 
+	// 2. Extract Metadata (JSON)
+	metadata := r.FormValue("metadata")
+	var spec domain.Spec
+	if err := json.Unmarshal([]byte(metadata), &spec); err != nil {
+		http.Error(w, "invalid metadata json", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Auth Check
 	producerId, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
 	if !ok {
-		http.Error(w, "unauthorized",
-			http.StatusUnauthorized)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	spec.ProducerID = producerId
 
+	// 4. Handle File Uploads with Rollback
+	var uploadedKeys []string
+	var success bool
+	defer func() {
+		if !success {
+			// Rollback: Delete all uploaded files if operation failed
+			for _, key := range uploadedKeys {
+				_ = h.fileService.Delete(context.Background(), key)
+			}
+		}
+	}()
+
+	upload := func(formKey, folder string, setUrl func(string)) error {
+		file, header, err := r.FormFile(formKey)
+		if err == http.ErrMissingFile {
+			return nil // Optional (or handled by service validation)
+		}
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		url, key, err := h.fileService.Upload(r.Context(), file, header, folder)
+		if err != nil {
+			return err
+		}
+		uploadedKeys = append(uploadedKeys, key)
+		setUrl(url)
+		return nil
+	}
+
+	// Upload Image
+	if err := upload("image", "images", func(u string) { spec.ImageUrl = u }); err != nil {
+		http.Error(w, "upload image failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Upload Preview (MP3)
+	if err := upload("preview", "audio/previews", func(u string) { spec.PreviewUrl = u }); err != nil {
+		http.Error(w, "upload preview failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Upload WAV
+	if err := upload("wav", "audio/wavs", func(u string) {
+		val := u
+		spec.WavUrl = &val
+	}); err != nil {
+		http.Error(w, "upload wav failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Upload Stems
+	if err := upload("stems", "audio/stems", func(u string) {
+		val := u
+		spec.StemsUrl = &val
+	}); err != nil {
+		http.Error(w, "upload stems failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 5. Call Service to Save DB Record
 	if err := h.service.CreateSpec(r.Context(), &spec); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Mark success to prevent rollback
+	success = true
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

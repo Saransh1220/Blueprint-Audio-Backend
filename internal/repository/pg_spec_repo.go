@@ -76,7 +76,7 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
             INSERT INTO license_options (
                 id, spec_id, license_type, name, price, features, file_types
             ) VALUES (
-                :id, :spec_id, :type, :name, :price, :features, :file_types
+                :id, :spec_id, :license_type, :name, :price, :features, :file_types
             )`
 		_, err = tx.NamedExecContext(ctx, licenseQuery, license)
 		if err != nil {
@@ -97,6 +97,7 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 		return nil, err
 	}
 
+	//fetct licences
 	//fetct licences
 	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
