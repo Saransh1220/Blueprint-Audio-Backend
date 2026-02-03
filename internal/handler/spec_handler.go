@@ -3,10 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
@@ -250,43 +251,55 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// sanitizeSpec replaces internal container hostnames with public endpoints
+// sanitizeSpec generates presigned URLs for audio files to enable range request streaming
 func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
-	internal := os.Getenv("S3_ENDPOINT")
-	public := os.Getenv("S3_PUBLIC_ENDPOINT")
+	ctx := context.Background()
 
-	if internal == "" || public == "" {
-		return
-	}
+	// For audio files, generate presigned URLs (1 hour expiration)
+	// This enables range requests and chunked downloading
+	expiration := time.Hour * 1
 
-	// Ensure we are replacing the host part mostly, or simple string replacement if internal is distinct enough
-	// internal: minio:9000
-	// public: localhost:9000
-
-	// Helper to ensure protocol
-	ensureProtocol := func(url string) string {
-		if url != "" && !strings.HasPrefix(url, "http") {
-			return "http://" + url
+	// Helper to get key from URL and generate presigned URL
+	generatePresignedURL := func(url string) (string, error) {
+		if url == "" {
+			return "", nil
 		}
-		return url
+		key, err := h.fileService.GetKeyFromUrl(url)
+		if err != nil {
+			// If we can't parse the key, return original URL
+			fmt.Printf("DEBUG: GetKeyFromUrl error for %s: %v\n", url, err)
+			return url, nil
+		}
+		fmt.Printf("DEBUG: Generating presigned URL for key: %s\n", key)
+		presignedURL, err := h.fileService.GetPresignedURL(ctx, key, expiration)
+		if err != nil {
+			fmt.Printf("DEBUG: GetPresignedURL error for %s: %v\n", key, err)
+			return url, err
+		}
+		fmt.Printf("DEBUG: Generated presigned URL: %s\n", presignedURL)
+		return presignedURL, nil
 	}
 
-	// Helper to replace
-	replace := func(current string) string {
-		// Ensure internal endpoint has protocol for replacement if specific
-		// But environment var might be just "minio:9000"
-		return strings.Replace(current, internal, public, 1)
+	// Generate presigned URLs for audio files
+	if presignedURL, err := generatePresignedURL(spec.PreviewUrl); err == nil && presignedURL != "" {
+		spec.PreviewUrl = presignedURL
 	}
-
-	spec.ImageUrl = ensureProtocol(replace(spec.ImageUrl))
-	spec.PreviewUrl = ensureProtocol(replace(spec.PreviewUrl))
 
 	if spec.WavUrl != nil {
-		val := ensureProtocol(replace(*spec.WavUrl))
-		spec.WavUrl = &val
+		if presignedURL, err := generatePresignedURL(*spec.WavUrl); err == nil && presignedURL != "" {
+			spec.WavUrl = &presignedURL
+		}
 	}
+
 	if spec.StemsUrl != nil {
-		val := ensureProtocol(replace(*spec.StemsUrl))
-		spec.StemsUrl = &val
+		if presignedURL, err := generatePresignedURL(*spec.StemsUrl); err == nil && presignedURL != "" {
+			spec.StemsUrl = &presignedURL
+		}
+	}
+
+	// For images, we can keep direct URLs or also use presigned URLs
+	// Using presigned for consistency and security
+	if presignedURL, err := generatePresignedURL(spec.ImageUrl); err == nil && presignedURL != "" {
+		spec.ImageUrl = presignedURL
 	}
 }
