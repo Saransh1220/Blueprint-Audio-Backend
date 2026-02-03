@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,19 +18,22 @@ import (
 type FileService interface {
 	Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, folder string) (string, string, error)
 	Delete(ctx context.Context, key string) error
+	GetKeyFromUrl(fileUrl string) (string, error)
 } // Ref: FileService Interface Update
 
 type s3FileService struct {
-	client     *s3.Client
-	bucketName string
-	endpoint   string
-	region     string
+	client         *s3.Client
+	bucketName     string
+	endpoint       string
+	publicEndpoint string
+	region         string
 }
 
 func NewFileService(ctx context.Context) (FileService, error) {
 	bucket := os.Getenv("S3_BUCKET")
 	region := os.Getenv("S3_REGION")
 	endpoint := os.Getenv("S3_ENDPOINT")
+	publicEndpoint := os.Getenv("S3_PUBLIC_ENDPOINT")
 	accessKey := os.Getenv("S3_ACCESS_KEY")
 	secretKey := os.Getenv("S3_SECRET_KEY")
 	useSSL := os.Getenv("S3_USE_SSL") == "true"
@@ -72,10 +76,11 @@ func NewFileService(ctx context.Context) (FileService, error) {
 	})
 
 	return &s3FileService{
-		client:     client,
-		bucketName: bucket,
-		endpoint:   endpoint,
-		region:     region,
+		client:         client,
+		bucketName:     bucket,
+		endpoint:       endpoint,
+		publicEndpoint: publicEndpoint,
+		region:         region,
 	}, nil
 }
 
@@ -97,8 +102,18 @@ func (s *s3FileService) Upload(ctx context.Context, file multipart.File, header 
 	}
 
 	// 3. Return Public URL
+	// Use Public Endpoint if configured (e.g. http://localhost:9000 for MinIO)
+	if s.publicEndpoint != "" {
+		// Ensure protocol (simple check)
+		prefix := ""
+		if !strings.HasPrefix(s.publicEndpoint, "http") {
+			prefix = "http://"
+		}
+		return fmt.Sprintf("%s%s/%s/%s", prefix, s.publicEndpoint, s.bucketName, key), key, nil
+	}
+
 	if s.endpoint != "" {
-		// MinIO: http://localhost:9000/bucket/folder/file.ext
+
 		return fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucketName, key), key, nil
 	}
 
@@ -112,4 +127,20 @@ func (s *s3FileService) Delete(ctx context.Context, key string) error {
 		Key:    aws.String(key),
 	})
 	return err
+}
+
+func (s *s3FileService) GetKeyFromUrl(fileUrl string) (string, error) {
+	if s.endpoint != "" {
+		prefix := fmt.Sprintf("%s/%s/", s.endpoint, s.bucketName)
+		if strings.HasPrefix(fileUrl, prefix) {
+			return strings.TrimPrefix(fileUrl, prefix), nil
+		}
+	} else {
+		// S3: https://bucket.s3.region.amazonaws.com/folder/file.ext
+		prefix := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/", s.bucketName, s.region)
+		if strings.HasPrefix(fileUrl, prefix) {
+			return strings.TrimPrefix(fileUrl, prefix), nil
+		}
+	}
+	return "", fmt.Errorf("url does not match expected format")
 }

@@ -58,6 +58,17 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO Client to Create Buckets & Policy
+  create-buckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c " /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin; /usr/bin/mc mb myminio/blueprint-audio-assets; /usr/bin/mc anonymous set download myminio/blueprint-audio-assets; exit 0; "
+    networks:
+      - blueprint-audio_network
+
   # Go API Backend
   api:
     build:
@@ -89,6 +100,7 @@ services:
       S3_BUCKET: blueprint-audio-assets
       S3_USE_SSL: "false"
       S3_REGION: us-east-1
+      S3_PUBLIC_ENDPOINT: "localhost:9000"
 
       # Razorpay (use test credentials for dev)
       RAZORPAY_KEY_ID: rzp_test_your_key

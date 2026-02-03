@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -117,6 +118,8 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Mark success to prevent rollback
 	success = true
 
+	// 6. Return Created Spec
+	h.sanitizeSpec(&spec)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(spec)
@@ -141,6 +144,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.sanitizeSpec(spec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(spec)
 }
@@ -169,6 +173,10 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for i := range specs {
+		h.sanitizeSpec(&specs[i])
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(specs)
 }
@@ -187,6 +195,24 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Get Spec details before deletion (to get file URLs)
+	spec, err := h.service.GetSpec(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if spec == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// 2. Verify ownership
+	if spec.ProducerID != producerID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// 3. Delete from DB
 	if err := h.service.DeleteSpec(r.Context(), id, producerID); err != nil {
 		if err == domain.ErrSpecNotFound {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -195,5 +221,72 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// 4. Delete files from Storage (Async or Sync - here Sync for simplicity)
+	ctx := context.Background() // Use background context for cleanup to ensure it runs even if request cancels
+
+	// Helper to delete file by URL
+	deleteFile := func(url string) {
+		if url == "" {
+			return
+		}
+		key, err := h.fileService.GetKeyFromUrl(url)
+		if err != nil {
+			// Log error but continue
+			return
+		}
+		_ = h.fileService.Delete(ctx, key)
+	}
+
+	deleteFile(spec.ImageUrl)
+	deleteFile(spec.PreviewUrl)
+	if spec.WavUrl != nil {
+		deleteFile(*spec.WavUrl)
+	}
+	if spec.StemsUrl != nil {
+		deleteFile(*spec.StemsUrl)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// sanitizeSpec replaces internal container hostnames with public endpoints
+func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
+	internal := os.Getenv("S3_ENDPOINT")
+	public := os.Getenv("S3_PUBLIC_ENDPOINT")
+
+	if internal == "" || public == "" {
+		return
+	}
+
+	// Ensure we are replacing the host part mostly, or simple string replacement if internal is distinct enough
+	// internal: minio:9000
+	// public: localhost:9000
+
+	// Helper to ensure protocol
+	ensureProtocol := func(url string) string {
+		if url != "" && !strings.HasPrefix(url, "http") {
+			return "http://" + url
+		}
+		return url
+	}
+
+	// Helper to replace
+	replace := func(current string) string {
+		// Ensure internal endpoint has protocol for replacement if specific
+		// But environment var might be just "minio:9000"
+		return strings.Replace(current, internal, public, 1)
+	}
+
+	spec.ImageUrl = ensureProtocol(replace(spec.ImageUrl))
+	spec.PreviewUrl = ensureProtocol(replace(spec.PreviewUrl))
+
+	if spec.WavUrl != nil {
+		val := ensureProtocol(replace(*spec.WavUrl))
+		spec.WavUrl = &val
+	}
+	if spec.StemsUrl != nil {
+		val := ensureProtocol(replace(*spec.StemsUrl))
+		spec.StemsUrl = &val
+	}
 }
