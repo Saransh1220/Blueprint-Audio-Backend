@@ -57,8 +57,28 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 
 	// 4. Insert Genres (Many-to-Many)
 	for _, genre := range spec.Genres {
+		var genreID uuid.UUID
+
+		// Check if we have an ID, if not look it up or create
+		if genre.ID != uuid.Nil {
+			genreID = genre.ID
+		} else {
+			// Try to find by slug
+			err = tx.GetContext(ctx, &genreID, "SELECT id FROM genres WHERE slug = $1", genre.Slug)
+			if err != nil {
+				// Not found, Create new Genre
+				genreID = uuid.New()
+				now := time.Now()
+				createGenreQuery := `INSERT INTO genres (id, name, slug, created_at) VALUES ($1, $2, $3, $4)`
+				_, err = tx.ExecContext(ctx, createGenreQuery, genreID, genre.Name, genre.Slug, now)
+				if err != nil {
+					return fmt.Errorf("failed to create genre %s: %w", genre.Name, err)
+				}
+			}
+		}
+
 		genreQuery := `INSERT INTO spec_genres (spec_id, genre_id) VALUES ($1, $2)`
-		_, err = tx.ExecContext(ctx, genreQuery, spec.ID, genre.ID)
+		_, err = tx.ExecContext(ctx, genreQuery, spec.ID, genreID)
 		if err != nil {
 			return err
 		}
@@ -152,6 +172,24 @@ func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, g
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Fetch Relations (Genres, Licenses) for each spec
+	// N+1 query pattern, acceptable for small pagination limits
+	for i := range specs {
+		// Fetch Genres
+		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Fetch Licenses
+		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return specs, nil
