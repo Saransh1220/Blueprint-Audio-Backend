@@ -130,17 +130,41 @@ func (s *s3FileService) Delete(ctx context.Context, key string) error {
 }
 
 func (s *s3FileService) GetKeyFromUrl(fileUrl string) (string, error) {
-	if s.endpoint != "" {
-		prefix := fmt.Sprintf("%s/%s/", s.endpoint, s.bucketName)
-		if strings.HasPrefix(fileUrl, prefix) {
-			return strings.TrimPrefix(fileUrl, prefix), nil
+	// Helper to check prefix and return key
+	checkPrefix := func(endpoint string) (string, bool) {
+		if endpoint == "" {
+			return "", false
 		}
-	} else {
-		// S3: https://bucket.s3.region.amazonaws.com/folder/file.ext
+		// Ensure protocol for prefix construction
+		prefixBase := endpoint
+		if !strings.HasPrefix(prefixBase, "http") {
+			prefixBase = "http://" + prefixBase
+		}
+
+		prefix := fmt.Sprintf("%s/%s/", prefixBase, s.bucketName)
+		if strings.HasPrefix(fileUrl, prefix) {
+			return strings.TrimPrefix(fileUrl, prefix), true
+		}
+		return "", false
+	}
+
+	// 1. Check Public Endpoint (likely scenarios for new uploads)
+	if key, ok := checkPrefix(s.publicEndpoint); ok {
+		return key, nil
+	}
+
+	// 2. Check Internal Endpoint (legacy or internal uploads)
+	if key, ok := checkPrefix(s.endpoint); ok {
+		return key, nil
+	}
+
+	// 3. Check Standard S3 Format
+	if s.endpoint == "" {
 		prefix := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/", s.bucketName, s.region)
 		if strings.HasPrefix(fileUrl, prefix) {
 			return strings.TrimPrefix(fileUrl, prefix), nil
 		}
 	}
-	return "", fmt.Errorf("url does not match expected format")
+
+	return "", fmt.Errorf("url does not match expected format %s", fileUrl)
 }
