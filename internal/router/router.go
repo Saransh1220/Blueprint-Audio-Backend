@@ -11,13 +11,15 @@ type Router struct {
 	authHandler    *handler.AuthHandler
 	authMiddleware *middleware.AuthMiddleWare
 	specHandler    *handler.SpecHandler
+	paymentHandler *handler.PaymentHandler
 }
 
-func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler) *Router {
+func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, paymentHandler *handler.PaymentHandler) *Router {
 	return &Router{
 		authHandler:    authHandler,
 		authMiddleware: authMiddleware,
 		specHandler:    specHandler,
+		paymentHandler: paymentHandler,
 	}
 }
 
@@ -41,6 +43,13 @@ func (r *Router) Setup() *http.ServeMux {
 
 	mux.Handle("POST /specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Create)))
 	mux.Handle("DELETE /specs/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Delete)))
+
+	// Payment routes (protected)
+	mux.Handle("POST /orders", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.CreateOrder)))
+	mux.Handle("GET /orders", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetUserOrders)))
+	mux.Handle("GET /orders/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetOrder)))
+	mux.Handle("POST /payments/verify", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.VerifyPayment)))
+	mux.Handle("GET /licenses", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetUserLicenses)))
 
 	return mux
 }

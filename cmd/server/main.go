@@ -66,7 +66,15 @@ func main() {
 
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler)
+	orderRepo := repository.NewOrderRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
+	licenseRepo := repository.NewLicenseRepository(db)
+
+	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo)
+
+	paymentHandler := handler.NewPaymentHandler(paymentService)
+
+	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, paymentHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 
