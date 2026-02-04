@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/razorpay/razorpay-go"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
+	"github.com/saransh1220/blueprint-audio/internal/dto"
 )
 
 type PaymentService interface {
@@ -21,6 +22,7 @@ type PaymentService interface {
 	VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error)
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int) ([]domain.License, error)
+	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*dto.LicenseDownloadsResponse, error)
 }
 
 type paymentService struct {
@@ -28,6 +30,7 @@ type paymentService struct {
 	paymentRepo    domain.PaymentRepository
 	licenseRepo    domain.LicenseRepository
 	specRepo       domain.SpecRepository
+	fileService    FileService
 	razorpayClient *razorpay.Client
 	razorpaySecret string
 }
@@ -37,6 +40,7 @@ func NewPaymentService(
 	paymentRepo domain.PaymentRepository,
 	licenseRepo domain.LicenseRepository,
 	specRepo domain.SpecRepository,
+	fileService FileService,
 ) PaymentService {
 	client := razorpay.NewClient(
 		os.Getenv("RAZORPAY_KEY_ID"),
@@ -47,6 +51,7 @@ func NewPaymentService(
 		paymentRepo:    paymentRepo,
 		licenseRepo:    licenseRepo,
 		specRepo:       specRepo,
+		fileService:    fileService,
 		razorpayClient: client,
 		razorpaySecret: os.Getenv("RAZORPAY_KEY_SECRET"),
 	}
@@ -224,4 +229,88 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 	}
 
 	return license, s.licenseRepo.Create(ctx, license)
+}
+
+// GetLicenseDownloads generates download URLs for a purchased license
+func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*dto.LicenseDownloadsResponse, error) {
+	// 1. Fetch the license
+	license, err := s.licenseRepo.GetByID(ctx, licenseID)
+	if err != nil {
+		return nil, errors.New("license not found")
+	}
+
+	// 2. SECURITY: Verify ownership
+	if license.UserID != userID {
+		return nil, errors.New("unauthorized: you do not own this license")
+	}
+
+	// 3. Check if license is active
+	if !license.IsActive {
+		return nil, errors.New("license is not active")
+	}
+	if license.IsRevoked {
+		return nil, errors.New("license has been revoked")
+	}
+
+	// 4. Fetch the spec to get file URLs
+	spec, err := s.specRepo.GetByID(ctx, license.SpecID)
+	if err != nil {
+		return nil, errors.New("spec not found")
+	}
+
+	// 5. Build response
+	response := &dto.LicenseDownloadsResponse{
+		LicenseID:   license.ID.String(),
+		LicenseType: license.LicenseType,
+		SpecTitle:   spec.Title,
+		ExpiresIn:   3600, // 1 hour
+	}
+
+	// Helper to get presigned URL from stored URL
+	getSignedURL := func(fileURL string) *string {
+		if fileURL == "" {
+			return nil
+		}
+		key, err := s.fileService.GetKeyFromUrl(fileURL)
+		if err != nil {
+			return &fileURL // Fallback
+		}
+		signedURL, err := s.fileService.GetPresignedURL(ctx, key, 1*time.Hour)
+		if err != nil {
+			return &fileURL
+		}
+		return &signedURL
+	}
+
+	// 6. Generate URLs based on license type
+	switch license.LicenseType {
+	case "Basic":
+		if spec.PreviewUrl != "" {
+			response.MP3URL = getSignedURL(spec.PreviewUrl)
+		}
+
+	case "Premium":
+		if spec.PreviewUrl != "" {
+			response.MP3URL = getSignedURL(spec.PreviewUrl)
+		}
+		if spec.WavUrl != nil && *spec.WavUrl != "" {
+			response.WAVURL = getSignedURL(*spec.WavUrl)
+		}
+
+	case "Trackout", "Unlimited":
+		if spec.PreviewUrl != "" {
+			response.MP3URL = getSignedURL(spec.PreviewUrl)
+		}
+		if spec.WavUrl != nil && *spec.WavUrl != "" {
+			response.WAVURL = getSignedURL(*spec.WavUrl)
+		}
+		if spec.StemsUrl != nil && *spec.StemsUrl != "" {
+			response.StemsURL = getSignedURL(*spec.StemsUrl)
+		}
+	}
+
+	// 7. Track download analytics
+	_ = s.licenseRepo.IncrementDownloads(ctx, licenseID)
+
+	return response, nil
 }

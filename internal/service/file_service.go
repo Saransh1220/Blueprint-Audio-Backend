@@ -196,6 +196,9 @@ func (s *s3FileService) GetKeyFromUrl(fileUrl string) (string, error) {
 		}
 
 		prefix := fmt.Sprintf("%s/%s/", prefixBase, s.bucketName)
+		// Debug logging
+		// fmt.Printf("Checking prefix: %s against URL: %s\n", prefix, fileUrl)
+
 		if strings.HasPrefix(fileUrl, prefix) {
 			return strings.TrimPrefix(fileUrl, prefix), true
 		}

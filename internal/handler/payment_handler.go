@@ -185,3 +185,41 @@ func (h *PaymentHandler) GetUserLicenses(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(licenses)
 }
+
+func (h *PaymentHandler) GetLicenseDownloads(w http.ResponseWriter, r *http.Request) {
+	licenseIDStr := r.PathValue("id")
+	licenseID, err := uuid.Parse(licenseIDStr)
+
+	if err != nil {
+		http.Error(w, `{"error": "invalid license ID"}`, http.StatusBadRequest)
+		return
+	}
+
+	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+
+	if !ok {
+		http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	downloads, err := h.service.GetLicenseDownloads(r.Context(), licenseID, userID)
+
+	if err != nil {
+		// Determine status code based on error message
+		statusCode := http.StatusInternalServerError
+		if err.Error() == "license not found" || err.Error() == "spec not found" {
+			statusCode = http.StatusNotFound
+		} else if err.Error() == "unauthorized: you do not own this license" {
+			statusCode = http.StatusForbidden
+		} else if err.Error() == "license is not active" || err.Error() == "license has been revoked" {
+			statusCode = http.StatusForbidden
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(downloads)
+}

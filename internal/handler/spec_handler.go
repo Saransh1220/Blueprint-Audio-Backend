@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
+	"github.com/saransh1220/blueprint-audio/internal/dto"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/service"
 )
@@ -146,8 +147,9 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sanitizeSpec(spec)
+	response := dto.ToSpecResponse(spec)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(spec)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -177,9 +179,13 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
 	}
+	responses := make([]dto.SpecResponse, len(specs))
+	for i := range specs {
+		responses[i] = *dto.ToSpecResponse(&specs[i])
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(specs)
+	json.NewEncoder(w).Encode(responses)
 }
 
 func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -285,17 +291,17 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 		spec.PreviewUrl = presignedURL
 	}
 
-	if spec.WavUrl != nil {
-		if presignedURL, err := generatePresignedURL(*spec.WavUrl); err == nil && presignedURL != "" {
-			spec.WavUrl = &presignedURL
-		}
-	}
+	// if spec.WavUrl != nil {
+	// 	if presignedURL, err := generatePresignedURL(*spec.WavUrl); err == nil && presignedURL != "" {
+	// 		spec.WavUrl = &presignedURL
+	// 	}
+	// }
 
-	if spec.StemsUrl != nil {
-		if presignedURL, err := generatePresignedURL(*spec.StemsUrl); err == nil && presignedURL != "" {
-			spec.StemsUrl = &presignedURL
-		}
-	}
+	// if spec.StemsUrl != nil {
+	// 	if presignedURL, err := generatePresignedURL(*spec.StemsUrl); err == nil && presignedURL != "" {
+	// 		spec.StemsUrl = &presignedURL
+	// 	}
+	// }
 
 	// For images, we can keep direct URLs or also use presigned URLs
 	// Using presigned for consistency and security

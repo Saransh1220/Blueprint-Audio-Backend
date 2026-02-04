@@ -70,7 +70,7 @@ func main() {
 	paymentRepo := repository.NewPaymentRepository(db)
 	licenseRepo := repository.NewLicenseRepository(db)
 
-	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo)
+	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo, fileService)
 
 	paymentHandler := handler.NewPaymentHandler(paymentService)
 

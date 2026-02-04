@@ -50,6 +50,7 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("GET /orders/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetOrder)))
 	mux.Handle("POST /payments/verify", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.VerifyPayment)))
 	mux.Handle("GET /licenses", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetUserLicenses)))
+	mux.Handle("GET /licenses/{id}/downloads", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetLicenseDownloads)))
 
 	return mux
 }
