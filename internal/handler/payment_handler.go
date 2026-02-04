@@ -175,7 +175,9 @@ func (h *PaymentHandler) GetUserLicenses(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 3. Fetch licenses
-	licenses, err := h.service.GetUserLicenses(r.Context(), userID, page)
+	search := r.URL.Query().Get("q")
+	licenseType := r.URL.Query().Get("type")
+	licenses, total, err := h.service.GetUserLicenses(r.Context(), userID, page, search, licenseType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -183,7 +185,14 @@ func (h *PaymentHandler) GetUserLicenses(w http.ResponseWriter, r *http.Request)
 
 	// 4. Return licenses
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(licenses)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": licenses,
+		"metadata": map[string]interface{}{
+			"total":    total,
+			"page":     page,
+			"per_page": 5, // Limit 5 for testing
+		},
+	})
 }
 
 func (h *PaymentHandler) GetLicenseDownloads(w http.ResponseWriter, r *http.Request) {

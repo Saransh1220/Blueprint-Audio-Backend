@@ -135,10 +135,13 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	return spec, nil
 }
 
-func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, genres []string, tags []string, limit, offset int) ([]domain.Spec, error) {
-	var specs []domain.Spec
+func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, genres []string, tags []string, limit, offset int) ([]domain.Spec, int, error) {
+	var results []struct {
+		domain.Spec
+		TotalCount int `db:"total_count"`
+	}
 
-	query := `SELECT * FROM specs WHERE 1=1`
+	query := `SELECT *, COUNT(*) OVER() as total_count FROM specs WHERE 1=1`
 	args := []interface{}{}
 	argId := 1
 
@@ -168,10 +171,20 @@ func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, g
 
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argId, argId+1)
 	args = append(args, limit, offset)
-	err := r.db.SelectContext(ctx, &specs, query, args...)
+	err := r.db.SelectContext(ctx, &results, query, args...)
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []domain.Spec{}, 0, nil
+	}
+
+	total := results[0].TotalCount
+	specs := make([]domain.Spec, len(results))
+	for i, res := range results {
+		specs[i] = res.Spec
 	}
 
 	// Fetch Relations (Genres, Licenses) for each spec
@@ -181,18 +194,18 @@ func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, g
 		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
 		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		// Fetch Licenses
 		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
 		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	return specs, nil
+	return specs, total, nil
 }
 
 func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {

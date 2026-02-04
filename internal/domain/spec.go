@@ -70,6 +70,6 @@ type Genre struct {
 type SpecRepository interface {
 	Create(ctx context.Context, spec *Spec) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Spec, error)
-	List(ctx context.Context, category Category, genres []string, tags []string, limit, offset int) ([]Spec, error)
+	List(ctx context.Context, category Category, genres []string, tags []string, limit, offset int) ([]Spec, int, error)
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,11 +59,51 @@ func (r *pgLicenseRepository) GetByOrderID(ctx context.Context, orderID uuid.UUI
 	return license, err
 }
 
-func (r *pgLicenseRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.License, error) {
-	var licenses []domain.License
-	query := `SELECT * FROM licenses WHERE user_id = $1 AND is_active = true ORDER BY issued_at DESC LIMIT $2 OFFSET $3`
-	err := r.db.SelectContext(ctx, &licenses, query, userID, limit, offset)
-	return licenses, err
+func (r *pgLicenseRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int, search, licenseType string) ([]domain.License, int, error) {
+	var results []struct {
+		domain.License
+		TotalCount int `db:"total_count"`
+	}
+	query := `
+		SELECT l.*, s.title as spec_title, s.image_url as spec_image, COUNT(*) OVER() as total_count
+		FROM licenses l
+		JOIN specs s ON l.spec_id = s.id
+		WHERE l.user_id = $1 AND l.is_active = true`
+
+	args := []interface{}{userID}
+	argIdx := 2 // $1 is used
+
+	if search != "" {
+		query += " AND s.title ILIKE $" + strconv.Itoa(argIdx)
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	if licenseType != "" {
+		query += " AND l.license_type = $" + strconv.Itoa(argIdx)
+		args = append(args, licenseType)
+		argIdx++
+	}
+
+	query += " ORDER BY l.issued_at DESC LIMIT $" + strconv.Itoa(argIdx) + " OFFSET $" + strconv.Itoa(argIdx+1)
+	args = append(args, limit, offset)
+
+	err := r.db.SelectContext(ctx, &results, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []domain.License{}, 0, nil
+	}
+
+	total := results[0].TotalCount
+	licenses := make([]domain.License, len(results))
+	for i, res := range results {
+		licenses[i] = res.License
+	}
+
+	return licenses, total, nil
 }
 
 func (r *pgLicenseRepository) IncrementDownloads(ctx context.Context, id uuid.UUID) error {

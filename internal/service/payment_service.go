@@ -21,7 +21,7 @@ type PaymentService interface {
 	GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.Order, error)
 	VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error)
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
-	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int) ([]domain.License, error)
+	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*dto.LicenseDownloadsResponse, error)
 }
 
@@ -190,13 +190,31 @@ func (s *paymentService) GetUserOrders(ctx context.Context, userID uuid.UUID, pa
 	return s.orderRepo.ListByUser(ctx, userID, limit, offset)
 }
 
-func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, page int) ([]domain.License, error) {
-	limit := 20
+func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error) {
+	limit := 5 // Per user request for testing
 	offset := (page - 1) * limit
 	if offset < 0 {
 		offset = 0
 	}
-	return s.licenseRepo.ListByUser(ctx, userID, limit, offset)
+	licenses, total, err := s.licenseRepo.ListByUser(ctx, userID, limit, offset, search, licenseType)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Sign SpecImage URLs
+	for i := range licenses {
+		if licenses[i].SpecImage != nil && *licenses[i].SpecImage != "" {
+			key, err := s.fileService.GetKeyFromUrl(*licenses[i].SpecImage)
+			if err == nil {
+				signedURL, err := s.fileService.GetPresignedURL(ctx, key, 1*time.Hour)
+				if err == nil {
+					licenses[i].SpecImage = &signedURL
+				}
+			}
+		}
+	}
+
+	return licenses, total, nil
 }
 
 // generateSignature - HMAC SHA256 for Razorpay verification

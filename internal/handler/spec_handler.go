@@ -170,7 +170,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	specs, err := h.service.ListSpecs(r.Context(), category, genres, tags, page)
+	specs, total, err := h.service.ListSpecs(r.Context(), category, genres, tags, page)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -185,7 +185,14 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(responses)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": responses,
+		"metadata": map[string]interface{}{
+			"total":    total,
+			"page":     page,
+			"per_page": 20,
+		},
+	})
 }
 
 func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {

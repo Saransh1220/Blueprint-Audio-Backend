@@ -11,7 +11,7 @@ import (
 type SpecService interface {
 	CreateSpec(ctx context.Context, spec *domain.Spec) error
 	GetSpec(ctx context.Context, id uuid.UUID) (*domain.Spec, error)
-	ListSpecs(ctx context.Context, category domain.Category, genres []string, tags []string, page int) ([]domain.Spec, error)
+	ListSpecs(ctx context.Context, category domain.Category, genres []string, tags []string, page int) ([]domain.Spec, int, error)
 	DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error
 }
 
@@ -49,7 +49,7 @@ func (s *specService) GetSpec(ctx context.Context, id uuid.UUID) (*domain.Spec, 
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *specService) ListSpecs(ctx context.Context, category domain.Category, genres []string, tags []string, page int) ([]domain.Spec, error) {
+func (s *specService) ListSpecs(ctx context.Context, category domain.Category, genres []string, tags []string, page int) ([]domain.Spec, int, error) {
 	limit := 20
 	offset := (page - 1) * limit
 	if offset < 0 {

@@ -83,6 +83,10 @@ type License struct {
 	IssuedAt         time.Time  `json:"issued_at" db:"issued_at"`
 	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+
+	// Joined fields
+	SpecTitle string  `json:"spec_title" db:"spec_title"`
+	SpecImage *string `json:"spec_image" db:"spec_image"`
 }
 
 type OrderRepository interface {
@@ -102,7 +106,7 @@ type LicenseRepository interface {
 	Create(ctx context.Context, license *License) error
 	GetByID(ctx context.Context, id uuid.UUID) (*License, error)
 	GetByOrderID(ctx context.Context, orderID uuid.UUID) (*License, error)
-	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]License, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int, search, licenseType string) ([]License, int, error)
 	IncrementDownloads(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, reason string) error
 }
