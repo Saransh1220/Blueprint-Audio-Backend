@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 
@@ -61,9 +62,45 @@ func (r *pgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 
 func (r *pgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
 	order := &domain.Order{}
-	query := `SELECT * FROM orders WHERE id = $1`
-	err := r.db.GetContext(ctx, order, query, id)
-	return order, err
+	var notesJSON []byte
+
+	query := `
+		SELECT id, user_id, spec_id, license_type, amount, currency, 
+		       razorpay_order_id, status, notes, created_at, updated_at, expires_at
+		FROM orders 
+		WHERE id = $1
+	`
+
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&order.ID,
+		&order.UserID,
+		&order.SpecID,
+		&order.LicenseType,
+		&order.Amount,
+		&order.Currency,
+		&order.RazorpayOrderID,
+		&order.Status,
+		&notesJSON,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+		&order.ExpiresAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, err
+		}
+		return nil, err
+	}
+
+	// Unmarshal JSONB notes
+	if len(notesJSON) > 0 {
+		if err := json.Unmarshal(notesJSON, &order.Notes); err != nil {
+			return nil, err
+		}
+	}
+
+	return order, nil
 }
 
 func (r *pgOrderRepository) GetByRazorpayID(ctx context.Context, razorpayOrderID string) (*domain.Order, error) {
