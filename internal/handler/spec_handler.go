@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -198,6 +197,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		MinPrice: minPrice,
 		MaxPrice: maxPrice,
 		Key:      key,
+		Sort:     q.Get("sort"),
 		Limit:    limit,
 		Offset:   offset,
 	}
@@ -312,16 +312,12 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 		key, err := h.fileService.GetKeyFromUrl(url)
 		if err != nil {
 			// If we can't parse the key, return original URL
-			fmt.Printf("DEBUG: GetKeyFromUrl error for %s: %v\n", url, err)
 			return url, nil
 		}
-		fmt.Printf("DEBUG: Generating presigned URL for key: %s\n", key)
 		presignedURL, err := h.fileService.GetPresignedURL(ctx, key, expiration)
 		if err != nil {
-			fmt.Printf("DEBUG: GetPresignedURL error for %s: %v\n", key, err)
 			return url, err
 		}
-		fmt.Printf("DEBUG: Generated presigned URL: %s\n", presignedURL)
 		return presignedURL, nil
 	}
 

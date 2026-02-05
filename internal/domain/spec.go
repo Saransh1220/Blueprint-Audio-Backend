@@ -80,6 +80,7 @@ type SpecFilter struct {
 	Key      string
 	Limit    int
 	Offset   int
+	Sort     string
 }
 
 type SpecRepository interface {

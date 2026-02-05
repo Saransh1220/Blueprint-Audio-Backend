@@ -207,7 +207,24 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 		argId++
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argId, argId+1)
+	// Dynamic Sorting
+	orderBy := "created_at DESC" // Default
+	switch filter.Sort {
+	case "newest":
+		orderBy = "created_at DESC"
+	case "oldest":
+		orderBy = "created_at ASC"
+	case "price_asc":
+		orderBy = "base_price ASC"
+	case "price_desc":
+		orderBy = "base_price DESC"
+	case "bpm_asc":
+		orderBy = "bpm ASC"
+	case "bpm_desc":
+		orderBy = "bpm DESC"
+	}
+
+	query += fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d", orderBy, argId, argId+1)
 	args = append(args, filter.Limit, filter.Offset)
 
 	err := r.db.SelectContext(ctx, &results, query, args...)
