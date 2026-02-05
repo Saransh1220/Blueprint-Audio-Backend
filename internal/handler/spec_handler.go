@@ -165,12 +165,44 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		tags = strings.Split(t, ",")
 	}
 
+	search := q.Get("search")
+	key := q.Get("key")
+	if key == "All" {
+		key = ""
+	}
+
+	minBPM, _ := strconv.Atoi(q.Get("min_bpm"))
+	maxBPM, _ := strconv.Atoi(q.Get("max_bpm"))
+
+	minPrice, _ := strconv.ParseFloat(q.Get("min_price"), 64)
+	maxPrice, _ := strconv.ParseFloat(q.Get("max_price"), 64)
+
 	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
 		page = 1
 	}
 
-	specs, total, err := h.service.ListSpecs(r.Context(), category, genres, tags, page)
+	limit := 20
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	filter := domain.SpecFilter{
+		Category: category,
+		Genres:   genres,
+		Tags:     tags,
+		Search:   search,
+		MinBPM:   minBPM,
+		MaxBPM:   maxBPM,
+		MinPrice: minPrice,
+		MaxPrice: maxPrice,
+		Key:      key,
+		Limit:    limit,
+		Offset:   offset,
+	}
+
+	specs, total, err := h.service.ListSpecs(r.Context(), filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -190,7 +222,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		"metadata": map[string]interface{}{
 			"total":    total,
 			"page":     page,
-			"per_page": 20,
+			"per_page": limit,
 		},
 	})
 }

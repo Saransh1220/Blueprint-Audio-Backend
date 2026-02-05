@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -135,7 +137,7 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	return spec, nil
 }
 
-func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, genres []string, tags []string, limit, offset int) ([]domain.Spec, int, error) {
+func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) ([]domain.Spec, int, error) {
 	var results []struct {
 		domain.Spec
 		TotalCount int `db:"total_count"`
@@ -145,34 +147,70 @@ func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, g
 	args := []interface{}{}
 	argId := 1
 
-	if category != "" {
+	if filter.Category != "" {
 		query += fmt.Sprintf(" AND category = $%d", argId)
-
-		args = append(args, category)
+		args = append(args, filter.Category)
 		argId++
 	}
 
-	if len(genres) > 0 {
+	if len(filter.Genres) > 0 {
 		query += fmt.Sprintf(` AND id IN (
             SELECT spec_id FROM spec_genres sg 
             JOIN genres g ON sg.genre_id = g.id 
-            WHERE g.slug = ANY($%d) OR g.name = ANY($%d)
+            WHERE g.slug ILIKE ANY($%d) OR g.name ILIKE ANY($%d)
         )`, argId, argId)
-
-		args = append(args, pq.Array(genres))
+		args = append(args, pq.Array(filter.Genres))
 		argId++
 	}
 
-	if len(tags) > 0 {
+	if len(filter.Tags) > 0 {
 		query += fmt.Sprintf(" AND tags @> $%d", argId)
-		args = append(args, pq.Array(tags))
+		args = append(args, pq.Array(filter.Tags))
+		argId++
+	}
+
+	if filter.Search != "" {
+		searchTerm := "%" + filter.Search + "%"
+		lowerSearch := strings.ToLower(filter.Search)
+		query += fmt.Sprintf(" AND (title ILIKE $%d OR tags @> ARRAY[$%d])", argId, argId+1)
+		args = append(args, searchTerm, lowerSearch)
+		argId += 2
+	}
+
+	if filter.MinBPM > 0 {
+		query += fmt.Sprintf(" AND bpm >= $%d", argId)
+		args = append(args, filter.MinBPM)
+		argId++
+	}
+
+	if filter.MaxBPM > 0 {
+		query += fmt.Sprintf(" AND bpm <= $%d", argId)
+		args = append(args, filter.MaxBPM)
+		argId++
+	}
+
+	if filter.MinPrice >= 0 {
+		query += fmt.Sprintf(" AND base_price >= $%d", argId)
+		args = append(args, filter.MinPrice)
+		argId++
+	}
+
+	if filter.MaxPrice > 0 {
+		query += fmt.Sprintf(" AND base_price <= $%d", argId)
+		args = append(args, filter.MaxPrice)
+		argId++
+	}
+
+	if filter.Key != "" {
+		query += fmt.Sprintf(" AND key = $%d", argId)
+		args = append(args, filter.Key)
 		argId++
 	}
 
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argId, argId+1)
-	args = append(args, limit, offset)
-	err := r.db.SelectContext(ctx, &results, query, args...)
+	args = append(args, filter.Limit, filter.Offset)
 
+	err := r.db.SelectContext(ctx, &results, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -67,10 +67,25 @@ type Genre struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
+// SpecFilter contains all possible filters for listing specs
+type SpecFilter struct {
+	Category Category
+	Genres   []string
+	Tags     []string
+	Search   string
+	MinBPM   int
+	MaxBPM   int
+	MinPrice float64
+	MaxPrice float64
+	Key      string
+	Limit    int
+	Offset   int
+}
+
 type SpecRepository interface {
 	Create(ctx context.Context, spec *Spec) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Spec, error)
-	List(ctx context.Context, category Category, genres []string, tags []string, limit, offset int) ([]Spec, int, error)
+	List(ctx context.Context, filter SpecFilter) ([]Spec, int, error)
 	Update(ctx context.Context, spec *Spec) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
 	ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]Spec, int, error)
