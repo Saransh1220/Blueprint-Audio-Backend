@@ -48,25 +48,46 @@ type Spec struct {
 
 // LicenseOption defines the pricing and features for a specific spec.
 type LicenseOption struct {
-	ID          uuid.UUID   `json:"id" db:"id"`
-	SpecID      uuid.UUID   `json:"spec_id" db:"spec_id"`
-	LicenseType LicenseType `json:"type" db:"license_type"`
-	Name        string      `json:"name" db:"name"`
-	Price       float64     `json:"price" db:"price"`
-	Features    []string    `json:"features" db:"features"`
-	FileTypes   []string    `json:"file_types" db:"file_types"`
+	ID          uuid.UUID      `json:"id" db:"id"`
+	SpecID      uuid.UUID      `json:"spec_id" db:"spec_id"`
+	LicenseType LicenseType    `json:"type" db:"license_type"`
+	Name        string         `json:"name" db:"name"`
+	Price       float64        `json:"price" db:"price"`
+	Features    pq.StringArray `json:"features" db:"features"`
+	FileTypes   pq.StringArray `json:"file_types" db:"file_types"`
+	CreatedAt   time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at" db:"updated_at"`
 }
 
 // Genre represents a musical genre.
 type Genre struct {
-	ID   uuid.UUID `json:"id" db:"id"`
-	Name string    `json:"name" db:"name"`
-	Slug string    `json:"slug" db:"slug"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	Name      string    `json:"name" db:"name"`
+	Slug      string    `json:"slug" db:"slug"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// SpecFilter contains all possible filters for listing specs
+type SpecFilter struct {
+	Category Category
+	Genres   []string
+	Tags     []string
+	Search   string
+	MinBPM   int
+	MaxBPM   int
+	MinPrice float64
+	MaxPrice float64
+	Key      string
+	Limit    int
+	Offset   int
+	Sort     string
 }
 
 type SpecRepository interface {
 	Create(ctx context.Context, spec *Spec) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Spec, error)
-	List(ctx context.Context, category Category, genres []string, tags []string, limit, offset int) ([]Spec, error)
+	List(ctx context.Context, filter SpecFilter) ([]Spec, int, error)
+	Update(ctx context.Context, spec *Spec) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
+	ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]Spec, int, error)
 }

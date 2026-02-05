@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -49,18 +50,33 @@ func main() {
 		jwtExpiry = 24 * time.Hour
 	}
 
+	fileService, err := service.NewFileService(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to initialize file service: %v", err)
+	}
+
 	userRepo := repository.NewUserRepository(db)
 	specRepo := repository.NewSpecRepository(db)
 
 	specService := service.NewSpecService(specRepo)
 	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
+	userService := service.NewUserService(userRepo)
 
-	specHandler := handler.NewSpecHandler(specService)
+	specHandler := handler.NewSpecHandler(specService, fileService)
 	authHandler := handler.NewAuthHandler(authService)
+	userHandler := handler.NewUserHandler(userService)
 
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler)
+	orderRepo := repository.NewOrderRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
+	licenseRepo := repository.NewLicenseRepository(db)
+
+	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo, fileService)
+
+	paymentHandler := handler.NewPaymentHandler(paymentService)
+
+	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 

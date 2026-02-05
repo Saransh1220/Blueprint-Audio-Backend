@@ -84,3 +84,22 @@ func (r *pgUserRepository) GetUserById(ctx context.Context, id uuid.UUID) (*doma
 	}
 	return user, nil
 }
+
+// UpdateProfile updates a user's profile fields (bio and social media URLs).
+// Only the provided non-nil fields will be updated in the database.
+// Returns an error if the database operation fails.
+func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+	query := `
+		UPDATE users 
+		SET bio = $1, 
+		    instagram_url = $2, 
+		    twitter_url = $3, 
+		    youtube_url = $4, 
+		    spotify_url = $5, 
+		    updated_at = $6
+		WHERE id = $7
+	`
+
+	_, err := r.db.ExecContext(ctx, query, bio, instagramURL, twitterURL, youtubeURL, spotifyURL, time.Now(), id)
+	return err
+}

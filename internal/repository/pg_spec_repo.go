@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -57,8 +59,28 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 
 	// 4. Insert Genres (Many-to-Many)
 	for _, genre := range spec.Genres {
+		var genreID uuid.UUID
+
+		// Check if we have an ID, if not look it up or create
+		if genre.ID != uuid.Nil {
+			genreID = genre.ID
+		} else {
+			// Try to find by slug
+			err = tx.GetContext(ctx, &genreID, "SELECT id FROM genres WHERE slug = $1", genre.Slug)
+			if err != nil {
+				// Not found, Create new Genre
+				genreID = uuid.New()
+				now := time.Now()
+				createGenreQuery := `INSERT INTO genres (id, name, slug, created_at) VALUES ($1, $2, $3, $4)`
+				_, err = tx.ExecContext(ctx, createGenreQuery, genreID, genre.Name, genre.Slug, now)
+				if err != nil {
+					return fmt.Errorf("failed to create genre %s: %w", genre.Name, err)
+				}
+			}
+		}
+
 		genreQuery := `INSERT INTO spec_genres (spec_id, genre_id) VALUES ($1, $2)`
-		_, err = tx.ExecContext(ctx, genreQuery, spec.ID, genre.ID)
+		_, err = tx.ExecContext(ctx, genreQuery, spec.ID, genreID)
 		if err != nil {
 			return err
 		}
@@ -76,7 +98,7 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
             INSERT INTO license_options (
                 id, spec_id, license_type, name, price, features, file_types
             ) VALUES (
-                :id, :spec_id, :type, :name, :price, :features, :file_types
+                :id, :spec_id, :license_type, :name, :price, :features, :file_types
             )`
 		_, err = tx.NamedExecContext(ctx, licenseQuery, license)
 		if err != nil {
@@ -98,6 +120,7 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	}
 
 	//fetct licences
+	//fetct licences
 	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
 	if err != nil {
@@ -114,46 +137,130 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	return spec, nil
 }
 
-func (r *pgSpecRepository) List(ctx context.Context, category domain.Category, genres []string, tags []string, limit, offset int) ([]domain.Spec, error) {
-	var specs []domain.Spec
+func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) ([]domain.Spec, int, error) {
+	var results []struct {
+		domain.Spec
+		TotalCount int `db:"total_count"`
+	}
 
-	query := `SELECT * FROM specs WHERE 1=1`
+	query := `SELECT *, COUNT(*) OVER() as total_count FROM specs WHERE 1=1`
 	args := []interface{}{}
 	argId := 1
 
-	if category != "" {
+	if filter.Category != "" {
 		query += fmt.Sprintf(" AND category = $%d", argId)
-
-		args = append(args, category)
+		args = append(args, filter.Category)
 		argId++
 	}
 
-	if len(genres) > 0 {
+	if len(filter.Genres) > 0 {
 		query += fmt.Sprintf(` AND id IN (
             SELECT spec_id FROM spec_genres sg 
             JOIN genres g ON sg.genre_id = g.id 
-            WHERE g.slug = ANY($%d) OR g.name = ANY($%d)
+            WHERE g.slug ILIKE ANY($%d) OR g.name ILIKE ANY($%d)
         )`, argId, argId)
-
-		args = append(args, pq.Array(genres))
+		args = append(args, pq.Array(filter.Genres))
 		argId++
 	}
 
-	if len(tags) > 0 {
+	if len(filter.Tags) > 0 {
 		query += fmt.Sprintf(" AND tags @> $%d", argId)
-		args = append(args, pq.Array(tags))
+		args = append(args, pq.Array(filter.Tags))
 		argId++
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argId, argId+1)
-	args = append(args, limit, offset)
-	err := r.db.SelectContext(ctx, &specs, query, args...)
-
-	if err != nil {
-		return nil, err
+	if filter.Search != "" {
+		searchTerm := "%" + filter.Search + "%"
+		lowerSearch := strings.ToLower(filter.Search)
+		query += fmt.Sprintf(" AND (title ILIKE $%d OR tags @> ARRAY[$%d])", argId, argId+1)
+		args = append(args, searchTerm, lowerSearch)
+		argId += 2
 	}
 
-	return specs, nil
+	if filter.MinBPM > 0 {
+		query += fmt.Sprintf(" AND bpm >= $%d", argId)
+		args = append(args, filter.MinBPM)
+		argId++
+	}
+
+	if filter.MaxBPM > 0 {
+		query += fmt.Sprintf(" AND bpm <= $%d", argId)
+		args = append(args, filter.MaxBPM)
+		argId++
+	}
+
+	if filter.MinPrice >= 0 {
+		query += fmt.Sprintf(" AND base_price >= $%d", argId)
+		args = append(args, filter.MinPrice)
+		argId++
+	}
+
+	if filter.MaxPrice > 0 {
+		query += fmt.Sprintf(" AND base_price <= $%d", argId)
+		args = append(args, filter.MaxPrice)
+		argId++
+	}
+
+	if filter.Key != "" {
+		query += fmt.Sprintf(" AND key = $%d", argId)
+		args = append(args, filter.Key)
+		argId++
+	}
+
+	// Dynamic Sorting
+	orderBy := "created_at DESC" // Default
+	switch filter.Sort {
+	case "newest":
+		orderBy = "created_at DESC"
+	case "oldest":
+		orderBy = "created_at ASC"
+	case "price_asc":
+		orderBy = "base_price ASC"
+	case "price_desc":
+		orderBy = "base_price DESC"
+	case "bpm_asc":
+		orderBy = "bpm ASC"
+	case "bpm_desc":
+		orderBy = "bpm DESC"
+	}
+
+	query += fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d", orderBy, argId, argId+1)
+	args = append(args, filter.Limit, filter.Offset)
+
+	err := r.db.SelectContext(ctx, &results, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []domain.Spec{}, 0, nil
+	}
+
+	total := results[0].TotalCount
+	specs := make([]domain.Spec, len(results))
+	for i, res := range results {
+		specs[i] = res.Spec
+	}
+
+	// Fetch Relations (Genres, Licenses) for each spec
+	// N+1 query pattern, acceptable for small pagination limits
+	for i := range specs {
+		// Fetch Genres
+		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Fetch Licenses
+		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	return specs, total, nil
 }
 
 func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {
@@ -174,4 +281,90 @@ func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId 
 	}
 
 	return nil
+}
+
+// Update updates a spec's metadata (not files).
+// Only allows updating title, category, type, BPM, key, base_price, and tags.
+// Licenses must be updated separately through license operations.
+func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error {
+	spec.UpdatedAt = time.Now()
+
+	query := `
+		UPDATE specs 
+		SET title = :title,
+		    category = :category,
+		    type = :type,
+		    bpm = :bpm,
+		    key = :key,
+		    base_price = :base_price,
+		    tags = :tags,
+		    updated_at = :updated_at
+		WHERE id = :id AND producer_id = :producer_id
+	`
+
+	result, err := r.db.NamedExecContext(ctx, query, spec)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return domain.ErrSpecNotFound
+	}
+
+	return nil
+}
+
+// ListByUserID retrieves all specs for a specific producer with pagination.
+func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.Spec, int, error) {
+	var results []struct {
+		domain.Spec
+		TotalCount int `db:"total_count"`
+	}
+
+	query := `
+		SELECT *, COUNT(*) OVER() as total_count 
+		FROM specs 
+		WHERE producer_id = $1
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3
+	`
+
+	err := r.db.SelectContext(ctx, &results, query, producerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []domain.Spec{}, 0, nil
+	}
+
+	total := results[0].TotalCount
+	specs := make([]domain.Spec, len(results))
+	for i, res := range results {
+		specs[i] = res.Spec
+	}
+
+	// Fetch Relations (Genres, Licenses) for each spec
+	for i := range specs {
+		// Fetch Genres
+		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Fetch Licenses
+		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	return specs, total, nil
 }
