@@ -71,5 +71,7 @@ type SpecRepository interface {
 	Create(ctx context.Context, spec *Spec) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Spec, error)
 	List(ctx context.Context, category Category, genres []string, tags []string, limit, offset int) ([]Spec, int, error)
+	Update(ctx context.Context, spec *Spec) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
+	ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]Spec, int, error)
 }

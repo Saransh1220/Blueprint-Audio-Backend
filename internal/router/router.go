@@ -11,14 +11,16 @@ type Router struct {
 	authHandler    *handler.AuthHandler
 	authMiddleware *middleware.AuthMiddleWare
 	specHandler    *handler.SpecHandler
+	userHandler    *handler.UserHandler
 	paymentHandler *handler.PaymentHandler
 }
 
-func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, paymentHandler *handler.PaymentHandler) *Router {
+func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, userHandler *handler.UserHandler, paymentHandler *handler.PaymentHandler) *Router {
 	return &Router{
 		authHandler:    authHandler,
 		authMiddleware: authMiddleware,
 		specHandler:    specHandler,
+		userHandler:    userHandler,
 		paymentHandler: paymentHandler,
 	}
 }
@@ -42,7 +44,13 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.HandleFunc("GET /specs/{id}", r.specHandler.Get)
 
 	mux.Handle("POST /specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Create)))
+	mux.Handle("PATCH /specs/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Update)))
 	mux.Handle("DELETE /specs/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Delete)))
+
+	// User routes
+	mux.Handle("PATCH /users/profile", r.authMiddleware.RequireAuth(http.HandlerFunc(r.userHandler.UpdateProfile)))
+	mux.HandleFunc("GET /users/{id}/public", r.userHandler.GetPublicProfile)
+	mux.HandleFunc("GET /users/{id}/specs", r.specHandler.GetUserSpecs)
 
 	// Payment routes (protected)
 	mux.Handle("POST /orders", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.CreateOrder)))

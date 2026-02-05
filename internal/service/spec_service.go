@@ -12,7 +12,9 @@ type SpecService interface {
 	CreateSpec(ctx context.Context, spec *domain.Spec) error
 	GetSpec(ctx context.Context, id uuid.UUID) (*domain.Spec, error)
 	ListSpecs(ctx context.Context, category domain.Category, genres []string, tags []string, page int) ([]domain.Spec, int, error)
+	UpdateSpec(ctx context.Context, spec *domain.Spec, producerID uuid.UUID) error
 	DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error
+	GetUserSpecs(ctx context.Context, producerID uuid.UUID, page int) ([]domain.Spec, int, error)
 }
 
 type specService struct {
@@ -60,4 +62,46 @@ func (s *specService) ListSpecs(ctx context.Context, category domain.Category, g
 
 func (s *specService) DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {
 	return s.repo.Delete(ctx, id, producerId)
+}
+
+// UpdateSpec updates a spec's metadata with ownership validation
+func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, producerID uuid.UUID) error {
+	// Validate ownership
+	existing, err := s.repo.GetByID(ctx, spec.ID)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return errors.New("spec not found")
+	}
+	if existing.ProducerID != producerID {
+		return errors.New("unauthorized: you can only update your own specs")
+	}
+
+	// Validate updates
+	if spec.Title == "" {
+		return errors.New("title is required")
+	}
+	if spec.BasePrice < 0 {
+		return errors.New("price cannot be negative")
+	}
+	if spec.Category == domain.CategoryBeat {
+		if spec.BPM < 50 || spec.BPM > 300 {
+			return errors.New("BPM must be between 50 and 300")
+		}
+	}
+
+	// Set producer ID to ensure it doesn't change
+	spec.ProducerID = producerID
+	return s.repo.Update(ctx, spec)
+}
+
+// GetUserSpecs retrieves all specs for a specific producer with pagination
+func (s *specService) GetUserSpecs(ctx context.Context, producerID uuid.UUID, page int) ([]domain.Spec, int, error) {
+	limit := 20
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+	return s.repo.ListByUserID(ctx, producerID, limit, offset)
 }

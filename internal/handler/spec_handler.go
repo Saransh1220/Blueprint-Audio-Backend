@@ -316,3 +316,92 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 		spec.ImageUrl = presignedURL
 	}
 }
+
+// Update handles PATCH /specs/:id - updates spec metadata (not files)
+func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	producerID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var spec domain.Spec
+	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	spec.ID = id // Ensure ID matches path parameter
+
+	if err := h.service.UpdateSpec(r.Context(), &spec, producerID); err != nil {
+		if strings.Contains(err.Error(), "unauthorized") {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Fetch updated spec to return
+	updated, err := h.service.GetSpec(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.sanitizeSpec(updated)
+	response := dto.ToSpecResponse(updated)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// GetUserSpecs handles GET /users/:id/specs - lists all specs by a user
+func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.PathValue("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	specs, total, err := h.service.GetUserSpecs(r.Context(), userID, page)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for i := range specs {
+		h.sanitizeSpec(&specs[i])
+	}
+
+	responses := make([]dto.SpecResponse, len(specs))
+	for i := range specs {
+		responses[i] = *dto.ToSpecResponse(&specs[i])
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": responses,
+		"metadata": map[string]interface{}{
+			"total":    total,
+			"page":     page,
+			"per_page": 20,
+		},
+	})
+}

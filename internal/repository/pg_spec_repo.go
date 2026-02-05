@@ -227,3 +227,89 @@ func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId 
 
 	return nil
 }
+
+// Update updates a spec's metadata (not files).
+// Only allows updating title, category, type, BPM, key, base_price, and tags.
+// Licenses must be updated separately through license operations.
+func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error {
+	spec.UpdatedAt = time.Now()
+
+	query := `
+		UPDATE specs 
+		SET title = :title,
+		    category = :category,
+		    type = :type,
+		    bpm = :bpm,
+		    key = :key,
+		    base_price = :base_price,
+		    tags = :tags,
+		    updated_at = :updated_at
+		WHERE id = :id AND producer_id = :producer_id
+	`
+
+	result, err := r.db.NamedExecContext(ctx, query, spec)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return domain.ErrSpecNotFound
+	}
+
+	return nil
+}
+
+// ListByUserID retrieves all specs for a specific producer with pagination.
+func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.Spec, int, error) {
+	var results []struct {
+		domain.Spec
+		TotalCount int `db:"total_count"`
+	}
+
+	query := `
+		SELECT *, COUNT(*) OVER() as total_count 
+		FROM specs 
+		WHERE producer_id = $1
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3
+	`
+
+	err := r.db.SelectContext(ctx, &results, query, producerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(results) == 0 {
+		return []domain.Spec{}, 0, nil
+	}
+
+	total := results[0].TotalCount
+	specs := make([]domain.Spec, len(results))
+	for i, res := range results {
+		specs[i] = res.Spec
+	}
+
+	// Fetch Relations (Genres, Licenses) for each spec
+	for i := range specs {
+		// Fetch Genres
+		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Fetch Licenses
+		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
+		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	return specs, total, nil
+}

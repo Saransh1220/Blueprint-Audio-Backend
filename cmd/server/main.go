@@ -60,9 +60,11 @@ func main() {
 
 	specService := service.NewSpecService(specRepo)
 	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
+	userService := service.NewUserService(userRepo)
 
 	specHandler := handler.NewSpecHandler(specService, fileService)
 	authHandler := handler.NewAuthHandler(authService)
+	userHandler := handler.NewUserHandler(userService)
 
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
@@ -74,7 +76,7 @@ func main() {
 
 	paymentHandler := handler.NewPaymentHandler(paymentService)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, paymentHandler)
+	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 
