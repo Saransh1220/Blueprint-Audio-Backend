@@ -63,8 +63,8 @@ func main() {
 	userService := service.NewUserService(userRepo)
 
 	specHandler := handler.NewSpecHandler(specService, fileService)
-	authHandler := handler.NewAuthHandler(authService)
-	userHandler := handler.NewUserHandler(userService)
+	authHandler := handler.NewAuthHandler(authService, fileService)
+	userHandler := handler.NewUserHandler(userService, fileService)
 
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 

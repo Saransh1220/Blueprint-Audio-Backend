@@ -49,6 +49,7 @@ func (r *Router) Setup() *http.ServeMux {
 
 	// User routes
 	mux.Handle("PATCH /users/profile", r.authMiddleware.RequireAuth(http.HandlerFunc(r.userHandler.UpdateProfile)))
+	mux.Handle("POST /users/profile/avatar", r.authMiddleware.RequireAuth(http.HandlerFunc(r.userHandler.UploadAvatar)))
 	mux.HandleFunc("GET /users/{id}/public", r.userHandler.GetPublicProfile)
 	mux.HandleFunc("GET /users/{id}/specs", r.specHandler.GetUserSpecs)
 
