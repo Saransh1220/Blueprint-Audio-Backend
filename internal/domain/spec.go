@@ -37,6 +37,7 @@ type Spec struct {
 	WavUrl         *string   `json:"wav_url,omitempty" db:"wav_url"`
 	StemsUrl       *string   `json:"stems_url,omitempty" db:"stems_url"`
 	BasePrice      float64   `json:"price" db:"base_price"`
+	Description    string    `json:"description" db:"description"`
 	Duration       int       `json:"duration" db:"duration"`                 // Audio duration in seconds
 	FreeMp3Enabled bool      `json:"free_mp3_enabled" db:"free_mp3_enabled"` // Enable free MP3 downloads
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`

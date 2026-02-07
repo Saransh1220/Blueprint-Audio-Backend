@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
 	"github.com/saransh1220/blueprint-audio/internal/dto"
@@ -80,10 +83,39 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return errors.New(formKey + " file too large")
 		}
 
-		url, key, err := h.fileService.Upload(r.Context(), file, header, folder)
-		if err != nil {
-			return err
+		var url, key string
+
+		// Resize "image" (Cover Art) to max 800x800
+		if formKey == "image" {
+			src, err := imaging.Decode(file)
+			if err != nil {
+				return fmt.Errorf("failed to decode image: %w", err)
+			}
+
+			// Resize to fit within 800x800, preserving aspect ratio
+			dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+
+			buf := new(bytes.Buffer)
+			if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+				return fmt.Errorf("failed to encode resized image: %w", err)
+			}
+
+			// Generate new key with .jpg extension
+			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+			key = fmt.Sprintf("%s/%s", folder, filename)
+
+			url, err = h.fileService.UploadWithKey(r.Context(), buf, key, "image/jpeg")
+			if err != nil {
+				return err
+			}
+		} else {
+			// Normal upload for Audio Files
+			url, key, err = h.fileService.Upload(r.Context(), file, header, folder)
+			if err != nil {
+				return err
+			}
 		}
+
 		uploadedKeys = append(uploadedKeys, key)
 		setUrl(url)
 		return nil
@@ -386,7 +418,7 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 	}
 }
 
-// Update handles PATCH /specs/:id - updates spec metadata (not files)
+// Update handles PATCH /specs/:id - updates spec metadata and optionally the cover image
 func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
@@ -401,36 +433,99 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var spec domain.Spec
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	spec.ID = id // Ensure ID matches path parameter
-
-	if err := h.service.UpdateSpec(r.Context(), &spec, producerID); err != nil {
-		if strings.Contains(err.Error(), "unauthorized") {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Fetch updated spec to return
-	updated, err := h.service.GetSpec(r.Context(), id)
+	// 1. Fetch existing spec first (to verify ownership and get old image URL)
+	existingSpec, err := h.service.GetSpec(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if existingSpec == nil {
+		http.Error(w, "spec not found", http.StatusNotFound)
+		return
+	}
+	if existingSpec.ProducerID != producerID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
-	h.sanitizeSpec(updated)
-	response := dto.ToSpecResponse(updated)
+	// 2. Parse Multipart Form (10MB limit for metadata + image)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "file too large", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Extract and Apply Metadata
+	metadata := r.FormValue("metadata")
+	var updateData domain.Spec
+	if err := json.Unmarshal([]byte(metadata), &updateData); err != nil {
+		http.Error(w, "invalid metadata json", http.StatusBadRequest)
+		return
+	}
+
+	// Update fields
+	existingSpec.Title = updateData.Title
+	existingSpec.BasePrice = updateData.BasePrice
+	existingSpec.BPM = updateData.BPM
+	existingSpec.Key = updateData.Key
+	existingSpec.Tags = updateData.Tags
+	existingSpec.Description = updateData.Description
+	// Add other fields as necessary
+
+	// 4. Handle Image Replacement
+	file, _, err := r.FormFile("image")
+	if err != nil && err != http.ErrMissingFile {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+
+	if file != nil {
+		defer file.Close()
+
+		// Resize and Upload New Image
+		src, err := imaging.Decode(file)
+		if err != nil {
+			http.Error(w, "failed to decode image", http.StatusBadRequest)
+			return
+		}
+
+		dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+		buf := new(bytes.Buffer)
+		if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+			http.Error(w, "failed to encode image", http.StatusInternalServerError)
+			return
+		}
+
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		key := fmt.Sprintf("images/%s", filename)
+
+		url, err := h.fileService.UploadWithKey(r.Context(), buf, key, "image/jpeg")
+		if err != nil {
+			http.Error(w, "failed to upload image: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Delete Old Image
+		if existingSpec.ImageUrl != "" {
+			// Helper to extract key and delete
+			if oldKey, err := h.fileService.GetKeyFromUrl(existingSpec.ImageUrl); err == nil {
+				// Fire and forget delete (or log error)
+				_ = h.fileService.Delete(context.Background(), oldKey)
+			}
+		}
+
+		// Update URL
+		existingSpec.ImageUrl = url
+	}
+
+	// 5. Save Updates
+	if err := h.service.UpdateSpec(r.Context(), existingSpec, producerID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 6. Return Updated Spec
+	h.sanitizeSpec(existingSpec)
+	response := dto.ToSpecResponse(existingSpec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

@@ -301,6 +301,8 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		    bpm = :bpm,
 		    key = :key,
 		    base_price = :base_price,
+		    image_url = :image_url,
+		    description = :description,
 		    tags = :tags,
 		    duration = :duration,
 		    free_mp3_enabled = :free_mp3_enabled,
