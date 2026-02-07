@@ -8,20 +8,22 @@ import (
 )
 
 type Router struct {
-	authHandler    *handler.AuthHandler
-	authMiddleware *middleware.AuthMiddleWare
-	specHandler    *handler.SpecHandler
-	userHandler    *handler.UserHandler
-	paymentHandler *handler.PaymentHandler
+	authHandler      *handler.AuthHandler
+	authMiddleware   *middleware.AuthMiddleWare
+	specHandler      *handler.SpecHandler
+	userHandler      *handler.UserHandler
+	paymentHandler   *handler.PaymentHandler
+	analyticsHandler *handler.AnalyticsHandler
 }
 
-func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, userHandler *handler.UserHandler, paymentHandler *handler.PaymentHandler) *Router {
+func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, userHandler *handler.UserHandler, paymentHandler *handler.PaymentHandler, analyticsHandler *handler.AnalyticsHandler) *Router {
 	return &Router{
-		authHandler:    authHandler,
-		authMiddleware: authMiddleware,
-		specHandler:    specHandler,
-		userHandler:    userHandler,
-		paymentHandler: paymentHandler,
+		authHandler:      authHandler,
+		authMiddleware:   authMiddleware,
+		specHandler:      specHandler,
+		userHandler:      userHandler,
+		paymentHandler:   paymentHandler,
+		analyticsHandler: analyticsHandler,
 	}
 }
 
@@ -60,6 +62,13 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("POST /payments/verify", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.VerifyPayment)))
 	mux.Handle("GET /licenses", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetLicenseDownloads)))
+
+	// Analytics routes
+	mux.HandleFunc("POST /specs/{id}/play", r.analyticsHandler.TrackPlay)                                                            // Public - track plays
+	mux.HandleFunc("POST /specs/{id}/download-free", r.analyticsHandler.DownloadFreeMp3)                                             // Public - download free MP3
+	mux.Handle("POST /specs/{id}/favorite", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.ToggleFavorite)))       // Protected - toggle favorite
+	mux.Handle("GET /specs/{id}/analytics", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetProducerAnalytics))) // Protected - get producer analytics
+	mux.Handle("GET /analytics/overview", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetOverview)))            // Protected - get dashboard overview
 
 	return mux
 }

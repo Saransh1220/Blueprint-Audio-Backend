@@ -57,26 +57,29 @@ func main() {
 
 	userRepo := repository.NewUserRepository(db)
 	specRepo := repository.NewSpecRepository(db)
+	analyticsRepo := repository.NewAnalyticsRepository(db)
 
 	specService := service.NewSpecService(specRepo)
 	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
 	userService := service.NewUserService(userRepo)
-
-	specHandler := handler.NewSpecHandler(specService, fileService)
-	authHandler := handler.NewAuthHandler(authService, fileService)
-	userHandler := handler.NewUserHandler(userService, fileService)
-
-	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
 	orderRepo := repository.NewOrderRepository(db)
 	paymentRepo := repository.NewPaymentRepository(db)
 	licenseRepo := repository.NewLicenseRepository(db)
 
 	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo, fileService)
+	analyticsService := service.NewAnalyticsService(analyticsRepo, specRepo)
+
+	specHandler := handler.NewSpecHandler(specService, fileService, analyticsService)
+	authHandler := handler.NewAuthHandler(authService, fileService)
+	userHandler := handler.NewUserHandler(userService, fileService)
+
+	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
 	paymentHandler := handler.NewPaymentHandler(paymentService)
+	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, specRepo)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler)
+	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler, analyticsHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", port)
 

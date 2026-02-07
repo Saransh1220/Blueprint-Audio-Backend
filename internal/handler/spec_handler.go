@@ -16,14 +16,17 @@ import (
 )
 
 type SpecHandler struct {
-	service     service.SpecService
-	fileService service.FileService
+	service          service.SpecService
+	fileService      service.FileService
+	analyticsService service.AnalyticsServiceInterface
 }
 
-func NewSpecHandler(service service.SpecService, fileService service.FileService) *SpecHandler {
+func NewSpecHandler(service service.SpecService, fileService service.FileService, analyticsService service.AnalyticsServiceInterface) *SpecHandler {
 	return &SpecHandler{
-		service:     service,
-		fileService: fileService}
+		service:          service,
+		fileService:      fileService,
+		analyticsService: analyticsService,
+	}
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -146,6 +149,22 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sanitizeSpec(spec)
+
+	// Get user ID if authenticated (optional)
+	var userIDPtr *uuid.UUID
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		userIDPtr = &userID
+	}
+
+	// Fetch analytics data
+	analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), spec.ID, userIDPtr)
+	if err == nil {
+		spec.Analytics = &domain.SpecAnalytics{
+			PlayCount:     analytics.PlayCount,
+			FavoriteCount: analytics.FavoriteCount,
+		}
+	}
+
 	response := dto.ToSpecResponse(spec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -208,9 +227,25 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user ID if authenticated (optional)
+	var userIDPtr *uuid.UUID
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		userIDPtr = &userID
+	}
+
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
+
+		// Fetch analytics for each spec
+		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, userIDPtr)
+		if err == nil {
+			specs[i].Analytics = &domain.SpecAnalytics{
+				PlayCount:     analytics.PlayCount,
+				FavoriteCount: analytics.FavoriteCount,
+			}
+		}
 	}
+
 	responses := make([]dto.SpecResponse, len(specs))
 	for i := range specs {
 		responses[i] = *dto.ToSpecResponse(&specs[i])

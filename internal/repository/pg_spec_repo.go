@@ -43,16 +43,23 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
         INSERT INTO specs (
             id, producer_id, title, category, type, bpm, key, 
             base_price, image_url, preview_url, wav_url, stems_url,
-            tags, 
+            tags, duration, free_mp3_enabled,
             created_at, updated_at
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
             :base_price, :image_url, :preview_url, :wav_url, :stems_url,
-            :tags,
+            :tags, :duration, :free_mp3_enabled,
             :created_at, :updated_at
         )`
 
 	_, err = tx.NamedExecContext(ctx, query, spec)
+	if err != nil {
+		return err
+	}
+
+	// 3b. Create analytics record
+	analyticsQuery := `INSERT INTO spec_analytics (spec_id) VALUES ($1) ON CONFLICT DO NOTHING`
+	_, err = tx.ExecContext(ctx, analyticsQuery, spec.ID)
 	if err != nil {
 		return err
 	}
@@ -283,9 +290,6 @@ func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId 
 	return nil
 }
 
-// Update updates a spec's metadata (not files).
-// Only allows updating title, category, type, BPM, key, base_price, and tags.
-// Licenses must be updated separately through license operations.
 func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error {
 	spec.UpdatedAt = time.Now()
 
@@ -298,6 +302,8 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		    key = :key,
 		    base_price = :base_price,
 		    tags = :tags,
+		    duration = :duration,
+		    free_mp3_enabled = :free_mp3_enabled,
 		    updated_at = :updated_at
 		WHERE id = :id AND producer_id = :producer_id
 	`
