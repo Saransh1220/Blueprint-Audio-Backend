@@ -245,25 +245,63 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 
 	total := results[0].TotalCount
 	specs := make([]domain.Spec, len(results))
+
+	// Create a map for O(1) lookup to assign relations
+	specMap := make(map[uuid.UUID]*domain.Spec, len(results))
+	specIDs := make([]uuid.UUID, len(results))
+
 	for i, res := range results {
 		specs[i] = res.Spec
+		specs[i].Genres = []domain.Genre{}           // Initialize empty slice
+		specs[i].Licenses = []domain.LicenseOption{} // Initialize empty slice
+		specMap[specs[i].ID] = &specs[i]
+		specIDs[i] = specs[i].ID
 	}
 
-	// Fetch Relations (Genres, Licenses) for each spec
-	// N+1 query pattern, acceptable for small pagination limits
-	for i := range specs {
-		// Fetch Genres
-		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
+	// 1. Bulk Fetch Genres
+	// Use sqlx.In to handle IN clause with slice
+	genreQuery, args, err := sqlx.In(`
+		SELECT sg.spec_id, g.* 
+		FROM genres g 
+		JOIN spec_genres sg ON g.id = sg.genre_id 
+		WHERE sg.spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	genreQuery = r.db.Rebind(genreQuery)
 
-		// Fetch Licenses
-		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
+	var genreRows []struct {
+		SpecID uuid.UUID `db:"spec_id"`
+		domain.Genre
+	}
+
+	err = r.db.SelectContext(ctx, &genreRows, genreQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch genres: %w", err)
+	}
+
+	for _, row := range genreRows {
+		if spec, ok := specMap[row.SpecID]; ok {
+			spec.Genres = append(spec.Genres, row.Genre)
+		}
+	}
+
+	// 2. Bulk Fetch Licenses
+	licenseQuery, args, err := sqlx.In(`SELECT * FROM license_options WHERE spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	licenseQuery = r.db.Rebind(licenseQuery)
+
+	var licenses []domain.LicenseOption
+	err = r.db.SelectContext(ctx, &licenses, licenseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+
+	for _, lic := range licenses {
+		if spec, ok := specMap[lic.SpecID]; ok {
+			spec.Licenses = append(spec.Licenses, lic)
 		}
 	}
 
@@ -395,24 +433,61 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 
 	total := results[0].TotalCount
 	specs := make([]domain.Spec, len(results))
+
+	specMap := make(map[uuid.UUID]*domain.Spec, len(results))
+	specIDs := make([]uuid.UUID, len(results))
+
 	for i, res := range results {
 		specs[i] = res.Spec
+		specs[i].Genres = []domain.Genre{}
+		specs[i].Licenses = []domain.LicenseOption{}
+		specMap[specs[i].ID] = &specs[i]
+		specIDs[i] = specs[i].ID
 	}
 
-	// Fetch Relations (Genres, Licenses) for each spec
-	for i := range specs {
-		// Fetch Genres
-		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
+	// 1. Bulk Fetch Genres
+	genreQuery, args, err := sqlx.In(`
+		SELECT sg.spec_id, g.* 
+		FROM genres g 
+		JOIN spec_genres sg ON g.id = sg.genre_id 
+		WHERE sg.spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	genreQuery = r.db.Rebind(genreQuery)
 
-		// Fetch Licenses
-		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
+	var genreRows []struct {
+		SpecID uuid.UUID `db:"spec_id"`
+		domain.Genre
+	}
+
+	err = r.db.SelectContext(ctx, &genreRows, genreQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch genres: %w", err)
+	}
+
+	for _, row := range genreRows {
+		if spec, ok := specMap[row.SpecID]; ok {
+			spec.Genres = append(spec.Genres, row.Genre)
+		}
+	}
+
+	// 2. Bulk Fetch Licenses
+	licenseQuery, args, err := sqlx.In(`SELECT * FROM license_options WHERE spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	licenseQuery = r.db.Rebind(licenseQuery)
+
+	var licenses []domain.LicenseOption
+	err = r.db.SelectContext(ctx, &licenses, licenseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+
+	for _, lic := range licenses {
+		if spec, ok := specMap[lic.SpecID]; ok {
+			spec.Licenses = append(spec.Licenses, lic)
 		}
 	}
 

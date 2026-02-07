@@ -6,17 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log" // Added log
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/disintegration/imaging"
-	"github.com/google/uuid"
+	"github.com/google/uuid" // Added db import
+	"github.com/saransh1220/blueprint-audio/internal/db"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
 	"github.com/saransh1220/blueprint-audio/internal/dto"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/service"
+	"golang.org/x/sync/errgroup"
 )
 
 type SpecHandler struct {
@@ -59,6 +63,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Handle File Uploads with Rollback
 	var uploadedKeys []string
+	var uploadedKeysMu sync.Mutex
 	var success bool
 	defer func() {
 		if !success {
@@ -69,85 +74,85 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	upload := func(formKey, folder string, limit int64, setUrl func(string)) error {
-		file, header, err := r.FormFile(formKey)
-		if err == http.ErrMissingFile {
-			return nil // Optional
-		}
-		if err != nil {
-			return err
-		}
-		defer file.Close()
+	g, ctx := errgroup.WithContext(r.Context())
 
-		if header.Size > limit {
-			return errors.New(formKey + " file too large")
-		}
-
-		var url, key string
-
-		// Resize "image" (Cover Art) to max 800x800
-		if formKey == "image" {
-			src, err := imaging.Decode(file)
-			if err != nil {
-				return fmt.Errorf("failed to decode image: %w", err)
+	uploadAsync := func(formKey, folder string, limit int64, setUrl func(string)) func() error {
+		return func() error {
+			// Check for context cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
 
-			// Resize to fit within 800x800, preserving aspect ratio
-			dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
-
-			buf := new(bytes.Buffer)
-			if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
-				return fmt.Errorf("failed to encode resized image: %w", err)
+			file, header, err := r.FormFile(formKey)
+			if err == http.ErrMissingFile {
+				return nil
 			}
-
-			// Generate new key with .jpg extension
-			filename := fmt.Sprintf("%s.jpg", uuid.New().String())
-			key = fmt.Sprintf("%s/%s", folder, filename)
-
-			url, err = h.fileService.UploadWithKey(r.Context(), buf, key, "image/jpeg")
 			if err != nil {
 				return err
 			}
-		} else {
-			// Normal upload for Audio Files
-			url, key, err = h.fileService.Upload(r.Context(), file, header, folder)
-			if err != nil {
-				return err
+			defer file.Close()
+
+			if header.Size > limit {
+				return errors.New(formKey + " file too large")
 			}
+
+			var url, key string
+
+			if formKey == "image" {
+				src, err := imaging.Decode(file)
+				if err != nil {
+					return fmt.Errorf("failed to decode image: %w", err)
+				}
+
+				dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+				buf := new(bytes.Buffer)
+				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+					return fmt.Errorf("failed to encode resized image: %w", err)
+				}
+
+				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+				key = fmt.Sprintf("%s/%s", folder, filename)
+
+				url, err = h.fileService.UploadWithKey(ctx, buf, key, "image/jpeg")
+				if err != nil {
+					return err
+				}
+			} else {
+				url, key, err = h.fileService.Upload(ctx, file, header, folder)
+				if err != nil {
+					return err
+				}
+			}
+
+			uploadedKeysMu.Lock()
+			uploadedKeys = append(uploadedKeys, key)
+			uploadedKeysMu.Unlock()
+
+			setUrl(url)
+			return nil
 		}
-
-		uploadedKeys = append(uploadedKeys, key)
-		setUrl(url)
-		return nil
 	}
 
-	// Upload Image (5MB)
-	if err := upload("image", "images", 5<<20, func(u string) { spec.ImageUrl = u }); err != nil {
-		http.Error(w, "upload image failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Image (5MB)
+	g.Go(uploadAsync("image", "images", 5<<20, func(u string) { spec.ImageUrl = u }))
 
-	// Upload Preview (30MB)
-	if err := upload("preview", "audio/previews", 30<<20, func(u string) { spec.PreviewUrl = u }); err != nil {
-		http.Error(w, "upload preview failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Preview (30MB)
+	g.Go(uploadAsync("preview", "audio/previews", 30<<20, func(u string) { spec.PreviewUrl = u }))
 
-	// Upload WAV (300MB)
-	if err := upload("wav", "audio/wavs", 300<<20, func(u string) {
+	// WAV (300MB)
+	g.Go(uploadAsync("wav", "audio/wavs", 300<<20, func(u string) {
 		val := u
 		spec.WavUrl = &val
-	}); err != nil {
-		http.Error(w, "upload wav failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	}))
 
-	// Upload Stems (1GB)
-	if err := upload("stems", "audio/stems", 1<<30, func(u string) {
+	// Stems (1GB)
+	g.Go(uploadAsync("stems", "audio/stems", 1<<30, func(u string) {
 		val := u
 		spec.StemsUrl = &val
-	}); err != nil {
-		http.Error(w, "upload stems failed: "+err.Error(), http.StatusInternalServerError)
+	}))
+
+	if err := g.Wait(); err != nil {
+		http.Error(w, "upload failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -174,6 +179,20 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+
+	// 1. Try Cache
+	cacheKey := "spec:" + idStr
+	val, err := db.Rdb.Get(r.Context(), cacheKey).Result()
+	if err == nil {
+		// Cache Hit!
+		log.Printf("[CACHE HIT] Spec ID: %s", idStr)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write([]byte(val))
+		return
+	}
+
+	log.Printf("[CACHE MISS] Spec ID: %s", idStr)
 
 	spec, err := h.service.GetSpec(r.Context(), id)
 	if err != nil {
@@ -205,7 +224,15 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := dto.ToSpecResponse(spec)
+
+	// 3. Save to Cache (Async)
+	go func() {
+		jsonBytes, _ := json.Marshal(response)
+		db.Rdb.Set(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -368,6 +395,11 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		deleteFile(*spec.StemsUrl)
 	}
 
+	// Invalidate Cache
+	cacheKey := "spec:" + idStr
+	db.Rdb.Del(context.Background(), cacheKey)
+	log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -528,6 +560,12 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// 6. Return Updated Spec
 	h.sanitizeSpec(existingSpec)
 	response := dto.ToSpecResponse(existingSpec)
+
+	// Invalidate Cache
+	cacheKey := "spec:" + idStr
+	db.Rdb.Del(context.Background(), cacheKey)
+	log.Printf("[CACHE INVALIDATE] Updated Spec ID: %s", idStr)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

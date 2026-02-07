@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	cachedb "github.com/saransh1220/blueprint-audio/internal/db" // Aliased to avoid shadowing
 	"github.com/saransh1220/blueprint-audio/internal/handler"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/repository"
@@ -39,6 +40,14 @@ func main() {
 	defer db.Close()
 
 	log.Printf("Database Connected Successfully!")
+
+	// Initialize Redis
+	if err := cachedb.InitRedis(); err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v", err)
+		// We don't fatal here, allowing app to run without cache if needed
+	} else {
+		log.Println("Redis Connected Successfully!")
+	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	jwtExpiryStr := os.Getenv("JWT_EXPIRATION")
