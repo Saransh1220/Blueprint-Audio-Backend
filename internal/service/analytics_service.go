@@ -34,7 +34,7 @@ type AnalyticsServiceInterface interface {
 
 	GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*PublicAnalytics, error)
 	GetProducerAnalytics(ctx context.Context, specID, producerID uuid.UUID) (*ProducerAnalytics, error)
-	GetStatsOverview(ctx context.Context, producerID uuid.UUID) (*dto.AnalyticsOverviewResponse, error)
+	GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int) (*dto.AnalyticsOverviewResponse, error)
 }
 
 type analyticsService struct {
@@ -155,7 +155,7 @@ func (s *analyticsService) GetProducerAnalytics(ctx context.Context, specID, pro
 	return producerAnalytics, nil
 }
 
-func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID) (*dto.AnalyticsOverviewResponse, error) {
+func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int) (*dto.AnalyticsOverviewResponse, error) {
 	plays, err := s.analyticsRepo.GetTotalPlays(ctx, producerID)
 	if err != nil {
 		return nil, err
@@ -181,8 +181,11 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 		return nil, err
 	}
 
-	// Daily stats - currently empty but prepared
-	dailyStats, err := s.analyticsRepo.GetPlaysByDay(ctx, producerID, 30)
+	// Daily stats
+	if days <= 0 {
+		days = 30
+	}
+	dailyStats, err := s.analyticsRepo.GetPlaysByDay(ctx, producerID, days)
 	if err != nil {
 		return nil, err
 	}

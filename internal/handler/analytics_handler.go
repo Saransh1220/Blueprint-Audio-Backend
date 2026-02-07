@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
@@ -158,7 +159,15 @@ func (h *AnalyticsHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	// We assume the user ID is the producer ID.
 	producerID := userIDInterface
 
-	stats, err := h.analyticsService.GetStatsOverview(r.Context(), producerID)
+	// Get days from query param (default 30)
+	days := 30
+	if val := r.URL.Query().Get("days"); val != "" {
+		if d, err := strconv.Atoi(val); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	stats, err := h.analyticsService.GetStatsOverview(r.Context(), producerID, days)
 	if err != nil {
 		http.Error(w, "Failed to get analytics overview", http.StatusInternalServerError)
 		return

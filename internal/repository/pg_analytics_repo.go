@@ -41,8 +41,15 @@ func (r *pgAnalyticsRepository) GetSpecAnalytics(ctx context.Context, specID uui
 	return analytics, nil
 }
 
-// IncrementPlayCount atomically increments the play count
+// IncrementPlayCount atomically increments the play count and logs an event
 func (r *pgAnalyticsRepository) IncrementPlayCount(ctx context.Context, specID uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Update totals
 	query := `
 		INSERT INTO spec_analytics (spec_id, play_count)
 		VALUES ($1, 1)
@@ -51,16 +58,30 @@ func (r *pgAnalyticsRepository) IncrementPlayCount(ctx context.Context, specID u
 			play_count = spec_analytics.play_count + 1,
 			updated_at = NOW()`
 
-	_, err := r.db.ExecContext(ctx, query, specID)
+	_, err = tx.ExecContext(ctx, query, specID)
 	if err != nil {
 		return fmt.Errorf("failed to increment play count: %w", err)
 	}
 
-	return nil
+	// 2. Log event
+	eventQuery := `INSERT INTO analytics_events (spec_id, event_type) VALUES ($1, 'play')`
+	_, err = tx.ExecContext(ctx, eventQuery, specID)
+	if err != nil {
+		return fmt.Errorf("failed to log play event: %w", err)
+	}
+
+	return tx.Commit()
 }
 
-// IncrementFreeDownloadCount atomically increments the free download count
+// IncrementFreeDownloadCount atomically increments the free download count and logs an event
 func (r *pgAnalyticsRepository) IncrementFreeDownloadCount(ctx context.Context, specID uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Update totals
 	query := `
 		INSERT INTO spec_analytics (spec_id, free_download_count)
 		VALUES ($1, 1)
@@ -69,12 +90,19 @@ func (r *pgAnalyticsRepository) IncrementFreeDownloadCount(ctx context.Context, 
 			free_download_count = spec_analytics.free_download_count + 1,
 			updated_at = NOW()`
 
-	_, err := r.db.ExecContext(ctx, query, specID)
+	_, err = tx.ExecContext(ctx, query, specID)
 	if err != nil {
 		return fmt.Errorf("failed to increment free download count: %w", err)
 	}
 
-	return nil
+	// 2. Log event
+	eventQuery := `INSERT INTO analytics_events (spec_id, event_type) VALUES ($1, 'download')`
+	_, err = tx.ExecContext(ctx, eventQuery, specID)
+	if err != nil {
+		return fmt.Errorf("failed to log download event: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // AddFavorite adds a favorite and increments the count
@@ -115,6 +143,13 @@ func (r *pgAnalyticsRepository) AddFavorite(ctx context.Context, userID, specID 
 	_, err = tx.ExecContext(ctx, analyticsQuery, specID)
 	if err != nil {
 		return fmt.Errorf("failed to increment favorite count: %w", err)
+	}
+
+	// 3. Log event
+	eventQuery := `INSERT INTO analytics_events (spec_id, event_type, user_id) VALUES ($1, 'favorite', $2)`
+	_, err = tx.ExecContext(ctx, eventQuery, specID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to log favorite event: %w", err)
 	}
 
 	return tx.Commit()
@@ -271,9 +306,28 @@ func (r *pgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, p
 }
 
 func (r *pgAnalyticsRepository) GetPlaysByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyStat, error) {
-	// TODO: Implement time-series tracking. Current schema only stores totals.
-	// Returning empty list for now.
-	return []domain.DailyStat{}, nil
+	if days <= 0 {
+		days = 30
+	}
+
+	query := `
+		SELECT 
+			to_char(date_trunc('day', ae.created_at), 'YYYY-MM-DD') as date,
+			COUNT(*) as count
+		FROM analytics_events ae
+		JOIN specs s ON ae.spec_id = s.id
+		WHERE s.producer_id = $1 
+		  AND ae.event_type = 'play'
+		  AND ae.created_at > NOW() - ($2 || ' days')::INTERVAL
+		GROUP BY 1
+		ORDER BY 1 ASC
+	`
+	var stats []domain.DailyStat
+	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plays by day: %w", err)
+	}
+	return stats, nil
 }
 
 func (r *pgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]domain.TopSpecStat, error) {
