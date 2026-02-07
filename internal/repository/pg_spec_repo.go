@@ -293,6 +293,14 @@ func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId 
 func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error {
 	spec.UpdatedAt = time.Now()
 
+	// 1. Start Transaction
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 2. Update Spec Details
 	query := `
 		UPDATE specs 
 		SET title = :title,
@@ -310,7 +318,7 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		WHERE id = :id AND producer_id = :producer_id
 	`
 
-	result, err := r.db.NamedExecContext(ctx, query, spec)
+	result, err := tx.NamedExecContext(ctx, query, spec)
 	if err != nil {
 		return err
 	}
@@ -324,7 +332,41 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		return domain.ErrSpecNotFound
 	}
 
-	return nil
+	// 3. Update Licenses (Delete All & Re-insert)
+	// Only proceed if Licenses slice is not nil (empty slice means remove all, nil means don't touch)
+	// However, usually pure update via PUT/PATCH might imply replacing the collection.
+	// Given the frontend sends the full state, we replace all.
+	if spec.Licenses != nil {
+		// Delete existing
+		deleteQuery := `DELETE FROM license_options WHERE spec_id = $1`
+		_, err = tx.ExecContext(ctx, deleteQuery, spec.ID)
+		if err != nil {
+			return err
+		}
+
+		// Insert new
+		licenseQuery := `
+            INSERT INTO license_options (
+                id, spec_id, license_type, name, price, features, file_types
+            ) VALUES (
+                :id, :spec_id, :license_type, :name, :price, :features, :file_types
+            )`
+
+		for i := range spec.Licenses {
+			license := &spec.Licenses[i]
+			if license.ID == uuid.Nil {
+				license.ID = uuid.New()
+			}
+			license.SpecID = spec.ID
+
+			_, err = tx.NamedExecContext(ctx, licenseQuery, license)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 // ListByUserID retrieves all specs for a specific producer with pagination.

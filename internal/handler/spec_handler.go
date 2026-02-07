@@ -200,6 +200,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		spec.Analytics = &domain.SpecAnalytics{
 			PlayCount:     analytics.PlayCount,
 			FavoriteCount: analytics.FavoriteCount,
+			IsFavorited:   analytics.IsFavorited,
 		}
 	}
 
@@ -280,6 +281,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 			specs[i].Analytics = &domain.SpecAnalytics{
 				PlayCount:     analytics.PlayCount,
 				FavoriteCount: analytics.FavoriteCount,
+				IsFavorited:   analytics.IsFavorited,
 			}
 		}
 	}
@@ -550,8 +552,24 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current user ID (viewer) if authenticated
+	var currentUserIDPtr *uuid.UUID
+	if currentUserID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		currentUserIDPtr = &currentUserID
+	}
+
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
+
+		// Fetch analytics for each spec
+		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, currentUserIDPtr)
+		if err == nil {
+			specs[i].Analytics = &domain.SpecAnalytics{
+				PlayCount:     analytics.PlayCount,
+				FavoriteCount: analytics.FavoriteCount,
+				IsFavorited:   analytics.IsFavorited,
+			}
+		}
 	}
 
 	responses := make([]dto.SpecResponse, len(specs))

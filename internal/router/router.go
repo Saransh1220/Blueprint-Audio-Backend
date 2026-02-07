@@ -42,8 +42,8 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("GET /me", r.authMiddleware.RequireAuth(http.HandlerFunc(r.authHandler.Me)))
 
 	//BEATS
-	mux.HandleFunc("GET /specs", r.specHandler.List)
-	mux.HandleFunc("GET /specs/{id}", r.specHandler.Get)
+	mux.Handle("GET /specs", r.authMiddleware.FlexibleAuth(http.HandlerFunc(r.specHandler.List)))
+	mux.Handle("GET /specs/{id}", r.authMiddleware.FlexibleAuth(http.HandlerFunc(r.specHandler.Get)))
 
 	mux.Handle("POST /specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Create)))
 	mux.Handle("PATCH /specs/{id}", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.Update)))
@@ -53,7 +53,7 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("PATCH /users/profile", r.authMiddleware.RequireAuth(http.HandlerFunc(r.userHandler.UpdateProfile)))
 	mux.Handle("POST /users/profile/avatar", r.authMiddleware.RequireAuth(http.HandlerFunc(r.userHandler.UploadAvatar)))
 	mux.HandleFunc("GET /users/{id}/public", r.userHandler.GetPublicProfile)
-	mux.HandleFunc("GET /users/{id}/specs", r.specHandler.GetUserSpecs)
+	mux.Handle("GET /users/{id}/specs", r.authMiddleware.FlexibleAuth(http.HandlerFunc(r.specHandler.GetUserSpecs)))
 
 	// Payment routes (protected)
 	mux.Handle("POST /orders", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.CreateOrder)))

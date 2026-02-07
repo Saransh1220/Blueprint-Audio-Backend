@@ -98,6 +98,7 @@ type SpecAnalytics struct {
 	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
 	// License-specific purchases calculated on-the-fly, not stored in DB
 	LicensePurchases map[string]int `json:"license_purchases,omitempty" db:"-"`
+	IsFavorited      bool           `json:"is_favorited" db:"-"`
 }
 
 // UserFavorite represents a user's favorite spec

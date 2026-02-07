@@ -34,7 +34,7 @@ type PublicAnalytics struct {
 	PlayCount          int  `json:"play_count"`
 	FavoriteCount      int  `json:"favorite_count"`
 	TotalDownloadCount int  `json:"total_download_count"`
-	IsFavorited        bool `json:"is_favorited,omitempty"`
+	IsFavorited        bool `json:"is_favorited"`
 }
 
 // ProducerAnalytics contains full analytics for producers
@@ -121,6 +121,7 @@ func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 			PlayCount:          spec.Analytics.PlayCount,
 			FavoriteCount:      spec.Analytics.FavoriteCount,
 			TotalDownloadCount: spec.Analytics.FreeDownloadCount,
+			IsFavorited:        spec.Analytics.IsFavorited,
 		}
 	}
 	return response
