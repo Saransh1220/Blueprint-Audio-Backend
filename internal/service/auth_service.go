@@ -57,6 +57,10 @@ func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*d
 		return nil, errors.New("password must be at least 8 characters")
 	}
 
+	if !utils.IsValidEmail(req.Email) {
+		return nil, errors.New("invalid email format")
+	}
+
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err

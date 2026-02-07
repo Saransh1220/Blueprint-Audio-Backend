@@ -84,6 +84,9 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request size to 10MB
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
 	// Parse multipart form (max 10MB for avatar)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		http.Error(w, "file too large", http.StatusBadRequest)

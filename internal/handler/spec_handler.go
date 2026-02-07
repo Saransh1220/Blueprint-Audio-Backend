@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,7 +31,8 @@ func NewSpecHandler(service service.SpecService, fileService service.FileService
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
-	// 1. Parse Multipart Form (Max 50MB)
+	// 1. Limit Total Request Size (1.5GB)
+	r.Body = http.MaxBytesReader(w, r.Body, 1500<<20) // 1.5GB limit
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
 		http.Error(w, "file too large", http.StatusBadRequest)
 		return
@@ -64,15 +66,19 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	upload := func(formKey, folder string, setUrl func(string)) error {
+	upload := func(formKey, folder string, limit int64, setUrl func(string)) error {
 		file, header, err := r.FormFile(formKey)
 		if err == http.ErrMissingFile {
-			return nil // Optional (or handled by service validation)
+			return nil // Optional
 		}
 		if err != nil {
 			return err
 		}
 		defer file.Close()
+
+		if header.Size > limit {
+			return errors.New(formKey + " file too large")
+		}
 
 		url, key, err := h.fileService.Upload(r.Context(), file, header, folder)
 		if err != nil {
@@ -83,20 +89,20 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	// Upload Image
-	if err := upload("image", "images", func(u string) { spec.ImageUrl = u }); err != nil {
+	// Upload Image (5MB)
+	if err := upload("image", "images", 5<<20, func(u string) { spec.ImageUrl = u }); err != nil {
 		http.Error(w, "upload image failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Upload Preview (MP3)
-	if err := upload("preview", "audio/previews", func(u string) { spec.PreviewUrl = u }); err != nil {
+	// Upload Preview (30MB)
+	if err := upload("preview", "audio/previews", 30<<20, func(u string) { spec.PreviewUrl = u }); err != nil {
 		http.Error(w, "upload preview failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Upload WAV
-	if err := upload("wav", "audio/wavs", func(u string) {
+	// Upload WAV (300MB)
+	if err := upload("wav", "audio/wavs", 300<<20, func(u string) {
 		val := u
 		spec.WavUrl = &val
 	}); err != nil {
@@ -104,8 +110,8 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upload Stems
-	if err := upload("stems", "audio/stems", func(u string) {
+	// Upload Stems (1GB)
+	if err := upload("stems", "audio/stems", 1<<30, func(u string) {
 		val := u
 		spec.StemsUrl = &val
 	}); err != nil {
