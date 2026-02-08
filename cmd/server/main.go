@@ -86,7 +86,7 @@ func main() {
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
 	paymentHandler := handler.NewPaymentHandler(paymentService)
-	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, specRepo)
+	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, specRepo, fileService)
 
 	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler, analyticsHandler)
 	mux := appRouter.Setup()

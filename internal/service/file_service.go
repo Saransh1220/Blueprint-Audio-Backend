@@ -21,6 +21,7 @@ type FileService interface {
 	Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, folder string) (string, string, error)
 	UploadWithKey(ctx context.Context, file io.Reader, key string, contentType string) (string, error)
 	GetPresignedURL(ctx context.Context, key string, expiration time.Duration) (string, error)
+	GetPresignedDownloadURL(ctx context.Context, key string, filename string, expiration time.Duration) (string, error)
 	Delete(ctx context.Context, key string) error
 	GetKeyFromUrl(fileUrl string) (string, error)
 } // Ref: FileService Interface Update
@@ -172,6 +173,35 @@ func (s *s3FileService) GetPresignedURL(ctx context.Context, key string, expirat
 	}
 
 	// URL is already using public endpoint, no replacement needed
+	// URL is already using public endpoint, no replacement needed
+	return request.URL, nil
+}
+
+func (s *s3FileService) GetPresignedDownloadURL(ctx context.Context, key string, filename string, expiration time.Duration) (string, error) {
+	// Use presignClient which is configured with public endpoint
+	presignClient := s3.NewPresignClient(s.presignClient)
+
+	// Clean filename to be safe for HTTP headers (basic sanitization)
+	safeFilename := filepath.Base(filename)
+	if safeFilename == "." || safeFilename == "" {
+		safeFilename = "download.mp3"
+	}
+	// Quote the filename to handle spaces/special chars
+	contentDisposition := fmt.Sprintf("attachment; filename=\"%s\"", safeFilename)
+
+	// Generate presigned GET URL with ResponseContentDisposition
+	request, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket:                     aws.String(s.bucketName),
+		Key:                        aws.String(key),
+		ResponseContentDisposition: aws.String(contentDisposition),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiration
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned download URL: %w", err)
+	}
+
 	return request.URL, nil
 }
 

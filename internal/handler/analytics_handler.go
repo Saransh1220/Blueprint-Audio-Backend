@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
@@ -15,12 +17,14 @@ import (
 type AnalyticsHandler struct {
 	analyticsService service.AnalyticsServiceInterface
 	specRepo         domain.SpecRepository
+	fileService      service.FileService
 }
 
-func NewAnalyticsHandler(analyticsService service.AnalyticsServiceInterface, specRepo domain.SpecRepository) *AnalyticsHandler {
+func NewAnalyticsHandler(analyticsService service.AnalyticsServiceInterface, specRepo domain.SpecRepository, fileService service.FileService) *AnalyticsHandler {
 	return &AnalyticsHandler{
 		analyticsService: analyticsService,
 		specRepo:         specRepo,
+		fileService:      fileService,
 	}
 }
 
@@ -137,11 +141,36 @@ func (h *AnalyticsHandler) DownloadFreeMp3(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Return the preview URL (which is the MP3)
-	// In a production system, you might want to generate a signed URL with expiry
+	// Generate presigned download URL
+	key, err := h.fileService.GetKeyFromUrl(spec.PreviewUrl)
+	if err != nil {
+		// Fallback to original URL if key extraction fails
+		// This might happen if URL is already a public URL not matching expected prefix
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"download_url": spec.PreviewUrl,
+			"message":      "Free MP3 download tracked successfully (fallback)",
+		})
+		return
+	}
+
+	// Generate download filename (safe for headers)
+	// Use title or id if title is unsafe, but FileService handles basic sanitization
+	safeTitle := spec.Title
+	if safeTitle == "" {
+		safeTitle = "track"
+	}
+	filename := fmt.Sprintf("%s.mp3", safeTitle)
+
+	downloadURL, err := h.fileService.GetPresignedDownloadURL(r.Context(), key, filename, 1*time.Hour)
+	if err != nil {
+		http.Error(w, "Failed to generate download link", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"download_url": spec.PreviewUrl,
+		"download_url": downloadURL,
 		"message":      "Free MP3 download tracked successfully",
 	})
 }

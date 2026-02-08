@@ -503,6 +503,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	existingSpec.Key = updateData.Key
 	existingSpec.Tags = updateData.Tags
 	existingSpec.Description = updateData.Description
+	existingSpec.FreeMp3Enabled = updateData.FreeMp3Enabled
 	// Add other fields as necessary
 
 	// 4. Handle Image Replacement

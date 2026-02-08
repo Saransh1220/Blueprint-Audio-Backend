@@ -29,6 +29,11 @@ func (m *MockFileService) GetPresignedURL(ctx context.Context, key string, expir
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockFileService) GetPresignedDownloadURL(ctx context.Context, key string, filename string, expiration time.Duration) (string, error) {
+	args := m.Called(ctx, key, filename, expiration)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockFileService) Delete(ctx context.Context, key string) error {
 	args := m.Called(ctx, key)
 	return args.Error(0)
