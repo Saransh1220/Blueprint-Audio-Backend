@@ -22,10 +22,11 @@ func TestRegisterUser_Success(t *testing.T) {
 	ctx := context.Background()
 
 	req := service.RegisterUserReq{
-		Email:    "test@example.com",
-		Password: "password123",
-		Name:     "Test User",
-		Role:     "artist",
+		Email:       "test@example.com",
+		Password:    "password123",
+		Name:        "Test User",
+		DisplayName: "Test User",
+		Role:        "artist",
 	}
 
 	// Expectation
@@ -51,18 +52,30 @@ func TestRegisterUser_InvalidInput(t *testing.T) {
 
 	// Case 1: Empty Email
 	_, err := authService.RegisterUser(ctx, service.RegisterUserReq{
-		Email:    "",
-		Password: "password123",
-		Name:     "Test",
+		Email:       "",
+		Password:    "password123",
+		Name:        "Test",
+		DisplayName: "Test",
 	})
 	assert.Error(t, err)
-	assert.Equal(t, "missing required fields", err.Error())
+	assert.Equal(t, "email is required", err.Error())
 
-	// Case 2: Short Password
+	// Case 2: Empty DisplayName
 	_, err = authService.RegisterUser(ctx, service.RegisterUserReq{
-		Email:    "test@example.com",
-		Password: "short",
-		Name:     "Test",
+		Email:       "test@example.com",
+		Password:    "password123",
+		Name:        "Test",
+		DisplayName: "",
+	})
+	assert.Error(t, err)
+	assert.Equal(t, "display name is required", err.Error())
+
+	// Case 3: Short Password
+	_, err = authService.RegisterUser(ctx, service.RegisterUserReq{
+		Email:       "test@example.com",
+		Password:    "short",
+		Name:        "Test",
+		DisplayName: "Test",
 	})
 	assert.Error(t, err)
 	assert.Equal(t, "password must be at least 8 characters", err.Error())
@@ -74,10 +87,11 @@ func TestRegisterUser_InvalidRole(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := authService.RegisterUser(ctx, service.RegisterUserReq{
-		Email:    "test@example.com",
-		Password: "password123",
-		Name:     "Test",
-		Role:     "invalid_role",
+		Email:       "test@example.com",
+		Password:    "password123",
+		Name:        "Test",
+		DisplayName: "Test",
+		Role:        "invalid_role",
 	})
 	assert.Error(t, err)
 	assert.Equal(t, "Invalid role!", err.Error())
@@ -90,10 +104,11 @@ func TestRegisterUser_DisplayNameAndErrors(t *testing.T) {
 
 	t.Run("invalid email format", func(t *testing.T) {
 		_, err := authService.RegisterUser(ctx, service.RegisterUserReq{
-			Email:    "invalid-email",
-			Password: "password123",
-			Name:     "Test",
-			Role:     "artist",
+			Email:       "invalid-email",
+			Password:    "password123",
+			Name:        "Test",
+			DisplayName: "Test",
+			Role:        "artist",
 		})
 		assert.EqualError(t, err, "invalid email format")
 	})
@@ -119,30 +134,27 @@ func TestRegisterUser_DisplayNameAndErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("display name omitted", func(t *testing.T) {
+	t.Run("display name omitted returns validation error", func(t *testing.T) {
 		req := service.RegisterUserReq{
-			Email:    "nodisplay@example.com",
-			Password: "password123",
-			Name:     "Real Name",
-			Role:     "artist",
+			Email:       "nodisplay@example.com",
+			Password:    "password123",
+			Name:        "Real Name",
+			DisplayName: "",
+			Role:        "artist",
 		}
 
-		mockRepo.On("CreateUser", ctx, mock.MatchedBy(func(u *domain.User) bool {
-			return u != nil && u.DisplayName == nil
-		})).Return(nil).Once()
-
 		user, err := authService.RegisterUser(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, user)
-		assert.Nil(t, user.DisplayName)
+		assert.EqualError(t, err, "display name is required")
+		assert.Nil(t, user)
 	})
 
 	t.Run("repo error propagates", func(t *testing.T) {
 		req := service.RegisterUserReq{
-			Email:    "repoerr@example.com",
-			Password: "password123",
-			Name:     "Test",
-			Role:     "producer",
+			Email:       "repoerr@example.com",
+			Password:    "password123",
+			Name:        "Test",
+			DisplayName: "Test",
+			Role:        "producer",
 		}
 		mockRepo.On("CreateUser", ctx, mock.AnythingOfType("*domain.User")).Return(assert.AnError).Once()
 

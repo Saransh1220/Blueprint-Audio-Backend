@@ -51,8 +51,12 @@ func NewAuthService(repo domain.UserRepository, jwtSecret string, jwtExpiry time
 // password hashing, role validation, or repository creation fails.
 func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*domain.User, error) {
 	// Validation
-	if req.Email == "" || req.Password == "" || req.Name == "" {
-		return nil, errors.New("missing required fields")
+	if req.Email == "" {
+		return nil, errors.New("email is required")
+	}
+
+	if req.DisplayName == "" {
+		return nil, errors.New("display name is required")
 	}
 	if len(req.Password) < 8 {
 		return nil, errors.New("password must be at least 8 characters")

@@ -122,7 +122,7 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, COALESCE(u.display_name, u.name) as producer_name
+		SELECT s.*, u.display_name as producer_name
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1 AND s.is_deleted = FALSE
@@ -158,7 +158,7 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	query := `
-		SELECT s.*, COALESCE(u.display_name, u.name) as producer_name, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.is_deleted = FALSE
@@ -562,7 +562,7 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 	}
 
 	query := `
-		SELECT s.*, COALESCE(u.display_name, u.name) as producer_name, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.producer_id = $1 AND s.is_deleted = FALSE
@@ -647,7 +647,7 @@ func (r *pgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*do
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, COALESCE(u.display_name, u.name) as producer_name
+		SELECT s.*, u.display_name as producer_name
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1
