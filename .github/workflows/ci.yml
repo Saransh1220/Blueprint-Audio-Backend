@@ -18,10 +18,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Sync module files
+        env:
+          GOFLAGS: -mod=mod
+        run: go mod tidy
+
       - name: Run tests
+        env:
+          GOFLAGS: -mod=mod
         run: make test
 
       - name: Coverage check
+        env:
+          GOFLAGS: -mod=mod
         run: make coverage-check COVERAGE_THRESHOLD=70
 
       - name: Upload coverage artifacts

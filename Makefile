@@ -46,14 +46,17 @@ run:
 # Run tests
 test:
 	@echo "Running tests..."
+	$(GO) mod tidy
 	$(GO) test -v ./...
 
 test-unit:
 	@echo "Running unit tests..."
+	$(GO) mod tidy
 	$(GO) test -v ./...
 
 test-integration:
 	@echo "Running integration tests..."
+	$(GO) mod tidy
 	$(GO) test -v -tags=integration ./...
 
 # Run tests with coverage

@@ -17,9 +17,6 @@ coverage/
 .env.local
 docker-compose.override.yml
 
-# Checksums
-go.sum
-
 # Dependency directories (if used)
 vendor/
 
