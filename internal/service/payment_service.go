@@ -271,7 +271,7 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 	}
 
 	// 4. Fetch the spec to get file URLs
-	spec, err := s.specRepo.GetByID(ctx, license.SpecID)
+	spec, err := s.specRepo.GetByIDSystem(ctx, license.SpecID)
 	if err != nil {
 		return nil, errors.New("spec not found")
 	}

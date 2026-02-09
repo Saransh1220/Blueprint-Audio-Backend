@@ -25,23 +25,25 @@ const (
 
 // Spec represents a beat or sample package.
 type Spec struct {
-	ID             uuid.UUID `json:"id" db:"id"`
-	ProducerID     uuid.UUID `json:"producer_id" db:"producer_id"`
-	Title          string    `json:"title" db:"title"`
-	Category       Category  `json:"category" db:"category"`
-	Type           string    `json:"type" db:"type"` // e.g., WAV, STEMS, PACK
-	BPM            int       `json:"bpm" db:"bpm"`
-	Key            string    `json:"key" db:"key"`
-	ImageUrl       string    `json:"image_url" db:"image_url"`
-	PreviewUrl     string    `json:"preview_url" db:"preview_url"`
-	WavUrl         *string   `json:"wav_url,omitempty" db:"wav_url"`
-	StemsUrl       *string   `json:"stems_url,omitempty" db:"stems_url"`
-	BasePrice      float64   `json:"price" db:"base_price"`
-	Description    string    `json:"description" db:"description"`
-	Duration       int       `json:"duration" db:"duration"`                 // Audio duration in seconds
-	FreeMp3Enabled bool      `json:"free_mp3_enabled" db:"free_mp3_enabled"` // Enable free MP3 downloads
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID  `json:"id" db:"id"`
+	ProducerID     uuid.UUID  `json:"producer_id" db:"producer_id"`
+	Title          string     `json:"title" db:"title"`
+	Category       Category   `json:"category" db:"category"`
+	Type           string     `json:"type" db:"type"` // e.g., WAV, STEMS, PACK
+	BPM            int        `json:"bpm" db:"bpm"`
+	Key            string     `json:"key" db:"key"`
+	ImageUrl       string     `json:"image_url" db:"image_url"`
+	PreviewUrl     string     `json:"preview_url" db:"preview_url"`
+	WavUrl         *string    `json:"wav_url,omitempty" db:"wav_url"`
+	StemsUrl       *string    `json:"stems_url,omitempty" db:"stems_url"`
+	BasePrice      float64    `json:"price" db:"base_price"`
+	Description    string     `json:"description" db:"description"`
+	Duration       int        `json:"duration" db:"duration"`                 // Audio duration in seconds
+	FreeMp3Enabled bool       `json:"free_mp3_enabled" db:"free_mp3_enabled"` // Enable free MP3 downloads
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
+	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
 
 	// Relations
 	Licenses  []LicenseOption `json:"licenses,omitempty"`
@@ -61,6 +63,7 @@ type LicenseOption struct {
 	FileTypes   pq.StringArray `json:"file_types" db:"file_types"`
 	CreatedAt   time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at" db:"updated_at"`
+	IsDeleted   bool           `json:"is_deleted" db:"is_deleted"`
 }
 
 // Genre represents a musical genre.
@@ -122,6 +125,7 @@ type TopSpecStat struct {
 type SpecRepository interface {
 	Create(ctx context.Context, spec *Spec) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Spec, error)
+	GetByIDSystem(ctx context.Context, id uuid.UUID) (*Spec, error)
 	List(ctx context.Context, filter SpecFilter) ([]Spec, int, error)
 	Update(ctx context.Context, spec *Spec) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error

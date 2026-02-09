@@ -366,6 +366,19 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if err == domain.ErrSpecSoftDeleted {
+			// Spec was soft-deleted because it has existing purchases.
+			// Do NOT delete files from storage.
+			log.Printf("Spec %s was soft deleted (purchased). Skipping file deletion.", idStr)
+
+			// Invalidate Cache
+			cacheKey := "spec:" + idStr
+			db.Rdb.Del(context.Background(), cacheKey)
+			log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
+
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -504,6 +517,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	existingSpec.Tags = updateData.Tags
 	existingSpec.Description = updateData.Description
 	existingSpec.FreeMp3Enabled = updateData.FreeMp3Enabled
+	existingSpec.Licenses = updateData.Licenses
 	// Add other fields as necessary
 
 	// 4. Handle Image Replacement

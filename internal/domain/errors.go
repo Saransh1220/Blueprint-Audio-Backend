@@ -8,4 +8,5 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrSpecNotFound       = errors.New("spec not found")
 	ErrUnauthorized       = errors.New("unauthorized action")
+	ErrSpecSoftDeleted    = errors.New("spec soft deleted")
 )
