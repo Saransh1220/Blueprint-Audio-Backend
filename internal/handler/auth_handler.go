@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
@@ -12,11 +13,15 @@ import (
 )
 
 type AuthHandler struct {
-	service service.AuthServiceInterface
+	service     service.AuthServiceInterface
+	fileService service.FileService
 }
 
-func NewAuthHandler(service service.AuthServiceInterface) *AuthHandler {
-	return &AuthHandler{service: service}
+func NewAuthHandler(service service.AuthServiceInterface, fileService service.FileService) *AuthHandler {
+	return &AuthHandler{
+		service:     service,
+		fileService: fileService,
+	}
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +90,20 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, `{"error": "user not found"}`, http.StatusNotFound)
 		return
+	}
+
+	// Generate presigned URL for avatar if present
+	if user.AvatarUrl != nil && *user.AvatarUrl != "" {
+		// Extract the key from the full URL
+		key, err := h.fileService.GetKeyFromUrl(*user.AvatarUrl)
+		if err == nil {
+			// Generate presigned URL with the extracted key
+			presignedURL, err := h.fileService.GetPresignedURL(r.Context(), key, 3600*time.Second)
+			if err == nil {
+				user.AvatarUrl = &presignedURL
+			}
+		}
+		// If error extracting key or generating presigned URL, just return the original URL
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -10,14 +10,12 @@
 *.out
 *.test
 coverage.html
+coverage/
 
 # Local Environment Config
 .env
 .env.local
 docker-compose.override.yml
-
-# Checksums
-go.sum
 
 # Dependency directories (if used)
 vendor/

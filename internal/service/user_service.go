@@ -24,7 +24,7 @@ func NewUserService(repo domain.UserRepository) UserService {
 
 // UpdateProfile updates a user's profile information
 func (s *userService) UpdateProfile(ctx context.Context, userID uuid.UUID, req dto.UpdateProfileRequest) error {
-	return s.repo.UpdateProfile(ctx, userID, req.Bio, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL)
+	return s.repo.UpdateProfile(ctx, userID, req.Bio, req.AvatarURL, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL)
 }
 
 // GetPublicProfile retrieves a user's public profile information
@@ -42,6 +42,7 @@ func (s *userService) GetPublicProfile(ctx context.Context, userID uuid.UUID) (*
 		Name:         user.Name,
 		Role:         string(user.Role),
 		Bio:          user.Bio,
+		AvatarURL:    user.AvatarUrl,
 		InstagramURL: user.InstagramURL,
 		TwitterURL:   user.TwitterURL,
 		YoutubeURL:   user.YoutubeURL,

@@ -9,21 +9,42 @@ import (
 
 // SpecResponse is the PUBLIC response - no premium URLs
 type SpecResponse struct {
-	ID         uuid.UUID         `json:"id"`
-	ProducerID uuid.UUID         `json:"producer_id"`
-	Title      string            `json:"title"`
-	Category   string            `json:"category"`
-	Type       string            `json:"type"`
-	BPM        int               `json:"bpm"`
-	Key        string            `json:"key"`
-	ImageURL   string            `json:"image_url"`
-	PreviewURL string            `json:"preview_url"` // ✓ Only preview
-	Price      float64           `json:"price"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Licenses   []LicenseResponse `json:"licenses,omitempty"`
-	Genres     []GenreResponse   `json:"genres,omitempty"`
-	Tags       []string          `json:"tags,omitempty"`
+	ID             uuid.UUID         `json:"id"`
+	ProducerID     uuid.UUID         `json:"producer_id"`
+	Title          string            `json:"title"`
+	Category       string            `json:"category"`
+	Type           string            `json:"type"`
+	BPM            int               `json:"bpm"`
+	Key            string            `json:"key"`
+	ImageURL       string            `json:"image_url"`
+	PreviewURL     string            `json:"preview_url"` // ✓ Only preview
+	Price          float64           `json:"price"`
+	Duration       int               `json:"duration"`
+	FreeMp3Enabled bool              `json:"free_mp3_enabled"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	Licenses       []LicenseResponse `json:"licenses,omitempty"`
+	Genres         []GenreResponse   `json:"genres,omitempty"`
+	Tags           []string          `json:"tags,omitempty"`
+	Analytics      *PublicAnalytics  `json:"analytics,omitempty"`
+}
+
+// PublicAnalytics contains publicly visible analytics
+type PublicAnalytics struct {
+	PlayCount          int  `json:"play_count"`
+	FavoriteCount      int  `json:"favorite_count"`
+	TotalDownloadCount int  `json:"total_download_count"`
+	IsFavorited        bool `json:"is_favorited"`
+}
+
+// ProducerAnalytics contains full analytics for producers
+type ProducerAnalytics struct {
+	PlayCount          int            `json:"play_count"`
+	FavoriteCount      int            `json:"favorite_count"`
+	TotalDownloadCount int            `json:"total_download_count"`
+	TotalPurchaseCount int            `json:"total_purchase_count"`
+	PurchasesByLicense map[string]int `json:"purchases_by_license"`
+	TotalRevenue       float64        `json:"total_revenue"`
 }
 
 // LicenseResponse for nested license data
@@ -49,19 +70,21 @@ type GenreResponse struct {
 
 func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 	response := &SpecResponse{
-		ID:         spec.ID,
-		ProducerID: spec.ProducerID,
-		Title:      spec.Title,
-		Category:   string(spec.Category),
-		Type:       spec.Type,
-		BPM:        spec.BPM,
-		Key:        spec.Key,
-		ImageURL:   spec.ImageUrl,
-		PreviewURL: spec.PreviewUrl,
-		Price:      spec.BasePrice,
-		CreatedAt:  spec.CreatedAt,
-		UpdatedAt:  spec.UpdatedAt,
-		Tags:       spec.Tags,
+		ID:             spec.ID,
+		ProducerID:     spec.ProducerID,
+		Title:          spec.Title,
+		Category:       string(spec.Category),
+		Type:           spec.Type,
+		BPM:            spec.BPM,
+		Key:            spec.Key,
+		ImageURL:       spec.ImageUrl,
+		PreviewURL:     spec.PreviewUrl,
+		Price:          spec.BasePrice,
+		Duration:       spec.Duration,
+		FreeMp3Enabled: spec.FreeMp3Enabled,
+		CreatedAt:      spec.CreatedAt,
+		UpdatedAt:      spec.UpdatedAt,
+		Tags:           spec.Tags,
 	}
 	// Convert licenses
 	if len(spec.Licenses) > 0 {
@@ -90,6 +113,15 @@ func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 				Slug:      genre.Slug,
 				CreatedAt: genre.CreatedAt,
 			}
+		}
+	}
+	// Include analytics if available
+	if spec.Analytics != nil {
+		response.Analytics = &PublicAnalytics{
+			PlayCount:          spec.Analytics.PlayCount,
+			FavoriteCount:      spec.Analytics.FavoriteCount,
+			TotalDownloadCount: spec.Analytics.FreeDownloadCount,
+			IsFavorited:        spec.Analytics.IsFavorited,
 		}
 	}
 	return response

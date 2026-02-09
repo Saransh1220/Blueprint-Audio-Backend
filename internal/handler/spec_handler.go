@@ -1,33 +1,45 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log" // Added log
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/disintegration/imaging"
+	"github.com/google/uuid" // Added db import
+	"github.com/saransh1220/blueprint-audio/internal/db"
 	"github.com/saransh1220/blueprint-audio/internal/domain"
 	"github.com/saransh1220/blueprint-audio/internal/dto"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/service"
+	"golang.org/x/sync/errgroup"
 )
 
 type SpecHandler struct {
-	service     service.SpecService
-	fileService service.FileService
+	service          service.SpecService
+	fileService      service.FileService
+	analyticsService service.AnalyticsServiceInterface
 }
 
-func NewSpecHandler(service service.SpecService, fileService service.FileService) *SpecHandler {
+func NewSpecHandler(service service.SpecService, fileService service.FileService, analyticsService service.AnalyticsServiceInterface) *SpecHandler {
 	return &SpecHandler{
-		service:     service,
-		fileService: fileService}
+		service:          service,
+		fileService:      fileService,
+		analyticsService: analyticsService,
+	}
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
-	// 1. Parse Multipart Form (Max 50MB)
+	// 1. Limit Total Request Size (1.5GB)
+	r.Body = http.MaxBytesReader(w, r.Body, 1500<<20) // 1.5GB limit
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
 		http.Error(w, "file too large", http.StatusBadRequest)
 		return
@@ -51,6 +63,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Handle File Uploads with Rollback
 	var uploadedKeys []string
+	var uploadedKeysMu sync.Mutex
 	var success bool
 	defer func() {
 		if !success {
@@ -61,52 +74,85 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	upload := func(formKey, folder string, setUrl func(string)) error {
-		file, header, err := r.FormFile(formKey)
-		if err == http.ErrMissingFile {
-			return nil // Optional (or handled by service validation)
-		}
-		if err != nil {
-			return err
-		}
-		defer file.Close()
+	g, ctx := errgroup.WithContext(r.Context())
 
-		url, key, err := h.fileService.Upload(r.Context(), file, header, folder)
-		if err != nil {
-			return err
+	uploadAsync := func(formKey, folder string, limit int64, setUrl func(string)) func() error {
+		return func() error {
+			// Check for context cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			file, header, err := r.FormFile(formKey)
+			if err == http.ErrMissingFile {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			if header.Size > limit {
+				return errors.New(formKey + " file too large")
+			}
+
+			var url, key string
+
+			if formKey == "image" {
+				src, err := imaging.Decode(file)
+				if err != nil {
+					return fmt.Errorf("failed to decode image: %w", err)
+				}
+
+				dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+				buf := new(bytes.Buffer)
+				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+					return fmt.Errorf("failed to encode resized image: %w", err)
+				}
+
+				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+				key = fmt.Sprintf("%s/%s", folder, filename)
+
+				url, err = h.fileService.UploadWithKey(ctx, buf, key, "image/jpeg")
+				if err != nil {
+					return err
+				}
+			} else {
+				url, key, err = h.fileService.Upload(ctx, file, header, folder)
+				if err != nil {
+					return err
+				}
+			}
+
+			uploadedKeysMu.Lock()
+			uploadedKeys = append(uploadedKeys, key)
+			uploadedKeysMu.Unlock()
+
+			setUrl(url)
+			return nil
 		}
-		uploadedKeys = append(uploadedKeys, key)
-		setUrl(url)
-		return nil
 	}
 
-	// Upload Image
-	if err := upload("image", "images", func(u string) { spec.ImageUrl = u }); err != nil {
-		http.Error(w, "upload image failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Image (5MB)
+	g.Go(uploadAsync("image", "images", 5<<20, func(u string) { spec.ImageUrl = u }))
 
-	// Upload Preview (MP3)
-	if err := upload("preview", "audio/previews", func(u string) { spec.PreviewUrl = u }); err != nil {
-		http.Error(w, "upload preview failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Preview (30MB)
+	g.Go(uploadAsync("preview", "audio/previews", 30<<20, func(u string) { spec.PreviewUrl = u }))
 
-	// Upload WAV
-	if err := upload("wav", "audio/wavs", func(u string) {
+	// WAV (300MB)
+	g.Go(uploadAsync("wav", "audio/wavs", 300<<20, func(u string) {
 		val := u
 		spec.WavUrl = &val
-	}); err != nil {
-		http.Error(w, "upload wav failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	}))
 
-	// Upload Stems
-	if err := upload("stems", "audio/stems", func(u string) {
+	// Stems (1GB)
+	g.Go(uploadAsync("stems", "audio/stems", 1<<30, func(u string) {
 		val := u
 		spec.StemsUrl = &val
-	}); err != nil {
-		http.Error(w, "upload stems failed: "+err.Error(), http.StatusInternalServerError)
+	}))
+
+	if err := g.Wait(); err != nil {
+		http.Error(w, "upload failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -134,6 +180,20 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Try Cache
+	cacheKey := "spec:" + idStr
+	val, err := db.Rdb.Get(r.Context(), cacheKey).Result()
+	if err == nil {
+		// Cache Hit!
+		log.Printf("[CACHE HIT] Spec ID: %s", idStr)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write([]byte(val))
+		return
+	}
+
+	log.Printf("[CACHE MISS] Spec ID: %s", idStr)
+
 	spec, err := h.service.GetSpec(r.Context(), id)
 	if err != nil {
 		// Differentiate between 404 and 500 if possible, for now 500 or 404 based on error
@@ -146,8 +206,33 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sanitizeSpec(spec)
+
+	// Get user ID if authenticated (optional)
+	var userIDPtr *uuid.UUID
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		userIDPtr = &userID
+	}
+
+	// Fetch analytics data
+	analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), spec.ID, userIDPtr)
+	if err == nil {
+		spec.Analytics = &domain.SpecAnalytics{
+			PlayCount:     analytics.PlayCount,
+			FavoriteCount: analytics.FavoriteCount,
+			IsFavorited:   analytics.IsFavorited,
+		}
+	}
+
 	response := dto.ToSpecResponse(spec)
+
+	// 3. Save to Cache (Async)
+	go func() {
+		jsonBytes, _ := json.Marshal(response)
+		db.Rdb.Set(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
+	}()
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -208,9 +293,26 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user ID if authenticated (optional)
+	var userIDPtr *uuid.UUID
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		userIDPtr = &userID
+	}
+
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
+
+		// Fetch analytics for each spec
+		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, userIDPtr)
+		if err == nil {
+			specs[i].Analytics = &domain.SpecAnalytics{
+				PlayCount:     analytics.PlayCount,
+				FavoriteCount: analytics.FavoriteCount,
+				IsFavorited:   analytics.IsFavorited,
+			}
+		}
 	}
+
 	responses := make([]dto.SpecResponse, len(specs))
 	for i := range specs {
 		responses[i] = *dto.ToSpecResponse(&specs[i])
@@ -264,6 +366,19 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if err == domain.ErrSpecSoftDeleted {
+			// Spec was soft-deleted because it has existing purchases.
+			// Do NOT delete files from storage.
+			log.Printf("Spec %s was soft deleted (purchased). Skipping file deletion.", idStr)
+
+			// Invalidate Cache
+			cacheKey := "spec:" + idStr
+			db.Rdb.Del(context.Background(), cacheKey)
+			log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
+
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -292,6 +407,11 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if spec.StemsUrl != nil {
 		deleteFile(*spec.StemsUrl)
 	}
+
+	// Invalidate Cache
+	cacheKey := "spec:" + idStr
+	db.Rdb.Del(context.Background(), cacheKey)
+	log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -345,7 +465,7 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 	}
 }
 
-// Update handles PATCH /specs/:id - updates spec metadata (not files)
+// Update handles PATCH /specs/:id - updates spec metadata and optionally the cover image
 func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
@@ -360,36 +480,107 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var spec domain.Spec
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	spec.ID = id // Ensure ID matches path parameter
-
-	if err := h.service.UpdateSpec(r.Context(), &spec, producerID); err != nil {
-		if strings.Contains(err.Error(), "unauthorized") {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Fetch updated spec to return
-	updated, err := h.service.GetSpec(r.Context(), id)
+	// 1. Fetch existing spec first (to verify ownership and get old image URL)
+	existingSpec, err := h.service.GetSpec(r.Context(), id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if existingSpec == nil {
+		http.Error(w, "spec not found", http.StatusNotFound)
+		return
+	}
+	if existingSpec.ProducerID != producerID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
-	h.sanitizeSpec(updated)
-	response := dto.ToSpecResponse(updated)
+	// 2. Parse Multipart Form (10MB limit for metadata + image)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "file too large", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Extract and Apply Metadata
+	metadata := r.FormValue("metadata")
+	var updateData domain.Spec
+	if err := json.Unmarshal([]byte(metadata), &updateData); err != nil {
+		http.Error(w, "invalid metadata json", http.StatusBadRequest)
+		return
+	}
+
+	// Update fields
+	existingSpec.Title = updateData.Title
+	existingSpec.BasePrice = updateData.BasePrice
+	existingSpec.BPM = updateData.BPM
+	existingSpec.Key = updateData.Key
+	existingSpec.Tags = updateData.Tags
+	existingSpec.Description = updateData.Description
+	existingSpec.FreeMp3Enabled = updateData.FreeMp3Enabled
+	existingSpec.Licenses = updateData.Licenses
+	// Add other fields as necessary
+
+	// 4. Handle Image Replacement
+	file, _, err := r.FormFile("image")
+	if err != nil && err != http.ErrMissingFile {
+		http.Error(w, "invalid file", http.StatusBadRequest)
+		return
+	}
+
+	if file != nil {
+		defer file.Close()
+
+		// Resize and Upload New Image
+		src, err := imaging.Decode(file)
+		if err != nil {
+			http.Error(w, "failed to decode image", http.StatusBadRequest)
+			return
+		}
+
+		dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+		buf := new(bytes.Buffer)
+		if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+			http.Error(w, "failed to encode image", http.StatusInternalServerError)
+			return
+		}
+
+		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		key := fmt.Sprintf("images/%s", filename)
+
+		url, err := h.fileService.UploadWithKey(r.Context(), buf, key, "image/jpeg")
+		if err != nil {
+			http.Error(w, "failed to upload image: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Delete Old Image
+		if existingSpec.ImageUrl != "" {
+			// Helper to extract key and delete
+			if oldKey, err := h.fileService.GetKeyFromUrl(existingSpec.ImageUrl); err == nil {
+				// Fire and forget delete (or log error)
+				_ = h.fileService.Delete(context.Background(), oldKey)
+			}
+		}
+
+		// Update URL
+		existingSpec.ImageUrl = url
+	}
+
+	// 5. Save Updates
+	if err := h.service.UpdateSpec(r.Context(), existingSpec, producerID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 6. Return Updated Spec
+	h.sanitizeSpec(existingSpec)
+	response := dto.ToSpecResponse(existingSpec)
+
+	// Invalidate Cache
+	cacheKey := "spec:" + idStr
+	db.Rdb.Del(context.Background(), cacheKey)
+	log.Printf("[CACHE INVALIDATE] Updated Spec ID: %s", idStr)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -414,8 +605,24 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get current user ID (viewer) if authenticated
+	var currentUserIDPtr *uuid.UUID
+	if currentUserID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		currentUserIDPtr = &currentUserID
+	}
+
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
+
+		// Fetch analytics for each spec
+		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, currentUserIDPtr)
+		if err == nil {
+			specs[i].Analytics = &domain.SpecAnalytics{
+				PlayCount:     analytics.PlayCount,
+				FavoriteCount: analytics.FavoriteCount,
+				IsFavorited:   analytics.IsFavorited,
+			}
+		}
 	}
 
 	responses := make([]dto.SpecResponse, len(specs))

@@ -61,3 +61,36 @@ func (m *AuthMiddleWare) RequireAuth(next http.Handler) http.Handler {
 
 	})
 }
+
+// FlexibleAuth attempts to authenticate the user but proceeds even if no token is present.
+// If a valid token is found, it injects the UserID and Role into the context.
+// If no token or invalid token, it simply proceeds without injecting identity.
+func (m *AuthMiddleWare) FlexibleAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		tokenStr := parts[1]
+		claims, err := utils.ValidateToken(tokenStr, m.jwtSecret)
+		if err != nil {
+			// Token invalid/expired - proceed as guest
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Inject Identity & Role into Context
+		ctx := context.WithValue(r.Context(), ContextKeyUserId, claims.UserID)
+		ctx = context.WithValue(ctx, ContextKeyRole, claims.Role)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}

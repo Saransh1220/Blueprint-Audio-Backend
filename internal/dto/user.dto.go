@@ -3,6 +3,7 @@ package dto
 // UpdateProfileRequest represents the request body for updating a user's profile
 type UpdateProfileRequest struct {
 	Bio          *string `json:"bio,omitempty"`
+	AvatarURL    *string `json:"avatar_url,omitempty"`
 	InstagramURL *string `json:"instagram_url,omitempty"`
 	TwitterURL   *string `json:"twitter_url,omitempty"`
 	YoutubeURL   *string `json:"youtube_url,omitempty"`
@@ -15,6 +16,7 @@ type PublicUserResponse struct {
 	Name         string  `json:"name"`
 	Role         string  `json:"role"`
 	Bio          *string `json:"bio,omitempty"`
+	AvatarURL    *string `json:"avatar_url,omitempty"`
 	InstagramURL *string `json:"instagram_url,omitempty"`
 	TwitterURL   *string `json:"twitter_url,omitempty"`
 	YoutubeURL   *string `json:"youtube_url,omitempty"`

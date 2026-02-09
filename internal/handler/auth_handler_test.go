@@ -20,7 +20,8 @@ import (
 func TestRegisterHandler_Success(t *testing.T) {
 	// Setup
 	mockService := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockService)
+	mockFileService := new(mocks.MockFileService)
+	h := handler.NewAuthHandler(mockService, mockFileService)
 
 	reqBody := service.RegisterUserReq{
 		Email:    "test@example.com",
@@ -50,7 +51,8 @@ func TestRegisterHandler_Success(t *testing.T) {
 
 func TestRegisterHandler_Conflict(t *testing.T) {
 	mockService := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockService)
+	mockFileService := new(mocks.MockFileService)
+	h := handler.NewAuthHandler(mockService, mockFileService)
 
 	reqBody := service.RegisterUserReq{
 		Email: "existing@example.com",
@@ -71,7 +73,8 @@ func TestRegisterHandler_Conflict(t *testing.T) {
 
 func TestRegisterHandler_BadRequest(t *testing.T) {
 	mockService := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockService)
+	mockFileService := new(mocks.MockFileService)
+	h := handler.NewAuthHandler(mockService, mockFileService)
 
 	// Validation Error
 	reqBody := service.RegisterUserReq{Email: ""}

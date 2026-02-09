@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -85,21 +87,63 @@ func (r *pgUserRepository) GetUserById(ctx context.Context, id uuid.UUID) (*doma
 	return user, nil
 }
 
-// UpdateProfile updates a user's profile fields (bio and social media URLs).
+// UpdateProfile updates a user's profile fields (bio, avatar, and social media URLs).
 // Only the provided non-nil fields will be updated in the database.
 // Returns an error if the database operation fails.
-func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
-	query := `
-		UPDATE users 
-		SET bio = $1, 
-		    instagram_url = $2, 
-		    twitter_url = $3, 
-		    youtube_url = $4, 
-		    spotify_url = $5, 
-		    updated_at = $6
-		WHERE id = $7
-	`
+func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+	// Build dynamic query to only update provided fields
+	setClauses := []string{}
+	args := []interface{}{}
+	argIndex := 1
 
-	_, err := r.db.ExecContext(ctx, query, bio, instagramURL, twitterURL, youtubeURL, spotifyURL, time.Now(), id)
+	if bio != nil {
+		setClauses = append(setClauses, fmt.Sprintf("bio = $%d", argIndex))
+		args = append(args, bio)
+		argIndex++
+	}
+	if avatarUrl != nil {
+		setClauses = append(setClauses, fmt.Sprintf("avatar_url = $%d", argIndex))
+		args = append(args, avatarUrl)
+		argIndex++
+	}
+	if instagramURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("instagram_url = $%d", argIndex))
+		args = append(args, instagramURL)
+		argIndex++
+	}
+	if twitterURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("twitter_url = $%d", argIndex))
+		args = append(args, twitterURL)
+		argIndex++
+	}
+	if youtubeURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("youtube_url = $%d", argIndex))
+		args = append(args, youtubeURL)
+		argIndex++
+	}
+	if spotifyURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("spotify_url = $%d", argIndex))
+		args = append(args, spotifyURL)
+		argIndex++
+	}
+
+	// Always update updated_at
+	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", argIndex))
+	args = append(args, time.Now())
+	argIndex++
+
+	// Add WHERE clause with user ID
+	args = append(args, id)
+
+	// If no fields to update, return early
+	if len(setClauses) == 1 { // Only updated_at
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
+		strings.Join(setClauses, ", "),
+		argIndex)
+
+	_, err := r.db.ExecContext(ctx, query, args...)
 	return err
 }

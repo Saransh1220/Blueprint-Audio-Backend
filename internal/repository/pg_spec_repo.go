@@ -43,16 +43,23 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
         INSERT INTO specs (
             id, producer_id, title, category, type, bpm, key, 
             base_price, image_url, preview_url, wav_url, stems_url,
-            tags, 
+            tags, duration, free_mp3_enabled,
             created_at, updated_at
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
             :base_price, :image_url, :preview_url, :wav_url, :stems_url,
-            :tags,
+            :tags, :duration, :free_mp3_enabled,
             :created_at, :updated_at
         )`
 
 	_, err = tx.NamedExecContext(ctx, query, spec)
+	if err != nil {
+		return err
+	}
+
+	// 3b. Create analytics record
+	analyticsQuery := `INSERT INTO spec_analytics (spec_id) VALUES ($1) ON CONFLICT DO NOTHING`
+	_, err = tx.ExecContext(ctx, analyticsQuery, spec.ID)
 	if err != nil {
 		return err
 	}
@@ -113,7 +120,7 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
 	spec := &domain.Spec{}
 
-	query := `SELECT * FROM specs WHERE id = $1`
+	query := `SELECT * FROM specs WHERE id = $1 AND is_deleted = FALSE`
 	err := r.db.GetContext(ctx, spec, query, id)
 	if err != nil {
 		return nil, err
@@ -121,7 +128,7 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 
 	//fetct licences
 	//fetct licences
-	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
+	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
 	if err != nil {
 		return nil, err
@@ -143,7 +150,7 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 		TotalCount int `db:"total_count"`
 	}
 
-	query := `SELECT *, COUNT(*) OVER() as total_count FROM specs WHERE 1=1`
+	query := `SELECT *, COUNT(*) OVER() as total_count FROM specs WHERE is_deleted = FALSE`
 	args := []interface{}{}
 	argId := 1
 
@@ -238,25 +245,63 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 
 	total := results[0].TotalCount
 	specs := make([]domain.Spec, len(results))
+
+	// Create a map for O(1) lookup to assign relations
+	specMap := make(map[uuid.UUID]*domain.Spec, len(results))
+	specIDs := make([]uuid.UUID, len(results))
+
 	for i, res := range results {
 		specs[i] = res.Spec
+		specs[i].Genres = []domain.Genre{}           // Initialize empty slice
+		specs[i].Licenses = []domain.LicenseOption{} // Initialize empty slice
+		specMap[specs[i].ID] = &specs[i]
+		specIDs[i] = specs[i].ID
 	}
 
-	// Fetch Relations (Genres, Licenses) for each spec
-	// N+1 query pattern, acceptable for small pagination limits
-	for i := range specs {
-		// Fetch Genres
-		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
+	// 1. Bulk Fetch Genres
+	// Use sqlx.In to handle IN clause with slice
+	genreQuery, args, err := sqlx.In(`
+		SELECT sg.spec_id, g.* 
+		FROM genres g 
+		JOIN spec_genres sg ON g.id = sg.genre_id 
+		WHERE sg.spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	genreQuery = r.db.Rebind(genreQuery)
 
-		// Fetch Licenses
-		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
+	var genreRows []struct {
+		SpecID uuid.UUID `db:"spec_id"`
+		domain.Genre
+	}
+
+	err = r.db.SelectContext(ctx, &genreRows, genreQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch genres: %w", err)
+	}
+
+	for _, row := range genreRows {
+		if spec, ok := specMap[row.SpecID]; ok {
+			spec.Genres = append(spec.Genres, row.Genre)
+		}
+	}
+
+	// 2. Bulk Fetch Licenses
+	licenseQuery, args, err := sqlx.In(`SELECT * FROM license_options WHERE spec_id IN (?) AND is_deleted = FALSE`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	licenseQuery = r.db.Rebind(licenseQuery)
+
+	var licenses []domain.LicenseOption
+	err = r.db.SelectContext(ctx, &licenses, licenseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+
+	for _, lic := range licenses {
+		if spec, ok := specMap[lic.SpecID]; ok {
+			spec.Licenses = append(spec.Licenses, lic)
 		}
 	}
 
@@ -264,10 +309,46 @@ func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 }
 
 func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {
+	// 1. Check if ANY purchases exist (licenses table)
+	// We check licenses table as it represents completed purchases granting access.
+	// You could also check orders table if you want to be stricter (e.g. pending orders).
+	var licenseCount int
+	err := r.db.GetContext(ctx, &licenseCount, "SELECT COUNT(*) FROM licenses WHERE spec_id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to check license existence: %w", err)
+	}
+
+	if licenseCount > 0 {
+		// Soft Delete
+		query := `UPDATE specs SET is_deleted = TRUE, deleted_at = NOW() WHERE id = $1 AND producer_id = $2`
+		result, err := r.db.ExecContext(ctx, query, id, producerId)
+		if err != nil {
+			return err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return domain.ErrSpecNotFound
+		}
+		return domain.ErrSpecSoftDeleted
+	}
+
+	// Hard Delete (No purchases)
 	query := `DELETE FROM specs WHERE id = $1 AND producer_id = $2`
 
 	result, err := r.db.ExecContext(ctx, query, id, producerId)
 	if err != nil {
+		// Check for potential constraint violation just in case (e.g. from orders table)
+		if strings.Contains(err.Error(), "violates foreign key constraint") {
+			// Fallback to soft delete if constrained by something else (like an older order that didn't generate a license?)
+			// But for now, let's treat it as an error or decide to soft delete.
+			// Given the user request "maybe a user does want to delete", soft delete seems safer as fallback.
+			// Let's retry with soft delete logic?
+			// Simplified: Just return error for now to confirm behavior.
+			return fmt.Errorf("cannot delete spec with existing dependencies: %w", err)
+		}
 		return err
 	}
 
@@ -283,12 +364,17 @@ func (r *pgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId 
 	return nil
 }
 
-// Update updates a spec's metadata (not files).
-// Only allows updating title, category, type, BPM, key, base_price, and tags.
-// Licenses must be updated separately through license operations.
 func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error {
 	spec.UpdatedAt = time.Now()
 
+	// 1. Start Transaction
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 2. Update Spec Details
 	query := `
 		UPDATE specs 
 		SET title = :title,
@@ -297,12 +383,16 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		    bpm = :bpm,
 		    key = :key,
 		    base_price = :base_price,
+		    image_url = :image_url,
+		    description = :description,
 		    tags = :tags,
+		    duration = :duration,
+		    free_mp3_enabled = :free_mp3_enabled,
 		    updated_at = :updated_at
 		WHERE id = :id AND producer_id = :producer_id
 	`
 
-	result, err := r.db.NamedExecContext(ctx, query, spec)
+	result, err := tx.NamedExecContext(ctx, query, spec)
 	if err != nil {
 		return err
 	}
@@ -316,7 +406,129 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		return domain.ErrSpecNotFound
 	}
 
-	return nil
+	// 3. Update Licenses (Smart Sync)
+	if spec.Licenses != nil {
+		// A. Fetch existing (active) licenses to compare
+		var existingLicenses []domain.LicenseOption
+		err = tx.SelectContext(ctx, &existingLicenses, "SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE", spec.ID)
+		if err != nil {
+			return err
+		}
+
+		existingMap := make(map[uuid.UUID]bool)
+		existingByType := make(map[domain.LicenseType]domain.LicenseOption)
+		for _, l := range existingLicenses {
+			existingMap[l.ID] = true
+			existingByType[l.LicenseType] = l
+		}
+
+		// Keep track of IDs processed in the update (to identify deletions)
+		processedIDs := make(map[uuid.UUID]bool)
+
+		// Define Queries
+		insertQuery := `
+            INSERT INTO license_options (
+                id, spec_id, license_type, name, price, features, file_types
+            ) VALUES (
+                :id, :spec_id, :license_type, :name, :price, :features, :file_types
+            )`
+
+		updateQuery := `
+			UPDATE license_options SET
+				license_type = :license_type,
+				name = :name,
+				price = :price,
+				features = :features,
+				file_types = :file_types,
+				is_deleted = FALSE,
+				updated_at = NOW()
+			WHERE id = :id
+		`
+
+		// B. Upsert (Insert or Update)
+		for i := range spec.Licenses {
+			license := &spec.Licenses[i]
+			license.SpecID = spec.ID // Ensure SpecID is set
+
+			// Try to match existing license by type if ID is missing (to prevent ID rotation)
+			if license.ID == uuid.Nil {
+				if existing, found := existingByType[license.LicenseType]; found {
+					license.ID = existing.ID
+				}
+			}
+
+			if license.ID == uuid.Nil {
+				// New License (and no match found) -> INSERT
+				license.ID = uuid.New()
+				_, err = tx.NamedExecContext(ctx, insertQuery, license)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Existing ID (or matched)
+				if existingMap[license.ID] {
+					// Update existing
+					_, err = tx.NamedExecContext(ctx, updateQuery, license)
+					if err != nil {
+						return err
+					}
+					processedIDs[license.ID] = true
+				} else {
+					// ID provided but not in DB (or soft deleted)
+					// Verify it exists in DB (maybe soft deleted) to decide whether to INSERT with new ID or UPDATE
+					// For simplicity and since we matched by Type if possible:
+					// If we are here, it means ID is not in active existingMap.
+					// It could be a soft-deleted ID.
+					// Attempt UPDATE (which reactivates due to is_deleted=FALSE).
+					result, err := tx.NamedExecContext(ctx, updateQuery, license)
+					if err != nil {
+						return err
+					}
+					rows, _ := result.RowsAffected()
+					if rows == 0 {
+						// ID doesn't exist at all -> Insert
+						_, err = tx.NamedExecContext(ctx, insertQuery, license)
+						if err != nil {
+							return err
+						}
+					}
+					processedIDs[license.ID] = true
+				}
+			}
+		}
+
+		// C. Hande Deletions
+		for existingID := range existingMap {
+			if !processedIDs[existingID] {
+				// This license was NOT in the update payload -> DELETE it.
+
+				// 1. Check if used in any purchases
+				var usageCount int
+				err := tx.GetContext(ctx, &usageCount, "SELECT COUNT(*) FROM licenses WHERE license_option_id = $1", existingID)
+				if err != nil {
+					return err
+				}
+
+				if usageCount > 0 {
+					// Used -> Soft Delete
+					_, err = tx.ExecContext(ctx, "UPDATE license_options SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1", existingID)
+					if err != nil {
+						return err
+					}
+				} else {
+					// Not Used -> Hard Delete
+					_, err = tx.ExecContext(ctx, "DELETE FROM license_options WHERE id = $1", existingID)
+					if err != nil {
+						// In case of race condition or other constraint, fall back to soft delete isn't safe if tx aborted,
+						// but usageCount check minimizes this risk significantly.
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 // ListByUserID retrieves all specs for a specific producer with pagination.
@@ -329,7 +541,7 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 	query := `
 		SELECT *, COUNT(*) OVER() as total_count 
 		FROM specs 
-		WHERE producer_id = $1
+		WHERE producer_id = $1 AND is_deleted = FALSE
 		ORDER BY created_at DESC 
 		LIMIT $2 OFFSET $3
 	`
@@ -345,26 +557,90 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 
 	total := results[0].TotalCount
 	specs := make([]domain.Spec, len(results))
+
+	specMap := make(map[uuid.UUID]*domain.Spec, len(results))
+	specIDs := make([]uuid.UUID, len(results))
+
 	for i, res := range results {
 		specs[i] = res.Spec
+		specs[i].Genres = []domain.Genre{}
+		specs[i].Licenses = []domain.LicenseOption{}
+		specMap[specs[i].ID] = &specs[i]
+		specIDs[i] = specs[i].ID
 	}
 
-	// Fetch Relations (Genres, Licenses) for each spec
-	for i := range specs {
-		// Fetch Genres
-		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Genres, genreQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
+	// 1. Bulk Fetch Genres
+	genreQuery, args, err := sqlx.In(`
+		SELECT sg.spec_id, g.* 
+		FROM genres g 
+		JOIN spec_genres sg ON g.id = sg.genre_id 
+		WHERE sg.spec_id IN (?)`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	genreQuery = r.db.Rebind(genreQuery)
 
-		// Fetch Licenses
-		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1`
-		err = r.db.SelectContext(ctx, &specs[i].Licenses, licenseQuery, specs[i].ID)
-		if err != nil {
-			return nil, 0, err
+	var genreRows []struct {
+		SpecID uuid.UUID `db:"spec_id"`
+		domain.Genre
+	}
+
+	err = r.db.SelectContext(ctx, &genreRows, genreQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch genres: %w", err)
+	}
+
+	for _, row := range genreRows {
+		if spec, ok := specMap[row.SpecID]; ok {
+			spec.Genres = append(spec.Genres, row.Genre)
+		}
+	}
+
+	// 2. Bulk Fetch Licenses
+	licenseQuery, args, err := sqlx.In(`SELECT * FROM license_options WHERE spec_id IN (?) AND is_deleted = FALSE`, specIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	licenseQuery = r.db.Rebind(licenseQuery)
+
+	var licenses []domain.LicenseOption
+	err = r.db.SelectContext(ctx, &licenses, licenseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+
+	for _, lic := range licenses {
+		if spec, ok := specMap[lic.SpecID]; ok {
+			spec.Licenses = append(spec.Licenses, lic)
 		}
 	}
 
 	return specs, total, nil
+}
+
+// GetByIDSystem retrieves a spec by ID without filtering deleted ones.
+func (r *pgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
+	spec := &domain.Spec{}
+
+	query := `SELECT * FROM specs WHERE id = $1`
+	err := r.db.GetContext(ctx, spec, query, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch licenses
+	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
+	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch genres
+	genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+
+	err = r.db.SelectContext(ctx, &spec.Genres, genreQuery, id)
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
 }

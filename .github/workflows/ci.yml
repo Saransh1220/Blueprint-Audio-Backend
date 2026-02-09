@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  test-and-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Sync module files
+        env:
+          GOFLAGS: -mod=mod
+        run: go mod tidy
+
+      - name: Run tests
+        env:
+          GOFLAGS: -mod=mod
+        run: make test
+
+      - name: Coverage check
+        env:
+          GOFLAGS: -mod=mod
+        run: make coverage-check COVERAGE_THRESHOLD=70
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-artifacts
+          path: coverage/
