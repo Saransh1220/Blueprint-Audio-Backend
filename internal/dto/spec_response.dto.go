@@ -11,6 +11,7 @@ import (
 type SpecResponse struct {
 	ID             uuid.UUID         `json:"id"`
 	ProducerID     uuid.UUID         `json:"producer_id"`
+	ProducerName   string            `json:"producer_name"`
 	Title          string            `json:"title"`
 	Category       string            `json:"category"`
 	Type           string            `json:"type"`
@@ -72,6 +73,7 @@ func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 	response := &SpecResponse{
 		ID:             spec.ID,
 		ProducerID:     spec.ProducerID,
+		ProducerName:   spec.ProducerName,
 		Title:          spec.Title,
 		Category:       string(spec.Category),
 		Type:           spec.Type,

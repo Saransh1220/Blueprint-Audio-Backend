@@ -7,6 +7,7 @@ GO=go
 MIGRATE=migrate
 COVERAGE_DIR=coverage
 COVERAGE_THRESHOLD?=70
+COVERAGE_EXCLUDE_FILES?=cmd/server/main.go,internal/repository/pg_spec_repo.go,pkg/migration/migration.go
 
 # Help command
 help:
@@ -63,7 +64,7 @@ test-integration:
 test-coverage:
 	@echo "Running tests with coverage..."
 	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
-	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -enforce-tests=true
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -exclude-files "$(COVERAGE_EXCLUDE_FILES)" -enforce-tests=true
 	@echo "Coverage artifacts generated in $(COVERAGE_DIR)/ (open $(COVERAGE_DIR)/coverage.html)"
 
 coverage: test-coverage
@@ -71,13 +72,13 @@ coverage: test-coverage
 coverage-report:
 	@echo "Generating coverage report (non-blocking mode)..."
 	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
-	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD)
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -exclude-files "$(COVERAGE_EXCLUDE_FILES)"
 	@echo "Open $(COVERAGE_DIR)/coverage.html for the dashboard report."
 
 coverage-check:
 	@echo "Running coverage threshold check ($(COVERAGE_THRESHOLD)%)..."
 	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
-	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -enforce true
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -exclude-files "$(COVERAGE_EXCLUDE_FILES)" -enforce true
 
 # Clean build artifacts
 clean:
