@@ -1,10 +1,12 @@
-.PHONY: help build run test clean migrate-up migrate-down migrate-create docker-build docker-up docker-down dev
+.PHONY: help build run test test-unit test-integration test-coverage coverage coverage-report coverage-check clean migrate-up migrate-down migrate-create docker-build docker-up docker-down dev
 
 # Variables
 APP_NAME=blueprint-audio
 DOCKER_COMPOSE=docker-compose
 GO=go
 MIGRATE=migrate
+COVERAGE_DIR=coverage
+COVERAGE_THRESHOLD?=70
 
 # Help command
 help:
@@ -12,7 +14,12 @@ help:
 	@echo "  make build          - Build the Go binary"
 	@echo "  make run            - Run the application locally"
 	@echo "  make test           - Run tests"
+	@echo "  make test-unit      - Run unit tests"
+	@echo "  make test-integration - Run integration tests (if any)"
 	@echo "  make test-coverage  - Run tests with coverage"
+	@echo "  make coverage       - Full coverage report (overall, file, folder)"
+	@echo "  make coverage-report- Generate coverage report even if tests fail"
+	@echo "  make coverage-check - Run coverage and fail below threshold"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make migrate-up     - Run database migrations up"
 	@echo "  make migrate-down   - Rollback last migration"
@@ -41,17 +48,39 @@ test:
 	@echo "Running tests..."
 	$(GO) test -v ./...
 
+test-unit:
+	@echo "Running unit tests..."
+	$(GO) test -v ./...
+
+test-integration:
+	@echo "Running integration tests..."
+	$(GO) test -v -tags=integration ./...
+
 # Run tests with coverage
 test-coverage:
 	@echo "Running tests with coverage..."
-	$(GO) test -v -coverprofile=coverage.out ./...
-	$(GO) tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -enforce-tests=true
+	@echo "Coverage artifacts generated in $(COVERAGE_DIR)/ (open $(COVERAGE_DIR)/coverage.html)"
+
+coverage: test-coverage
+
+coverage-report:
+	@echo "Generating coverage report (non-blocking mode)..."
+	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD)
+	@echo "Open $(COVERAGE_DIR)/coverage.html for the dashboard report."
+
+coverage-check:
+	@echo "Running coverage threshold check ($(COVERAGE_THRESHOLD)%)..."
+	$(GO) run ./tools/coverage-runner -go $(GO) -coverage-dir $(COVERAGE_DIR) -coverpkg ./cmd/...,./internal/...,./pkg/... -packages ./... -allow-test-failure=true
+	$(GO) run ./tools/coverage-report -in $(COVERAGE_DIR)/coverage.out -out-json $(COVERAGE_DIR)/summary.json -out-md $(COVERAGE_DIR)/summary.md -out-html $(COVERAGE_DIR)/coverage.html -coverage-html $(COVERAGE_DIR)/coverage-details.html -test-json $(COVERAGE_DIR)/test-report.jsonl -threshold $(COVERAGE_THRESHOLD) -enforce true
 
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
 	rm -rf bin/
+	rm -rf $(COVERAGE_DIR)
 	rm -f coverage.out coverage.html
 
 # Database migrations

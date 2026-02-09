@@ -10,6 +10,7 @@
 *.out
 *.test
 coverage.html
+coverage/
 
 # Local Environment Config
 .env

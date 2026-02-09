@@ -17,22 +17,57 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/service"
 )
 
-func main() {
+type appConfig struct {
+	dsn            string
+	port           string
+	jwtSecret      string
+	jwtExpiry      time.Duration
+	allowedOrigins string
+}
+
+func loadAppConfig() appConfig {
 	dbHost := os.Getenv("DB_HOST")
 	dbPort := os.Getenv("DB_PORT")
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default-dev-secret"
+	}
+
+	jwtExpiryStr := os.Getenv("JWT_EXPIRATION")
+	jwtExpiry, _ := time.ParseDuration(jwtExpiryStr)
+	if jwtExpiry == 0 {
+		jwtExpiry = 24 * time.Hour
+	}
+
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "http://localhost:4200"
+	}
+
+	return appConfig{
+		dsn:            fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName),
+		port:           port,
+		jwtSecret:      jwtSecret,
+		jwtExpiry:      jwtExpiry,
+		allowedOrigins: allowedOrigins,
+	}
+}
+
+func main() {
+	cfg := loadAppConfig()
 
 	log.Println("Connecting to DB...")
 
-	db, err := sqlx.Connect("postgres", dsn)
+	db, err := sqlx.Connect("postgres", cfg.dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to DB: %v", err)
 
@@ -49,16 +84,6 @@ func main() {
 		log.Println("Redis Connected Successfully!")
 	}
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	jwtExpiryStr := os.Getenv("JWT_EXPIRATION")
-	if jwtSecret == "" {
-		jwtSecret = "default-dev-secret"
-	}
-	jwtExpiry, _ := time.ParseDuration(jwtExpiryStr)
-	if jwtExpiry == 0 {
-		jwtExpiry = 24 * time.Hour
-	}
-
 	fileService, err := service.NewFileService(context.Background())
 	if err != nil {
 		log.Fatalf("Failed to initialize file service: %v", err)
@@ -69,7 +94,7 @@ func main() {
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 
 	specService := service.NewSpecService(specRepo)
-	authService := service.NewAuthService(userRepo, jwtSecret, jwtExpiry)
+	authService := service.NewAuthService(userRepo, cfg.jwtSecret, cfg.jwtExpiry)
 	userService := service.NewUserService(userRepo)
 
 	orderRepo := repository.NewOrderRepository(db)
@@ -83,23 +108,17 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService, fileService)
 	userHandler := handler.NewUserHandler(userService, fileService)
 
-	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.jwtSecret)
 
 	paymentHandler := handler.NewPaymentHandler(paymentService)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, specRepo, fileService)
 
 	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler, analyticsHandler)
 	mux := appRouter.Setup()
-	log.Printf("Server starting on port %s", port)
+	log.Printf("Server starting on port %s", cfg.port)
+	handler := middleware.CORSMiddleware(mux, cfg.allowedOrigins)
 
-	// Wrap specific handler with CORS middleware
-	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
-	if allowedOrigins == "" {
-		allowedOrigins = "http://localhost:4200" // Default fallback
-	}
-	handler := middleware.CORSMiddleware(mux, allowedOrigins)
-
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	if err := http.ListenAndServe(":"+cfg.port, handler); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
