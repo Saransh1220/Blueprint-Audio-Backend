@@ -26,6 +26,13 @@ func TestPGUserRepository_CreateUser(t *testing.T) {
 	err := repo.CreateUser(context.Background(), user)
 	require.NoError(t, err)
 
+	display := "Alias"
+	user.DisplayName = &display
+	mock.ExpectExec("INSERT INTO users").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	err = repo.CreateUser(context.Background(), user)
+	require.NoError(t, err)
+
 	mock.ExpectExec("INSERT INTO users").
 		WillReturnError(&pq.Error{Code: "23505"})
 	err = repo.CreateUser(context.Background(), user)
@@ -59,6 +66,17 @@ func TestPGUserRepository_GetUserByEmailAndID(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, u)
 	assert.Equal(t, id, u.ID)
+
+	mock.ExpectQuery("SELECT \\* FROM users WHERE email = \\$1").WithArgs("err@a.com").WillReturnError(assert.AnError)
+	u, err = repo.GetUserByEmail(ctx, "err@a.com")
+	require.Error(t, err)
+	assert.Nil(t, u)
+
+	missingID := uuid.New()
+	mock.ExpectQuery("SELECT \\* FROM users WHERE id = \\$1").WithArgs(missingID).WillReturnError(sql.ErrNoRows)
+	u, err = repo.GetUserById(ctx, missingID)
+	require.NoError(t, err)
+	assert.Nil(t, u)
 }
 
 func TestPGUserRepository_UpdateProfile(t *testing.T) {
@@ -69,13 +87,13 @@ func TestPGUserRepository_UpdateProfile(t *testing.T) {
 	id := uuid.New()
 	bio := "hello"
 
-	err := repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil)
+	err := repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	mock.ExpectExec("UPDATE users SET").
 		WithArgs(&bio, sqlmock.AnyArg(), id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil)
+	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	avatar := "a.jpg"
@@ -86,6 +104,18 @@ func TestPGUserRepository_UpdateProfile(t *testing.T) {
 	mock.ExpectExec("UPDATE users SET").
 		WithArgs(&bio, &avatar, &instagram, &twitter, &youtube, &spotify, sqlmock.AnyArg(), id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	err = repo.UpdateProfile(ctx, id, &bio, &avatar, &instagram, &twitter, &youtube, &spotify)
+	err = repo.UpdateProfile(ctx, id, &bio, &avatar, nil, &instagram, &twitter, &youtube, &spotify)
 	require.NoError(t, err)
+
+	display := "Display Alias"
+	mock.ExpectExec("UPDATE users SET").
+		WithArgs(&display, sqlmock.AnyArg(), id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err = repo.UpdateProfile(ctx, id, nil, nil, &display, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	mock.ExpectExec("UPDATE users SET").
+		WillReturnError(assert.AnError)
+	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil)
+	require.Error(t, err)
 }

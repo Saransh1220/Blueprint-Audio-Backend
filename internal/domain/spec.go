@@ -27,6 +27,7 @@ const (
 type Spec struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	ProducerID     uuid.UUID  `json:"producer_id" db:"producer_id"`
+	ProducerName   string     `json:"producer_name" db:"producer_name"`
 	Title          string     `json:"title" db:"title"`
 	Category       Category   `json:"category" db:"category"`
 	Type           string     `json:"type" db:"type"` // e.g., WAV, STEMS, PACK

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -356,4 +357,74 @@ func TestSpecHandler_DeleteForbiddenAndNotFound(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.Delete(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSpecHandler_CreateAndUpdate_FileErrorBranches(t *testing.T) {
+	specSvc := new(mockSpecService)
+	analyticsSvc := new(mockAnalyticsService)
+	fileSvc := new(mocks.MockFileService)
+	h := handler.NewSpecHandler(specSvc, fileSvc, analyticsSvc)
+	producerID := uuid.New()
+	specID := uuid.New()
+
+	makeCreateReq := func(metadata map[string]any, withImage bool, withPreview bool) *http.Request {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		raw, _ := json.Marshal(metadata)
+		_ = mw.WriteField("metadata", string(raw))
+
+		if withImage {
+			fw, _ := mw.CreateFormFile("image", "cover.jpg")
+			_, _ = io.Copy(fw, bytes.NewBufferString("not-an-image"))
+		}
+		if withPreview {
+			fw, _ := mw.CreateFormFile("preview", "preview.mp3")
+			_, _ = io.Copy(fw, bytes.NewBufferString("audio-bytes"))
+		}
+
+		_ = mw.Close()
+		req := httptest.NewRequest(http.MethodPost, "/specs", &b)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
+		return req
+	}
+
+	t.Run("create image decode failure", func(t *testing.T) {
+		req := makeCreateReq(map[string]any{"title": "T", "category": "sample"}, true, false)
+		w := httptest.NewRecorder()
+		h.Create(w, req)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	t.Run("create upload rollback on preview failure", func(t *testing.T) {
+		req := makeCreateReq(map[string]any{"title": "T", "category": "sample"}, false, true)
+		fileSvc.On("Upload", mock.Anything, mock.Anything, mock.Anything, "audio/previews").Return("", "", assert.AnError).Once()
+		w := httptest.NewRecorder()
+		h.Create(w, req)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	makeUpdateReqWithImage := func(metadata map[string]any, imageContent string) *http.Request {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		raw, _ := json.Marshal(metadata)
+		_ = mw.WriteField("metadata", string(raw))
+		fw, _ := mw.CreateFormFile("image", "cover.jpg")
+		_, _ = io.Copy(fw, bytes.NewBufferString(imageContent))
+		_ = mw.Close()
+
+		req := httptest.NewRequest(http.MethodPatch, "/specs/"+specID.String(), &b)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.SetPathValue("id", specID.String())
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
+		return req
+	}
+
+	t.Run("update image decode failure", func(t *testing.T) {
+		req := makeUpdateReqWithImage(map[string]any{"title": "T", "price": 10, "bpm": 120}, "bad-image")
+		specSvc.On("GetSpec", mock.Anything, specID).Return(&domain.Spec{ID: specID, ProducerID: producerID}, nil).Once()
+		w := httptest.NewRecorder()
+		h.Update(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }

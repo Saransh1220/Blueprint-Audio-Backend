@@ -33,7 +33,7 @@ func (m *MockUserRepository) GetUserById(ctx context.Context, id uuid.UUID) (*do
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
-	args := m.Called(ctx, id, bio, avatarUrl, instagramURL, twitterURL, youtubeURL, spotifyURL)
+func (m *MockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+	args := m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL)
 	return args.Error(0)
 }

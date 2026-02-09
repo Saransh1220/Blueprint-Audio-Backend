@@ -30,7 +30,7 @@ func NewUserRepository(db *sqlx.DB) domain.UserRepository {
 // they are automatically set to the current time before insertion.
 // Returns an error if the database operation fails.
 func (r *pgUserRepository) CreateUser(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash, name, role, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :role, :created_at, :updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()
@@ -90,7 +90,7 @@ func (r *pgUserRepository) GetUserById(ctx context.Context, id uuid.UUID) (*doma
 // UpdateProfile updates a user's profile fields (bio, avatar, and social media URLs).
 // Only the provided non-nil fields will be updated in the database.
 // Returns an error if the database operation fails.
-func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
 	// Build dynamic query to only update provided fields
 	setClauses := []string{}
 	args := []interface{}{}
@@ -99,6 +99,11 @@ func (r *pgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio 
 	if bio != nil {
 		setClauses = append(setClauses, fmt.Sprintf("bio = $%d", argIndex))
 		args = append(args, bio)
+		argIndex++
+	}
+	if displayName != nil {
+		setClauses = append(setClauses, fmt.Sprintf("display_name = $%d", argIndex))
+		args = append(args, displayName)
 		argIndex++
 	}
 	if avatarUrl != nil {

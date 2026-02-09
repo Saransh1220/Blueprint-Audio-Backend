@@ -75,6 +75,27 @@ func TestPGAnalyticsRepository_IncrementAndFavoriteTx(t *testing.T) {
 		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, repo.RemoveFavorite(ctx, userID, specID))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO spec_analytics \\(spec_id, free_download_count\\)").
+		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO analytics_events \\(spec_id, event_type\\) VALUES \\(\\$1, 'download'\\)").
+		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.IncrementFreeDownloadCount(ctx, specID))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO user_favorites \\(user_id, spec_id\\)").
+		WithArgs(userID, specID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.NoError(t, repo.AddFavorite(ctx, userID, specID))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM user_favorites WHERE user_id = \\$1 AND spec_id = \\$2").
+		WithArgs(userID, specID).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.NoError(t, repo.RemoveFavorite(ctx, userID, specID))
 }
 
 func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
@@ -144,4 +165,17 @@ func TestPGAnalyticsRepository_ExtraQueries(t *testing.T) {
 	daily, err := repo.GetPlaysByDay(ctx, producerID, 7)
 	require.NoError(t, err)
 	assert.Len(t, daily, 1)
+
+	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', ae\\.created_at\\), 'YYYY-MM-DD'\\) as date,\\s+COUNT\\(\\*\\) as count\\s+FROM analytics_events ae").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "count"}))
+	daily, err = repo.GetPlaysByDay(ctx, producerID, 0)
+	require.NoError(t, err)
+	assert.Len(t, daily, 0)
+
+	otherUserID := uuid.New()
+	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM user_favorites WHERE user_id = \\$1 AND spec_id = \\$2\\)").
+		WithArgs(otherUserID, specID).WillReturnError(sql.ErrConnDone)
+	_, err = repo.IsFavorited(ctx, otherUserID, specID)
+	require.Error(t, err)
 }

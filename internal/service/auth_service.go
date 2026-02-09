@@ -12,10 +12,11 @@ import (
 )
 
 type RegisterUserReq struct {
-	Email    string
-	Password string
-	Name     string
-	Role     string
+	Email       string
+	Password    string
+	Name        string
+	DisplayName string
+	Role        string
 }
 
 type AuthServiceInterface interface {
@@ -71,11 +72,24 @@ func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*d
 		return nil, errors.New("Invalid role!")
 	}
 
+	var displayName *string
+	if req.DisplayName != "" {
+		displayName = &req.DisplayName
+	} else {
+		// Default to Name if not provided? Or keep nil?
+		// "Display Name" usually implies an override. If nil, frontend can fallback to Name.
+		// But let's check the requirement. User wants to "set a custom name".
+		// If they don't set it, it's nice to have it nil.
+		// However, I declared it as string in Req, so empty string means not set.
+		displayName = nil
+	}
+
 	user := &domain.User{
 		ID:           uuid.New(),
 		Email:        req.Email,
 		PasswordHash: string(hashedPass),
 		Name:         req.Name,
+		DisplayName:  displayName,
 		Role:         role,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),

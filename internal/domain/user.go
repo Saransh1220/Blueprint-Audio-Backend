@@ -20,6 +20,7 @@ type User struct {
 	Email        string    `json:"email" db:"email"`
 	PasswordHash string    `json:"-" db:"password_hash"`
 	Name         string    `json:"name" db:"name"`
+	DisplayName  *string   `json:"display_name" db:"display_name"`
 	Role         UserRole  `json:"role" db:"role"`
 	Bio          *string   `json:"bio" db:"bio"`
 	AvatarUrl    *string   `json:"avatar_url" db:"avatar_url"`
@@ -35,5 +36,5 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, user *User) error
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserById(ctx context.Context, id uuid.UUID) (*User, error)
-	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error
+	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error
 }
