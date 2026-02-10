@@ -12,11 +12,11 @@ import (
 )
 
 type RegisterUserReq struct {
-	Email       string
-	Password    string
-	Name        string
-	DisplayName string
-	Role        string
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
 }
 
 type AuthServiceInterface interface {

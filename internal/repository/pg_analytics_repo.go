@@ -330,6 +330,56 @@ func (r *pgAnalyticsRepository) GetPlaysByDay(ctx context.Context, producerID uu
 	return stats, nil
 }
 
+func (r *pgAnalyticsRepository) GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyStat, error) {
+	if days <= 0 {
+		days = 30
+	}
+
+	query := `
+		SELECT 
+			to_char(date_trunc('day', ae.created_at), 'YYYY-MM-DD') as date,
+			COUNT(*) as count
+		FROM analytics_events ae
+		JOIN specs s ON ae.spec_id = s.id
+		WHERE s.producer_id = $1 
+		  AND ae.event_type = 'download'
+		  AND ae.created_at > NOW() - ($2 || ' days')::INTERVAL
+		GROUP BY 1
+		ORDER BY 1 ASC
+	`
+	var stats []domain.DailyStat
+	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get downloads by day: %w", err)
+	}
+	return stats, nil
+}
+
+func (r *pgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyRevenueStat, error) {
+	if days <= 0 {
+		days = 30
+	}
+
+	query := `
+		SELECT 
+			to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') as date,
+			COALESCE(SUM(o.amount), 0) / 100.0 as revenue
+		FROM orders o
+		JOIN specs s ON o.spec_id = s.id
+		WHERE s.producer_id = $1
+		  AND o.status = 'paid'
+		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL
+		GROUP BY 1
+		ORDER BY 1 ASC
+	`
+	var stats []domain.DailyRevenueStat
+	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get revenue by day: %w", err)
+	}
+	return stats, nil
+}
+
 func (r *pgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]domain.TopSpecStat, error) {
 	var stats []domain.TopSpecStat
 	query := `

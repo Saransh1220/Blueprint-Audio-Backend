@@ -99,6 +99,8 @@ func TestAnalyticsService_GetProducerAnalyticsAndOverview(t *testing.T) {
 	ar.On("GetTotalRevenue", ctx, producerID).Return(33.5, nil)
 	ar.On("GetRevenueByLicenseGlobal", ctx, producerID).Return(map[string]float64{"Basic": 10}, nil)
 	ar.On("GetPlaysByDay", ctx, producerID, 30).Return([]domain.DailyStat{{Date: "2026-02-01", Count: 1}}, nil)
+	ar.On("GetDownloadsByDay", ctx, producerID, 30).Return([]domain.DailyStat{{Date: "2026-02-01", Count: 0}}, nil)
+	ar.On("GetRevenueByDay", ctx, producerID, 30).Return([]domain.DailyRevenueStat{{Date: "2026-02-01", Revenue: 0}}, nil)
 	ar.On("GetTopSpecs", ctx, producerID, 5).Return([]domain.TopSpecStat{{SpecID: specID.String(), Title: "A", Plays: 7}}, nil)
 
 	overview, err := svc.GetStatsOverview(ctx, producerID, 0)

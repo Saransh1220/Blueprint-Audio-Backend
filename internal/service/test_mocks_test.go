@@ -143,6 +143,22 @@ func (m *mockAnalyticsRepository) GetPlaysByDay(ctx context.Context, producerID 
 	return args.Get(0).([]domain.DailyStat), args.Error(1)
 }
 
+func (m *mockAnalyticsRepository) GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyStat, error) {
+	args := m.Called(ctx, producerID, days)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.DailyStat), args.Error(1)
+}
+
+func (m *mockAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyRevenueStat, error) {
+	args := m.Called(ctx, producerID, days)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.DailyRevenueStat), args.Error(1)
+}
+
 func (m *mockAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]domain.TopSpecStat, error) {
 	args := m.Called(ctx, producerID, limit)
 	if args.Get(0) == nil {
