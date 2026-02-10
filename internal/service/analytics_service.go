@@ -194,6 +194,24 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 		dStats = append(dStats, dto.DailyStat{Date: d.Date, Count: d.Count})
 	}
 
+	downloadsByDay, err := s.analyticsRepo.GetDownloadsByDay(ctx, producerID, days)
+	if err != nil {
+		return nil, err
+	}
+	var dlStats []dto.DailyStat
+	for _, d := range downloadsByDay {
+		dlStats = append(dlStats, dto.DailyStat{Date: d.Date, Count: d.Count})
+	}
+
+	revenueByDay, err := s.analyticsRepo.GetRevenueByDay(ctx, producerID, days)
+	if err != nil {
+		return nil, err
+	}
+	var revStats []dto.DailyRevenueStat
+	for _, r := range revenueByDay {
+		revStats = append(revStats, dto.DailyRevenueStat{Date: r.Date, Revenue: r.Revenue})
+	}
+
 	// Top specs
 	topSpecs, err := s.analyticsRepo.GetTopSpecs(ctx, producerID, 5)
 	if err != nil {
@@ -215,6 +233,8 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 		TotalDownloads:   downloads,
 		RevenueByLicense: revByLicense,
 		PlaysByDay:       dStats,
+		DownloadsByDay:   dlStats,
+		RevenueByDay:     revStats,
 		TopSpecs:         tStats,
 	}, nil
 }

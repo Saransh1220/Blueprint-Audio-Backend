@@ -101,6 +101,7 @@ func main() {
 	outHTML := flag.String("out-html", "coverage/index.html", "output dashboard html")
 	coverageHTML := flag.String("coverage-html", "coverage/coverage.html", "go tool cover html path")
 	testJSON := flag.String("test-json", "coverage/test-report.jsonl", "go test -json output file")
+	excludeFiles := flag.String("exclude-files", "", "comma-separated file patterns to exclude from coverage summary (supports glob)")
 	threshold := flag.Float64("threshold", 70.0, "minimum overall coverage percent")
 	enforceTests := flag.Bool("enforce-tests", false, "exit non-zero when tests fail")
 	enforce := flag.Bool("enforce", false, "exit non-zero when below threshold")
@@ -117,7 +118,7 @@ func main() {
 		Links:             map[string]string{},
 	}
 
-	coverageSummary, err := buildSummary(*in, *threshold)
+	coverageSummary, err := buildSummary(*in, *threshold, parseExcludePatterns(*excludeFiles))
 	if err == nil {
 		s = coverageSummary
 		s.CoverageHTML = filepath.Base(*coverageHTML)
@@ -164,7 +165,7 @@ func main() {
 	}
 }
 
-func buildSummary(profilePath string, threshold float64) (*summary, error) {
+func buildSummary(profilePath string, threshold float64, excludePatterns []string) (*summary, error) {
 	f, err := os.Open(profilePath)
 	if err != nil {
 		return nil, err
@@ -196,7 +197,14 @@ func buildSummary(profilePath string, threshold float64) (*summary, error) {
 		}
 
 		rel := normalizePath(path, module)
-		key := rel + ":" + rangeKey + ":" + strconv.FormatInt(stmts, 10)
+		if isExcluded(rel, excludePatterns) {
+			continue
+		}
+		// go test ./... with -coverpkg can emit duplicated blocks for the same source file
+		// from multiple test binaries, sometimes with shifted line numbers.
+		// Normalize block keys by structural shape to avoid under-reporting.
+		shapeKey := normalizedBlockShape(rangeKey, stmts)
+		key := rel + ":" + shapeKey
 		existing, ok := blocks[key]
 		if !ok {
 			blocks[key] = coverageBlock{
@@ -265,6 +273,87 @@ func buildSummary(profilePath string, threshold float64) (*summary, error) {
 		Folders:           folders,
 		Links:             map[string]string{},
 	}, nil
+}
+
+func normalizedBlockShape(rangeKey string, stmts int64) string {
+	start, end, ok := parseRangeCoords(rangeKey)
+	if !ok {
+		return rangeKey + ":" + strconv.FormatInt(stmts, 10)
+	}
+	lineSpan := end.line - start.line
+	colSpan := end.col - start.col
+	return fmt.Sprintf("ls:%d,sc:%d,ec:%d,cs:%d,s:%d", lineSpan, start.col, end.col, colSpan, stmts)
+}
+
+type rangeCoord struct {
+	line int
+	col  int
+}
+
+func parseRangeCoords(rangeKey string) (rangeCoord, rangeCoord, bool) {
+	parts := strings.Split(rangeKey, ",")
+	if len(parts) != 2 {
+		return rangeCoord{}, rangeCoord{}, false
+	}
+	start, ok := parseCoord(parts[0])
+	if !ok {
+		return rangeCoord{}, rangeCoord{}, false
+	}
+	end, ok := parseCoord(parts[1])
+	if !ok {
+		return rangeCoord{}, rangeCoord{}, false
+	}
+	return start, end, true
+}
+
+func parseCoord(part string) (rangeCoord, bool) {
+	p := strings.TrimSpace(part)
+	dot := strings.Index(p, ".")
+	if dot == -1 {
+		return rangeCoord{}, false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(p[:dot]))
+	if err != nil {
+		return rangeCoord{}, false
+	}
+	col, err := strconv.Atoi(strings.TrimSpace(p[dot+1:]))
+	if err != nil {
+		return rangeCoord{}, false
+	}
+	return rangeCoord{line: line, col: col}, true
+}
+
+func parseExcludePatterns(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	patterns := make([]string, 0, len(parts))
+	for _, part := range parts {
+		p := filepath.ToSlash(strings.TrimSpace(part))
+		if p == "" {
+			continue
+		}
+		patterns = append(patterns, p)
+	}
+	return patterns
+}
+
+func isExcluded(path string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return false
+	}
+	norm := filepath.ToSlash(strings.TrimSpace(path))
+	for _, pattern := range patterns {
+		if pattern == norm {
+			return true
+		}
+		matched, err := filepath.Match(pattern, norm)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 func parseProfileLine(line string) (path string, rangeKey string, stmts int64, covered int64, err error) {

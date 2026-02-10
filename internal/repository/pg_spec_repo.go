@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"strings"
@@ -120,7 +121,12 @@ func (r *pgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
 	spec := &domain.Spec{}
 
-	query := `SELECT * FROM specs WHERE id = $1 AND is_deleted = FALSE`
+	query := `
+		SELECT s.*, u.display_name as producer_name
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.id = $1 AND s.is_deleted = FALSE
+	`
 	err := r.db.GetContext(ctx, spec, query, id)
 	if err != nil {
 		return nil, err
@@ -145,12 +151,18 @@ func (r *pgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 }
 
 func (r *pgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) ([]domain.Spec, int, error) {
+	// Use a struct to hold the result including the window function count
 	var results []struct {
 		domain.Spec
 		TotalCount int `db:"total_count"`
 	}
 
-	query := `SELECT *, COUNT(*) OVER() as total_count FROM specs WHERE is_deleted = FALSE`
+	query := `
+		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.is_deleted = FALSE
+	`
 	args := []interface{}{}
 	argId := 1
 
@@ -498,31 +510,42 @@ func (r *pgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		}
 
 		// C. Hande Deletions
+		// Collect IDs to delete
+		var idsToDelete []uuid.UUID
 		for existingID := range existingMap {
 			if !processedIDs[existingID] {
-				// This license was NOT in the update payload -> DELETE it.
+				idsToDelete = append(idsToDelete, existingID)
+			}
+		}
 
-				// 1. Check if used in any purchases
-				var usageCount int
-				err := tx.GetContext(ctx, &usageCount, "SELECT COUNT(*) FROM licenses WHERE license_option_id = $1", existingID)
+		// Sort IDs to ensure deterministic execution order (crucial for tests and consistency)
+		sort.Slice(idsToDelete, func(i, j int) bool {
+			return idsToDelete[i].String() < idsToDelete[j].String()
+		})
+
+		for _, existingID := range idsToDelete {
+			// This license was NOT in the update payload -> DELETE it.
+
+			// 1. Check if used in any purchases
+			var usageCount int
+			err := tx.GetContext(ctx, &usageCount, "SELECT COUNT(*) FROM licenses WHERE license_option_id = $1", existingID)
+			if err != nil {
+				return err
+			}
+
+			if usageCount > 0 {
+				// Used -> Soft Delete
+				_, err = tx.ExecContext(ctx, "UPDATE license_options SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1", existingID)
 				if err != nil {
 					return err
 				}
-
-				if usageCount > 0 {
-					// Used -> Soft Delete
-					_, err = tx.ExecContext(ctx, "UPDATE license_options SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1", existingID)
-					if err != nil {
-						return err
-					}
-				} else {
-					// Not Used -> Hard Delete
-					_, err = tx.ExecContext(ctx, "DELETE FROM license_options WHERE id = $1", existingID)
-					if err != nil {
-						// In case of race condition or other constraint, fall back to soft delete isn't safe if tx aborted,
-						// but usageCount check minimizes this risk significantly.
-						return err
-					}
+			} else {
+				// Not Used -> Hard Delete
+				_, err = tx.ExecContext(ctx, "DELETE FROM license_options WHERE id = $1", existingID)
+				if err != nil {
+					// In case of race condition or other constraint, fall back to soft delete isn't safe if tx aborted,
+					// but usageCount check minimizes this risk significantly.
+					return err
 				}
 			}
 		}
@@ -539,10 +562,11 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 	}
 
 	query := `
-		SELECT *, COUNT(*) OVER() as total_count 
-		FROM specs 
-		WHERE producer_id = $1 AND is_deleted = FALSE
-		ORDER BY created_at DESC 
+		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.producer_id = $1 AND s.is_deleted = FALSE
+		ORDER BY s.created_at DESC 
 		LIMIT $2 OFFSET $3
 	`
 
@@ -622,7 +646,12 @@ func (r *pgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 func (r *pgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
 	spec := &domain.Spec{}
 
-	query := `SELECT * FROM specs WHERE id = $1`
+	query := `
+		SELECT s.*, u.display_name as producer_name
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.id = $1
+	`
 	err := r.db.GetContext(ctx, spec, query, id)
 	if err != nil {
 		return nil, err

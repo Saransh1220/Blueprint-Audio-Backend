@@ -94,4 +94,9 @@ func TestSpecService_ListDeleteAndGetUserSpecs(t *testing.T) {
 	repo.On("ListByUserID", ctx, producerID, 20, 0).Return([]domain.Spec{}, 0, nil).Once()
 	_, _, err = svc.GetUserSpecs(ctx, producerID, 0)
 	assert.NoError(t, err)
+
+	repo.On("GetByID", ctx, specID).Return(&domain.Spec{ID: specID, Title: "Track"}, nil).Once()
+	got, err := svc.GetSpec(ctx, specID)
+	require.NoError(t, err)
+	assert.Equal(t, specID, got.ID)
 }

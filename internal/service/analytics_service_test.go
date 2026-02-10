@@ -30,6 +30,10 @@ func TestAnalyticsService_ToggleFavorite(t *testing.T) {
 	val, err = svc.ToggleFavorite(ctx, userID, specID)
 	assert.NoError(t, err)
 	assert.True(t, val)
+
+	ar.On("IsFavorited", ctx, userID, specID).Return(false, errors.New("db")).Once()
+	_, err = svc.ToggleFavorite(ctx, userID, specID)
+	assert.EqualError(t, err, "db")
 }
 
 func TestAnalyticsService_GetPublicAnalytics(t *testing.T) {
@@ -52,6 +56,12 @@ func TestAnalyticsService_GetPublicAnalytics(t *testing.T) {
 	ar.On("GetSpecAnalytics", ctx, specID).Return(nil, errors.New("db")).Once()
 	_, err = svc.GetPublicAnalytics(ctx, specID, nil)
 	assert.EqualError(t, err, "db")
+
+	ar.On("GetSpecAnalytics", ctx, specID).Return(base, nil).Once()
+	ar.On("IsFavorited", ctx, userID, specID).Return(false, errors.New("ignore")).Once()
+	out, err = svc.GetPublicAnalytics(ctx, specID, &userID)
+	assert.NoError(t, err)
+	assert.False(t, out.IsFavorited)
 }
 
 func TestAnalyticsService_GetProducerAnalyticsAndOverview(t *testing.T) {
@@ -89,10 +99,50 @@ func TestAnalyticsService_GetProducerAnalyticsAndOverview(t *testing.T) {
 	ar.On("GetTotalRevenue", ctx, producerID).Return(33.5, nil)
 	ar.On("GetRevenueByLicenseGlobal", ctx, producerID).Return(map[string]float64{"Basic": 10}, nil)
 	ar.On("GetPlaysByDay", ctx, producerID, 30).Return([]domain.DailyStat{{Date: "2026-02-01", Count: 1}}, nil)
+	ar.On("GetDownloadsByDay", ctx, producerID, 30).Return([]domain.DailyStat{{Date: "2026-02-01", Count: 0}}, nil)
+	ar.On("GetRevenueByDay", ctx, producerID, 30).Return([]domain.DailyRevenueStat{{Date: "2026-02-01", Revenue: 0}}, nil)
 	ar.On("GetTopSpecs", ctx, producerID, 5).Return([]domain.TopSpecStat{{SpecID: specID.String(), Title: "A", Plays: 7}}, nil)
 
 	overview, err := svc.GetStatsOverview(ctx, producerID, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 10, overview.TotalPlays)
 	assert.Len(t, overview.PlaysByDay, 1)
+
+	specErrID := uuid.New()
+	sr.On("GetByID", ctx, specErrID).Return(nil, errors.New("spec err")).Once()
+	_, err = svc.GetProducerAnalytics(ctx, specErrID, producerID)
+	assert.EqualError(t, err, "spec err")
+
+	spec3 := uuid.New()
+	sr.On("GetByID", ctx, spec3).Return(&domain.Spec{ID: spec3, ProducerID: producerID}, nil).Once()
+	ar.On("GetSpecAnalytics", ctx, spec3).Return(nil, errors.New("analytics err")).Once()
+	_, err = svc.GetProducerAnalytics(ctx, spec3, producerID)
+	assert.EqualError(t, err, "analytics err")
+
+	spec4 := uuid.New()
+	sr.On("GetByID", ctx, spec4).Return(&domain.Spec{ID: spec4, ProducerID: producerID}, nil).Once()
+	ar.On("GetSpecAnalytics", ctx, spec4).Return(&domain.SpecAnalytics{}, nil).Once()
+	ar.On("GetLicensePurchaseCounts", ctx, spec4).Return(nil, errors.New("license err")).Once()
+	_, err = svc.GetProducerAnalytics(ctx, spec4, producerID)
+	assert.EqualError(t, err, "license err")
+}
+
+func TestAnalyticsService_TrackAndIsFavorited(t *testing.T) {
+	ctx := context.Background()
+	ar := new(mockAnalyticsRepository)
+	sr := new(mockSpecRepository)
+	svc := service.NewAnalyticsService(ar, sr)
+	userID := uuid.New()
+	specID := uuid.New()
+
+	ar.On("IncrementPlayCount", ctx, specID).Return(nil).Once()
+	assert.NoError(t, svc.TrackPlay(ctx, specID))
+
+	ar.On("IncrementFreeDownloadCount", ctx, specID).Return(nil).Once()
+	assert.NoError(t, svc.TrackFreeDownload(ctx, specID))
+
+	ar.On("IsFavorited", ctx, userID, specID).Return(true, nil).Once()
+	fav, err := svc.IsFavorited(ctx, userID, specID)
+	assert.NoError(t, err)
+	assert.True(t, fav)
 }

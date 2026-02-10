@@ -27,6 +27,7 @@ const (
 type Spec struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	ProducerID     uuid.UUID  `json:"producer_id" db:"producer_id"`
+	ProducerName   string     `json:"producer_name" db:"producer_name"`
 	Title          string     `json:"title" db:"title"`
 	Category       Category   `json:"category" db:"category"`
 	Type           string     `json:"type" db:"type"` // e.g., WAV, STEMS, PACK
@@ -116,6 +117,11 @@ type DailyStat struct {
 	Count int    `json:"count" db:"count"`
 }
 
+type DailyRevenueStat struct {
+	Date    string  `json:"date" db:"date"`
+	Revenue float64 `json:"revenue" db:"revenue"`
+}
+
 type TopSpecStat struct {
 	SpecID string `json:"spec_id" db:"spec_id"`
 	Title  string `json:"title" db:"title"`
@@ -150,5 +156,7 @@ type AnalyticsRepository interface {
 	GetTotalRevenue(ctx context.Context, producerID uuid.UUID) (float64, error)
 	GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID) (map[string]float64, error)
 	GetPlaysByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
+	GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
+	GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyRevenueStat, error)
 	GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]TopSpecStat, error)
 }

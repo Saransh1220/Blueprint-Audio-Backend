@@ -22,7 +22,7 @@ func TestUserService_UpdateProfile(t *testing.T) {
 	bio := "hello"
 	req := dto.UpdateProfileRequest{Bio: &bio}
 
-	repo.On("UpdateProfile", ctx, id, req.Bio, req.AvatarURL, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL).Return(nil)
+	repo.On("UpdateProfile", ctx, id, req.Bio, req.AvatarURL, req.DisplayName, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL).Return(nil)
 	err := svc.UpdateProfile(ctx, id, req)
 	assert.NoError(t, err)
 }
@@ -34,12 +34,16 @@ func TestUserService_GetPublicProfile(t *testing.T) {
 	id := uuid.New()
 	now := time.Now().UTC()
 	user := &domain.User{ID: id, Name: "N", Role: domain.RoleProducer, CreatedAt: now}
+	display := "Producer Alias"
+	user.DisplayName = &display
 
 	repo.On("GetUserById", ctx, id).Return(user, nil)
 	profile, err := svc.GetPublicProfile(ctx, id)
 	assert.NoError(t, err)
 	assert.Equal(t, id.String(), profile.ID)
 	assert.Equal(t, "producer", profile.Role)
+	assert.NotNil(t, profile.DisplayName)
+	assert.Equal(t, "Producer Alias", *profile.DisplayName)
 
 	id2 := uuid.New()
 	repo.On("GetUserById", ctx, id2).Return(nil, nil)

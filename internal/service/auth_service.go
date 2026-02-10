@@ -12,10 +12,11 @@ import (
 )
 
 type RegisterUserReq struct {
-	Email    string
-	Password string
-	Name     string
-	Role     string
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
 }
 
 type AuthServiceInterface interface {
@@ -50,8 +51,12 @@ func NewAuthService(repo domain.UserRepository, jwtSecret string, jwtExpiry time
 // password hashing, role validation, or repository creation fails.
 func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*domain.User, error) {
 	// Validation
-	if req.Email == "" || req.Password == "" || req.Name == "" {
-		return nil, errors.New("missing required fields")
+	if req.Email == "" {
+		return nil, errors.New("email is required")
+	}
+
+	if req.DisplayName == "" {
+		return nil, errors.New("display name is required")
 	}
 	if len(req.Password) < 8 {
 		return nil, errors.New("password must be at least 8 characters")
@@ -71,11 +76,24 @@ func (s *AuthService) RegisterUser(ctx context.Context, req RegisterUserReq) (*d
 		return nil, errors.New("Invalid role!")
 	}
 
+	var displayName *string
+	if req.DisplayName != "" {
+		displayName = &req.DisplayName
+	} else {
+		// Default to Name if not provided? Or keep nil?
+		// "Display Name" usually implies an override. If nil, frontend can fallback to Name.
+		// But let's check the requirement. User wants to "set a custom name".
+		// If they don't set it, it's nice to have it nil.
+		// However, I declared it as string in Req, so empty string means not set.
+		displayName = nil
+	}
+
 	user := &domain.User{
 		ID:           uuid.New(),
 		Email:        req.Email,
 		PasswordHash: string(hashedPass),
 		Name:         req.Name,
+		DisplayName:  displayName,
 		Role:         role,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),

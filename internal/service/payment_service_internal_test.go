@@ -189,6 +189,20 @@ func TestPaymentService_GenerateSignature(t *testing.T) {
 	assert.Equal(t, sig, s.generateSignature("order_1", "pay_1"))
 }
 
+func TestNewPaymentService(t *testing.T) {
+	t.Setenv("RAZORPAY_KEY_ID", "key_id")
+	t.Setenv("RAZORPAY_KEY_SECRET", "key_secret")
+
+	or := new(orderRepoMock)
+	pr := new(paymentRepoMock)
+	lr := new(licenseRepoMock)
+	sr := new(specRepoMock)
+	fs := new(fileSvcMock)
+
+	svc := NewPaymentService(or, pr, lr, sr, fs)
+	assert.NotNil(t, svc)
+}
+
 func TestPaymentService_GetUserOrders(t *testing.T) {
 	or := new(orderRepoMock)
 	s := &paymentService{orderRepo: or}

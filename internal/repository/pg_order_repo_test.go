@@ -79,4 +79,19 @@ func TestPGOrderRepository_OtherMethods(t *testing.T) {
 	orders, err := repo.ListByUser(ctx, userID, 20, 0)
 	require.NoError(t, err)
 	assert.Len(t, orders, 1)
+
+	razorID := "order_razor"
+	mock.ExpectQuery("SELECT \\* FROM orders WHERE razorpay_order_id = \\$1").
+		WithArgs(razorID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "status", "razorpay_order_id"}).
+			AddRow(id, userID, uuid.New(), "Basic", 1000, "INR", "pending", razorID))
+	order, err := repo.GetByRazorpayID(ctx, razorID)
+	require.NoError(t, err)
+	assert.Equal(t, razorID, *order.RazorpayOrderID)
+
+	mock.ExpectQuery("SELECT \\* FROM orders WHERE razorpay_order_id = \\$1").
+		WithArgs("missing").
+		WillReturnError(sql.ErrNoRows)
+	_, err = repo.GetByRazorpayID(ctx, "missing")
+	assert.Error(t, err)
 }
