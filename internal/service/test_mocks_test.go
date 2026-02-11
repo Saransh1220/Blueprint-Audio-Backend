@@ -159,8 +159,8 @@ func (m *mockAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerI
 	return args.Get(0).([]domain.DailyRevenueStat), args.Error(1)
 }
 
-func (m *mockAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]domain.TopSpecStat, error) {
-	args := m.Called(ctx, producerID, limit)
+func (m *mockAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]domain.TopSpecStat, error) {
+	args := m.Called(ctx, producerID, limit, sortBy)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -203,6 +203,14 @@ func (m *mockOrderRepository) ListByUser(ctx context.Context, userID uuid.UUID, 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.Order), args.Error(1)
+}
+
+func (m *mockOrderRepository) ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.OrderWithBuyer, int, error) {
+	args := m.Called(ctx, producerID, limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.OrderWithBuyer), args.Int(1), args.Error(2)
 }
 
 type mockPaymentRepository struct {

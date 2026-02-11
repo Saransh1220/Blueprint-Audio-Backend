@@ -48,6 +48,14 @@ func (m *orderRepoMock) ListByUser(ctx context.Context, userID uuid.UUID, limit,
 	return args.Get(0).([]domain.Order), args.Error(1)
 }
 
+func (m *orderRepoMock) ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.OrderWithBuyer, int, error) {
+	args := m.Called(ctx, producerID, limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.OrderWithBuyer), args.Int(1), args.Error(2)
+}
+
 type paymentRepoMock struct{ mock.Mock }
 
 func (m *paymentRepoMock) Create(ctx context.Context, payment *domain.Payment) error {
@@ -493,6 +501,49 @@ func TestPaymentService_GetLicenseDownloadsFallbackURL(t *testing.T) {
 	if assert.NotNil(t, out.MP3URL) {
 		assert.Equal(t, preview, *out.MP3URL)
 	}
+}
+
+func TestPaymentService_GetProducerOrders(t *testing.T) {
+	ctx := context.Background()
+	or := new(orderRepoMock)
+	s := &paymentService{orderRepo: or}
+	producerID := uuid.New()
+	orderID := uuid.New()
+	razorID := "order_1"
+	now := time.Now()
+
+	or.On("ListByProducer", ctx, producerID, 50, 0).Return([]domain.OrderWithBuyer{
+		{
+			Order: domain.Order{
+				ID:              orderID,
+				Amount:          12345,
+				Currency:        "INR",
+				Status:          domain.OrderStatusPaid,
+				LicenseType:     "Premium",
+				CreatedAt:       now,
+				RazorpayOrderID: &razorID,
+			},
+			BuyerName:  "Jane",
+			BuyerEmail: "jane@example.com",
+			SpecTitle:  "Track",
+		},
+	}, 1, nil).Once()
+
+	out, err := s.GetProducerOrders(ctx, producerID, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, out.Total)
+	assert.Equal(t, 50, out.Limit)
+	assert.Equal(t, 0, out.Offset)
+	if assert.Len(t, out.Orders, 1) {
+		assert.Equal(t, 123.45, out.Orders[0].Amount)
+		assert.Equal(t, "Jane", out.Orders[0].BuyerName)
+		assert.Equal(t, "jane@example.com", out.Orders[0].BuyerEmail)
+		assert.Equal(t, "Track", out.Orders[0].SpecTitle)
+	}
+
+	or.On("ListByProducer", ctx, producerID, 50, 50).Return(nil, 0, errors.New("db")).Once()
+	_, err = s.GetProducerOrders(ctx, producerID, 2)
+	assert.EqualError(t, err, "db")
 }
 
 func ptr(s string) *string { return &s }

@@ -23,6 +23,7 @@ type PaymentService interface {
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*dto.LicenseDownloadsResponse, error)
+	GetProducerOrders(ctx context.Context, producerID uuid.UUID, page int) (*dto.ProducerOrderResponse, error)
 }
 
 type paymentService struct {
@@ -331,4 +332,40 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 	_ = s.licenseRepo.IncrementDownloads(ctx, licenseID)
 
 	return response, nil
+}
+
+func (s *paymentService) GetProducerOrders(ctx context.Context, producerID uuid.UUID, page int) (*dto.ProducerOrderResponse, error) {
+	limit := 50
+	offset := (page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	orders, total, err := s.orderRepo.ListByProducer(ctx, producerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	orderDtos := make([]dto.ProducerOrderDto, len(orders))
+	for i, o := range orders {
+		orderDtos[i] = dto.ProducerOrderDto{
+			ID:              o.ID,
+			Amount:          float64(o.Amount) / 100.0, // Convert paise to rupees
+			Currency:        o.Currency,
+			Status:          o.Status,
+			CreatedAt:       o.CreatedAt,
+			LicenseType:     o.LicenseType,
+			BuyerName:       o.BuyerName,
+			BuyerEmail:      o.BuyerEmail,
+			SpecTitle:       o.SpecTitle,
+			RazorpayOrderID: o.RazorpayOrderID,
+		}
+	}
+
+	return &dto.ProducerOrderResponse{
+		Orders: orderDtos,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	}, nil
 }

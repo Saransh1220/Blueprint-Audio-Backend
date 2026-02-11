@@ -68,6 +68,13 @@ func (m *mockPaymentService) GetLicenseDownloads(ctx context.Context, licenseID,
 	}
 	return args.Get(0).(*dto.LicenseDownloadsResponse), args.Error(1)
 }
+func (m *mockPaymentService) GetProducerOrders(ctx context.Context, producerID uuid.UUID, page int) (*dto.ProducerOrderResponse, error) {
+	args := m.Called(ctx, producerID, page)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*dto.ProducerOrderResponse), args.Error(1)
+}
 
 type mockAnalyticsService struct{ mock.Mock }
 
@@ -101,12 +108,19 @@ func (m *mockAnalyticsService) GetProducerAnalytics(ctx context.Context, specID,
 	}
 	return args.Get(0).(*service.ProducerAnalytics), args.Error(1)
 }
-func (m *mockAnalyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int) (*dto.AnalyticsOverviewResponse, error) {
-	args := m.Called(ctx, producerID, days)
+func (m *mockAnalyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int, sortBy string) (*dto.AnalyticsOverviewResponse, error) {
+	args := m.Called(ctx, producerID, days, sortBy)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*dto.AnalyticsOverviewResponse), args.Error(1)
+}
+func (m *mockAnalyticsService) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]dto.TopSpecStat, error) {
+	args := m.Called(ctx, producerID, limit, sortBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]dto.TopSpecStat), args.Error(1)
 }
 
 type mockSpecRepo struct{ mock.Mock }

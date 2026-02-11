@@ -145,3 +145,43 @@ func TestPaymentHandler_SuccessBranches(t *testing.T) {
 	h.GetOrder(w, withUser(req, userID))
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestPaymentHandler_GetProducerOrders(t *testing.T) {
+	svc := new(mockPaymentService)
+	h := handler.NewPaymentHandler(svc)
+	userID := uuid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/orders/producer", nil)
+	w := httptest.NewRecorder()
+	h.GetProducerOrders(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/orders/producer?page=abc", nil)
+	svc.On("GetProducerOrders", mock.Anything, userID, 1).
+		Return(&dto.ProducerOrderResponse{Orders: []dto.ProducerOrderDto{}, Total: 0, Limit: 50, Offset: 0}, nil).
+		Once()
+	w = httptest.NewRecorder()
+	h.GetProducerOrders(w, withUser(req, userID))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/orders/producer?page=0", nil)
+	svc.On("GetProducerOrders", mock.Anything, userID, 1).Return(nil, errors.New("db")).Once()
+	w = httptest.NewRecorder()
+	h.GetProducerOrders(w, withUser(req, userID))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/orders/producer?page=2", nil)
+	orderID := uuid.New()
+	svc.On("GetProducerOrders", mock.Anything, userID, 2).
+		Return(&dto.ProducerOrderResponse{
+			Orders: []dto.ProducerOrderDto{{ID: orderID, Amount: 99.5}},
+			Total:  1,
+			Limit:  50,
+			Offset: 50,
+		}, nil).
+		Once()
+	w = httptest.NewRecorder()
+	h.GetProducerOrders(w, withUser(req, userID))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), orderID.String())
+}

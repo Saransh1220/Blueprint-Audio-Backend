@@ -123,9 +123,11 @@ type DailyRevenueStat struct {
 }
 
 type TopSpecStat struct {
-	SpecID string `json:"spec_id" db:"spec_id"`
-	Title  string `json:"title" db:"title"`
-	Plays  int    `json:"plays" db:"plays"`
+	SpecID    string  `json:"spec_id" db:"spec_id"`
+	Title     string  `json:"title" db:"title"`
+	Plays     int     `json:"plays" db:"plays"`
+	Downloads int     `json:"downloads" db:"downloads"`
+	Revenue   float64 `json:"revenue" db:"revenue"`
 }
 
 type SpecRepository interface {
@@ -158,5 +160,5 @@ type AnalyticsRepository interface {
 	GetPlaysByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
 	GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
 	GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyRevenueStat, error)
-	GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]TopSpecStat, error)
+	GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]TopSpecStat, error)
 }

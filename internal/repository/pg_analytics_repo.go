@@ -380,15 +380,34 @@ func (r *pgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID 
 	return stats, nil
 }
 
-func (r *pgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int) ([]domain.TopSpecStat, error) {
+func (r *pgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]domain.TopSpecStat, error) {
 	var stats []domain.TopSpecStat
-	query := `
-		SELECT s.id as spec_id, s.title, sa.play_count as plays
-		FROM spec_analytics sa
-		JOIN specs s ON sa.spec_id = s.id
+
+	orderBy := "sa.play_count DESC"
+	switch sortBy {
+	case "revenue":
+		orderBy = "revenue DESC"
+	case "downloads":
+		orderBy = "downloads DESC"
+	case "plays":
+		orderBy = "plays DESC"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT 
+			s.id as spec_id, 
+			s.title, 
+			COALESCE(sa.play_count, 0) as plays,
+			COALESCE(sa.free_download_count, 0) as downloads,
+			COALESCE(SUM(o.amount), 0) / 100.0 as revenue
+		FROM specs s
+		LEFT JOIN spec_analytics sa ON s.id = sa.spec_id
+		LEFT JOIN orders o ON s.id = o.spec_id AND o.status = 'paid'
 		WHERE s.producer_id = $1
-		ORDER BY sa.play_count DESC
-		LIMIT $2`
+		GROUP BY s.id, s.title, sa.play_count, sa.free_download_count
+		ORDER BY %s
+		LIMIT $2`, orderBy)
+
 	err := r.db.SelectContext(ctx, &stats, query, producerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top specs: %w", err)

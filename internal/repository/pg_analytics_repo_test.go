@@ -118,10 +118,10 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10.5, rev["Basic"])
 
-	mock.ExpectQuery("SELECT s\\.id as spec_id, s\\.title, sa\\.play_count as plays").
+	mock.ExpectQuery("SELECT s\\.id as spec_id, s\\.title, COALESCE\\(sa\\.play_count, 0\\) as plays, COALESCE\\(sa\\.free_download_count, 0\\) as downloads, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
 		WithArgs(producerID, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays"}).AddRow(specID.String(), "Track", 9))
-	top, err := repo.GetTopSpecs(ctx, producerID, 5)
+		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).AddRow(specID.String(), "Track", 9, 5, 20.0))
+	top, err := repo.GetTopSpecs(ctx, producerID, 5, "plays")
 	require.NoError(t, err)
 	assert.Len(t, top, 1)
 
@@ -178,4 +178,37 @@ func TestPGAnalyticsRepository_ExtraQueries(t *testing.T) {
 		WithArgs(otherUserID, specID).WillReturnError(sql.ErrConnDone)
 	_, err = repo.IsFavorited(ctx, otherUserID, specID)
 	require.Error(t, err)
+}
+
+func TestPGAnalyticsRepository_GetTopSpecsSortVariants(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	repo := repository.NewAnalyticsRepository(db)
+	ctx := context.Background()
+	producerID := uuid.New()
+
+	topRows := sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).
+		AddRow(uuid.NewString(), "Track", 9, 3, 12.5)
+
+	mock.ExpectQuery("ORDER BY plays DESC").
+		WithArgs(producerID, 3).
+		WillReturnRows(topRows)
+	_, err := repo.GetTopSpecs(ctx, producerID, 3, "plays")
+	require.NoError(t, err)
+
+	topRows = sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).
+		AddRow(uuid.NewString(), "Track", 9, 3, 12.5)
+	mock.ExpectQuery("ORDER BY downloads DESC").
+		WithArgs(producerID, 3).
+		WillReturnRows(topRows)
+	_, err = repo.GetTopSpecs(ctx, producerID, 3, "downloads")
+	require.NoError(t, err)
+
+	topRows = sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).
+		AddRow(uuid.NewString(), "Track", 9, 3, 12.5)
+	mock.ExpectQuery("ORDER BY revenue DESC").
+		WithArgs(producerID, 3).
+		WillReturnRows(topRows)
+	_, err = repo.GetTopSpecs(ctx, producerID, 3, "revenue")
+	require.NoError(t, err)
 }
