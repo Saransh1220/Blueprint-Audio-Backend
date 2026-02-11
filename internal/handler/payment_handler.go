@@ -230,5 +230,34 @@ func (h *PaymentHandler) GetLicenseDownloads(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(downloads)
+}
+
+func (h *PaymentHandler) GetProducerOrders(w http.ResponseWriter, r *http.Request) {
+	// 1. Get authenticated user (producer)
+	producerID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// 2. Parse pagination
+	page := 1
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	// 3. Fetch orders
+	response, err := h.service.GetProducerOrders(r.Context(), producerID, page)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Return response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

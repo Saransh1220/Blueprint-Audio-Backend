@@ -95,7 +95,16 @@ type OrderRepository interface {
 	GetByRazorpayID(ctx context.Context, razorpayOrderID string) (*Order, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status OrderStatus) error
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]Order, error)
+	ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]OrderWithBuyer, int, error)
 }
+
+type OrderWithBuyer struct {
+	Order
+	BuyerName  string `db:"buyer_name"`
+	BuyerEmail string `db:"buyer_email"`
+	SpecTitle  string `db:"spec_title"`
+}
+
 type PaymentRepository interface {
 	Create(ctx context.Context, payment *Payment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Payment, error)

@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -60,12 +61,62 @@ func TestAnalyticsHandler_GetProducerAndOverview(t *testing.T) {
 	h.GetProducerAnalytics(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
-	req = httptest.NewRequest(http.MethodGet, "/analytics/overview?days=7", nil)
+	req = httptest.NewRequest(http.MethodGet, "/analytics/overview?days=7&sortBy=revenue", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
-	as.On("GetStatsOverview", mock.Anything, userID, 7).Return(&dto.AnalyticsOverviewResponse{TotalPlays: 1}, nil).Once()
+	as.On("GetStatsOverview", mock.Anything, userID, 7, "revenue").Return(&dto.AnalyticsOverviewResponse{TotalPlays: 1}, nil).Once()
 	w = httptest.NewRecorder()
 	h.GetOverview(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAnalyticsHandler_GetTopSpecs(t *testing.T) {
+	as := new(mockAnalyticsService)
+	specRepo := new(mockSpecRepo)
+	fileSvc := new(mocks.MockFileService)
+	h := handler.NewAnalyticsHandler(as, specRepo, fileSvc)
+	userID := uuid.New()
+
+	t.Run("unauthorized without user in context", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/analytics/top-specs", nil)
+		w := httptest.NewRecorder()
+
+		h.GetTopSpecs(w, req)
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+		var body map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &body)
+		assert.NoError(t, err)
+		assert.Equal(t, "Unauthorized", body["error"])
+	})
+
+	t.Run("service failure", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/analytics/top-specs?sortBy=downloads", nil)
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+		as.On("GetTopSpecs", mock.Anything, userID, 5, "downloads").Return(nil, errors.New("db")).Once()
+
+		w := httptest.NewRecorder()
+		h.GetTopSpecs(w, req)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+		var body map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &body)
+		assert.NoError(t, err)
+		assert.Equal(t, "Failed to fetch top specs", body["error"])
+	})
+
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/analytics/top-specs?sortBy=plays", nil)
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+		as.On("GetTopSpecs", mock.Anything, userID, 5, "plays").
+			Return([]dto.TopSpecStat{{SpecID: uuid.NewString(), Title: "A", Plays: 10, Downloads: 2, Revenue: 20.5}}, nil).
+			Once()
+
+		w := httptest.NewRecorder()
+		h.GetTopSpecs(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "\"title\":\"A\"")
+		assert.Contains(t, w.Body.String(), "\"downloads\":2")
+	})
 }
 
 func TestAnalyticsHandler_DownloadFreeMp3(t *testing.T) {

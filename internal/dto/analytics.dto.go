@@ -23,7 +23,9 @@ type DailyRevenueStat struct {
 }
 
 type TopSpecStat struct {
-	SpecID string `json:"spec_id"`
-	Title  string `json:"title"`
-	Plays  int    `json:"plays"`
+	SpecID    string  `json:"spec_id"`
+	Title     string  `json:"title"`
+	Plays     int     `json:"plays"`
+	Downloads int     `json:"downloads"`
+	Revenue   float64 `json:"revenue"`
 }

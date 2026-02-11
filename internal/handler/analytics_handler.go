@@ -12,7 +12,20 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/dto"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/service"
+	"github.com/saransh1220/blueprint-audio/internal/utils"
 )
+
+func getProducerID(r *http.Request) (uuid.UUID, error) {
+	userIDInterface := r.Context().Value(middleware.ContextKeyUserId)
+	if userIDInterface == nil {
+		return uuid.Nil, fmt.Errorf("user ID not found in context")
+	}
+	userID, ok := userIDInterface.(uuid.UUID)
+	if !ok {
+		return uuid.Nil, fmt.Errorf("invalid user ID type in context")
+	}
+	return userID, nil
+}
 
 type AnalyticsHandler struct {
 	analyticsService service.AnalyticsServiceInterface
@@ -176,6 +189,26 @@ func (h *AnalyticsHandler) DownloadFreeMp3(w http.ResponseWriter, r *http.Reques
 }
 
 // GetOverview returns aggregated analytics for the authenticated producer
+// GetTopSpecs handles the request for top performing specs
+func (h *AnalyticsHandler) GetTopSpecs(w http.ResponseWriter, r *http.Request) {
+	producerID, err := getProducerID(r)
+	if err != nil {
+		utils.WriteError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	limit := 5
+	sortBy := r.URL.Query().Get("sortBy")
+
+	stats, err := h.analyticsService.GetTopSpecs(r.Context(), producerID, limit, sortBy)
+	if err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, "Failed to fetch top specs", err)
+		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, stats)
+}
+
 func (h *AnalyticsHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context
 	userIDInterface, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
@@ -196,7 +229,10 @@ func (h *AnalyticsHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stats, err := h.analyticsService.GetStatsOverview(r.Context(), producerID, days)
+	// Parse sortBy
+	sortBy := r.URL.Query().Get("sortBy")
+
+	stats, err := h.analyticsService.GetStatsOverview(r.Context(), producerID, days, sortBy)
 	if err != nil {
 		http.Error(w, "Failed to get analytics overview", http.StatusInternalServerError)
 		return

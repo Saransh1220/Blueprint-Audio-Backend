@@ -122,3 +122,64 @@ func (r *pgOrderRepository) ListByUser(ctx context.Context, userID uuid.UUID, li
 	err := r.db.SelectContext(ctx, &orders, query, userID, limit, offset)
 	return orders, err
 }
+
+func (r *pgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.OrderWithBuyer, int, error) {
+	var orders []domain.OrderWithBuyer
+
+	// Get total count first
+	var total int
+	countQuery := `
+		SELECT COUNT(*)
+		FROM orders o
+		JOIN specs s ON o.spec_id = s.id
+		WHERE s.producer_id = $1
+	`
+	err := r.db.GetContext(ctx, &total, countQuery, producerID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get orders with buyer details
+	query := `
+		SELECT 
+			o.*,
+			u.name as buyer_name,
+			u.email as buyer_email,
+			s.title as spec_title
+		FROM orders o
+		JOIN specs s ON o.spec_id = s.id
+		JOIN users u ON o.user_id = u.id
+		WHERE s.producer_id = $1
+		ORDER BY o.created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryxContext(ctx, query, producerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var order domain.OrderWithBuyer
+		var notesJSON []byte
+
+		// We need to scan manually because of the JSON field and embedded struct
+		err := rows.Scan(
+			&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
+			&order.RazorpayOrderID, &order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
+			&order.BuyerName, &order.BuyerEmail, &order.SpecTitle,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if len(notesJSON) > 0 {
+			_ = json.Unmarshal(notesJSON, &order.Notes)
+		}
+
+		orders = append(orders, order)
+	}
+
+	return orders, total, nil
+}

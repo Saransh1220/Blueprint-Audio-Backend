@@ -62,6 +62,7 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("POST /payments/verify", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.VerifyPayment)))
 	mux.Handle("GET /licenses", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetLicenseDownloads)))
+	mux.Handle("GET /orders/producer", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetProducerOrders))) // New route
 
 	// Analytics routes
 	mux.HandleFunc("POST /specs/{id}/play", r.analyticsHandler.TrackPlay)                                                            // Public - track plays
@@ -69,6 +70,7 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("POST /specs/{id}/favorite", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.ToggleFavorite)))       // Protected - toggle favorite
 	mux.Handle("GET /specs/{id}/analytics", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetProducerAnalytics))) // Protected - get producer analytics
 	mux.Handle("GET /analytics/overview", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetOverview)))            // Protected - get dashboard overview
+	mux.Handle("GET /analytics/top-specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetTopSpecs)))           // Protected - get top specs
 
 	return mux
 }

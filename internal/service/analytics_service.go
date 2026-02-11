@@ -34,7 +34,8 @@ type AnalyticsServiceInterface interface {
 
 	GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*PublicAnalytics, error)
 	GetProducerAnalytics(ctx context.Context, specID, producerID uuid.UUID) (*ProducerAnalytics, error)
-	GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int) (*dto.AnalyticsOverviewResponse, error)
+	GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int, sortBy string) (*dto.AnalyticsOverviewResponse, error)
+	GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]dto.TopSpecStat, error)
 }
 
 type analyticsService struct {
@@ -155,7 +156,7 @@ func (s *analyticsService) GetProducerAnalytics(ctx context.Context, specID, pro
 	return producerAnalytics, nil
 }
 
-func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int) (*dto.AnalyticsOverviewResponse, error) {
+func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int, sortBy string) (*dto.AnalyticsOverviewResponse, error) {
 	plays, err := s.analyticsRepo.GetTotalPlays(ctx, producerID)
 	if err != nil {
 		return nil, err
@@ -213,7 +214,10 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 	}
 
 	// Top specs
-	topSpecs, err := s.analyticsRepo.GetTopSpecs(ctx, producerID, 5)
+	if sortBy == "" {
+		sortBy = "plays"
+	}
+	topSpecs, err := s.analyticsRepo.GetTopSpecs(ctx, producerID, 5, sortBy)
 	if err != nil {
 		return nil, err
 	}
@@ -237,4 +241,24 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 		RevenueByDay:     revStats,
 		TopSpecs:         tStats,
 	}, nil
+}
+
+func (s *analyticsService) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]dto.TopSpecStat, error) {
+	// Top Specs
+	topSpecs, err := s.analyticsRepo.GetTopSpecs(ctx, producerID, limit, sortBy)
+	if err != nil {
+		return nil, err
+	}
+
+	var topSpecDtos []dto.TopSpecStat
+	for _, spec := range topSpecs {
+		topSpecDtos = append(topSpecDtos, dto.TopSpecStat{
+			SpecID:    spec.SpecID,
+			Title:     spec.Title,
+			Plays:     spec.Plays,
+			Downloads: spec.Downloads,
+			Revenue:   spec.Revenue,
+		})
+	}
+	return topSpecDtos, nil
 }
