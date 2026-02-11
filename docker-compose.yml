@@ -86,12 +86,34 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      # minio:
-      #   condition: service_healthy  # Removed - using R2
     volumes:
       - ./:/app
     networks:
       - blueprint-audio_network
+    restart: unless-stopped
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: blueprint-audio_prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - blueprint-audio_network
+    restart: unless-stopped
+
+  # Monitoring - Grafana (Optional but highly recommended)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: blueprint-audio_grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - blueprint-audio_network
+    depends_on:
+      - prometheus
     restart: unless-stopped
 
 volumes:
