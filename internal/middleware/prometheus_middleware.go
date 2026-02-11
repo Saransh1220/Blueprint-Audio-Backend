@@ -26,13 +26,18 @@ func PrometheusMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Custom response writer to capture status code
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
-		
+
 		next.ServeHTTP(rw, r)
 
 		duration := time.Since(start).Seconds()
-		path := r.URL.Path
+		
+		// Fix: Use r.Pattern to avoid high-cardinality path labels
+		path := r.Pattern
+		if path == "" {
+			path = r.URL.Path
+		}
+		
 		method := r.Method
 		status := strconv.Itoa(rw.status)
 

@@ -4,4 +4,4 @@ global:
 scrape_configs:
   - job_name: 'blueprint-audio-backend'
     static_configs:
-      - targets: ['app:8080']
+      - targets: ['api:8080']
