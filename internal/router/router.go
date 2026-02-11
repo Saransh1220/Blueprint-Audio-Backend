@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/saransh1220/blueprint-audio/internal/handler"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
 )
@@ -35,6 +36,9 @@ func (r *Router) Setup() *http.ServeMux {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+
+	// Prometheus Metrics Endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// API Routes
 	mux.HandleFunc("POST /register", r.authHandler.Register)

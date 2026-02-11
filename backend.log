@@ -1,0 +1,3 @@
+2026/02/11 15:02:21 Connecting to DB...
+2026/02/11 15:02:21 Failed to connect to DB: dial tcp: lookup port=: no such host
+exit status 1
