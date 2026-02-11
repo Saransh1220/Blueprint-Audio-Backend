@@ -94,7 +94,7 @@ services:
 
   # Monitoring - Prometheus
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.45.0
     container_name: blueprint-audio_prometheus
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
@@ -106,7 +106,7 @@ services:
 
   # Monitoring - Grafana (Optional but highly recommended)
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.2.0
     container_name: blueprint-audio_grafana
     ports:
       - "3000:3000"

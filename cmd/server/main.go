@@ -116,7 +116,10 @@ func main() {
 	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler, analyticsHandler)
 	mux := appRouter.Setup()
 	log.Printf("Server starting on port %s", cfg.port)
+
+	// Middlewares
 	handler := middleware.CORSMiddleware(mux, cfg.allowedOrigins)
+	handler = middleware.PrometheusMiddleware(handler)
 
 	if err := http.ListenAndServe(":"+cfg.port, handler); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
