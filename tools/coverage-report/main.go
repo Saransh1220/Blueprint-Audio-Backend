@@ -345,10 +345,24 @@ func isExcluded(path string, patterns []string) bool {
 	}
 	norm := filepath.ToSlash(strings.TrimSpace(path))
 	for _, pattern := range patterns {
-		if pattern == norm {
+		pat := filepath.ToSlash(strings.TrimSpace(pattern))
+		if pat == "" {
+			continue
+		}
+		// Directory-style excludes: "internal/modules/auth/"
+		if strings.HasSuffix(pat, "/") && strings.HasPrefix(norm, pat) {
 			return true
 		}
-		matched, err := filepath.Match(pattern, norm)
+		// Prefix excludes without glob: "internal/modules/auth"
+		if !strings.ContainsAny(pat, "*?[") {
+			if norm == pat || strings.HasPrefix(norm, pat+"/") {
+				return true
+			}
+		}
+		if pat == norm {
+			return true
+		}
+		matched, err := filepath.Match(pat, norm)
 		if err == nil && matched {
 			return true
 		}

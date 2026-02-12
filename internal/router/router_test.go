@@ -5,20 +5,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/saransh1220/blueprint-audio/internal/handler"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
+	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
+	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
+	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
+	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
 	"github.com/saransh1220/blueprint-audio/internal/router"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRouter_HealthRoute(t *testing.T) {
 	r := router.NewRouter(
-		&handler.AuthHandler{},
+		&auth_http.AuthHandler{},
 		middleware.NewAuthMiddleware("secret"),
-		&handler.SpecHandler{},
-		&handler.UserHandler{},
-		&handler.PaymentHandler{},
-		&handler.AnalyticsHandler{},
+		&catalog_http.SpecHandler{},
+		&user_http.UserHandler{},
+		&payment_http.PaymentHandler{},
+		&analytics_http.AnalyticsHandler{},
 	).Setup()
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -30,12 +34,12 @@ func TestRouter_HealthRoute(t *testing.T) {
 
 func TestRouter_NewProtectedRoutesRegistered(t *testing.T) {
 	r := router.NewRouter(
-		&handler.AuthHandler{},
+		&auth_http.AuthHandler{},
 		middleware.NewAuthMiddleware("secret"),
-		&handler.SpecHandler{},
-		&handler.UserHandler{},
-		&handler.PaymentHandler{},
-		&handler.AnalyticsHandler{},
+		&catalog_http.SpecHandler{},
+		&user_http.UserHandler{},
+		&payment_http.PaymentHandler{},
+		&analytics_http.AnalyticsHandler{},
 	).Setup()
 
 	req := httptest.NewRequest(http.MethodGet, "/orders/producer", nil)

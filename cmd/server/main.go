@@ -2,126 +2,124 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-	cachedb "github.com/saransh1220/blueprint-audio/internal/db" // Aliased to avoid shadowing
-	"github.com/saransh1220/blueprint-audio/internal/handler"
+	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
-	"github.com/saransh1220/blueprint-audio/internal/repository"
+	"github.com/saransh1220/blueprint-audio/internal/modules/analytics"
+	"github.com/saransh1220/blueprint-audio/internal/modules/auth"
+	"github.com/saransh1220/blueprint-audio/internal/modules/catalog"
+	catalogPersistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
+	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
+	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
+	"github.com/saransh1220/blueprint-audio/internal/modules/user"
 	"github.com/saransh1220/blueprint-audio/internal/router"
-	"github.com/saransh1220/blueprint-audio/internal/service"
+	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
+	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
 )
 
-type appConfig struct {
-	dsn            string
-	port           string
-	jwtSecret      string
-	jwtExpiry      time.Duration
-	allowedOrigins string
-}
-
-func loadAppConfig() appConfig {
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := os.Getenv("DB_PORT")
-	dbUser := os.Getenv("DB_USER")
-	dbPass := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default-dev-secret"
-	}
-
-	jwtExpiryStr := os.Getenv("JWT_EXPIRATION")
-	jwtExpiry, _ := time.ParseDuration(jwtExpiryStr)
-	if jwtExpiry == 0 {
-		jwtExpiry = 24 * time.Hour
-	}
-
-	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
-	if allowedOrigins == "" {
-		allowedOrigins = "http://localhost:4200"
-	}
-
-	return appConfig{
-		dsn:            fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName),
-		port:           port,
-		jwtSecret:      jwtSecret,
-		jwtExpiry:      jwtExpiry,
-		allowedOrigins: allowedOrigins,
-	}
-}
-
 func main() {
-	cfg := loadAppConfig()
+	// 1. Load Configuration
+	cfg := config.Load()
 
-	log.Println("Connecting to DB...")
-
-	db, err := sqlx.Connect("postgres", cfg.dsn)
+	// 2. Database Connection
+	db, err := database.NewPostgresDB(cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to connect to DB: %v", err)
-
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	log.Printf("Database Connected Successfully!")
-
-	// Initialize Redis
-	if err := cachedb.InitRedis(); err != nil {
+	// 3. Redis Connection
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Host + ":" + cfg.Redis.Port,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	ctx := context.Background()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
 		log.Printf("Warning: Failed to connect to Redis: %v", err)
-		// We don't fatal here, allowing app to run without cache if needed
-	} else {
-		log.Println("Redis Connected Successfully!")
 	}
+	defer redisClient.Close()
 
-	fileService, err := service.NewFileService(context.Background())
+	// 4. Initialize Modules
+
+	// Filestorage Module
+	fsModule, err := filestorage.NewModule(ctx, cfg.FileStorage)
 	if err != nil {
-		log.Fatalf("Failed to initialize file service: %v", err)
+		log.Fatalf("Failed to initialize filestorage module: %v", err)
 	}
 
-	userRepo := repository.NewUserRepository(db)
-	specRepo := repository.NewSpecRepository(db)
-	analyticsRepo := repository.NewAnalyticsRepository(db)
+	// Auth Module
+	authModule, err := auth.NewModule(db, cfg.JWT.Secret, cfg.JWT.Expiry, fsModule.Service())
+	if err != nil {
+		log.Fatalf("Failed to initialize auth module: %v", err)
+	}
 
-	specService := service.NewSpecService(specRepo)
-	authService := service.NewAuthService(userRepo, cfg.jwtSecret, cfg.jwtExpiry)
-	userService := service.NewUserService(userRepo)
+	// User Module
+	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service())
 
-	orderRepo := repository.NewOrderRepository(db)
-	paymentRepo := repository.NewPaymentRepository(db)
-	licenseRepo := repository.NewLicenseRepository(db)
+	// Catalog Module Prerequisites
+	// We need to instantiate the SpecRepository explicitly to share it between Catalog and Analytics
+	specRepo := catalogPersistence.NewSpecRepository(db)
 
-	paymentService := service.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specRepo, fileService)
-	analyticsService := service.NewAnalyticsService(analyticsRepo, specRepo)
+	// Analytics Module (Likely needs SpecRepo)
+	analyticsModule := analytics.NewModule(db, specRepo, fsModule.Service())
 
-	specHandler := handler.NewSpecHandler(specService, fileService, analyticsService)
-	authHandler := handler.NewAuthHandler(authService, fileService)
-	userHandler := handler.NewUserHandler(userService, fileService)
+	// Catalog Module
+	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, redisClient)
 
-	authMiddleware := middleware.NewAuthMiddleware(cfg.jwtSecret)
+	// Payment Module
+	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), fsModule.Service())
 
-	paymentHandler := handler.NewPaymentHandler(paymentService)
-	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, specRepo, fileService)
+	// 5. Middleware
+	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)
 
-	appRouter := router.NewRouter(authHandler, authMiddleware, specHandler, userHandler, paymentHandler, analyticsHandler)
+	// 6. Router
+	appRouter := router.NewRouter(
+		authModule.HTTPHandler(),
+		authMiddleware,
+		catalogModule.HTTPHandler(),
+		userModule.HTTPHandler(),
+		paymentModule.HTTPHandler(),
+		analyticsModule.AnalyticsHandler,
+	)
+
+	// 7. Server Setup with Middleware
 	mux := appRouter.Setup()
-	log.Printf("Server starting on port %s", cfg.port)
 
-	// Middlewares
-	handler := middleware.CORSMiddleware(mux, cfg.allowedOrigins)
+	// Apply CORS middleware
+	handler := middleware.CORSMiddleware(mux, cfg.Server.AllowedOrigins)
+	// Apply Prometheus middleware
 	handler = middleware.PrometheusMiddleware(handler)
 
-	if err := http.ListenAndServe(":"+cfg.port, handler); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	srv := &http.Server{
+		Addr:    ":" + cfg.Server.Port,
+		Handler: handler,
 	}
+
+	// Graceful Shutdown
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+	log.Println("Server exiting")
 }
