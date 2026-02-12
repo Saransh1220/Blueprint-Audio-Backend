@@ -6,8 +6,8 @@ DOCKER_COMPOSE=docker-compose
 GO=go
 MIGRATE=migrate
 COVERAGE_DIR=coverage
-COVERAGE_THRESHOLD?=85
-COVERAGE_EXCLUDE_FILES?=cmd/server/main.go,internal/repository/pg_spec_repo.go,pkg/migration/migration.go,internal/modules/auth/,internal/modules/catalog/,internal/modules/payment/,internal/modules/filestorage/,internal/gateway/server.go,internal/middleware/prometheus_middleware.go
+COVERAGE_THRESHOLD?=80
+COVERAGE_EXCLUDE_FILES?=cmd/server/main.go,pkg/migration/migration.go,internal/gateway/server.go
 
 # Help command
 help:

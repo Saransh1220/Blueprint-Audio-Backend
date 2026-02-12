@@ -2,11 +2,15 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/razorpay/razorpay-go"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	"github.com/stretchr/testify/assert"
@@ -369,3 +373,152 @@ func TestPaymentService_IssueLicense_InvalidLicenseOptionID(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestPaymentService_VerifyPayment_StatusUpdateFailureBranches(t *testing.T) {
+	s, or, _, _, _, _ := newPaymentSvc()
+	ctx := context.Background()
+	orderID := uuid.New()
+
+	expired := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(-time.Hour), RazorpayOrderID: ptr("order_1")}
+	or.On("GetByID", ctx, orderID).Return(expired, nil).Once()
+	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd")).Once()
+	_, err := s.VerifyPayment(ctx, orderID, "pay", "sig")
+	assert.EqualError(t, err, "order expired and status update failed: upd")
+
+	pending := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: nil}
+	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
+	_, err = s.VerifyPayment(ctx, orderID, "pay", "sig")
+	assert.EqualError(t, err, "invalid order state")
+
+	pending = &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: ptr("order_1")}
+	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
+	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd2")).Once()
+	_, err = s.VerifyPayment(ctx, orderID, "pay", "wrong")
+	assert.EqualError(t, err, "invalid signature and status update failed: upd2")
+}
+
+func TestPaymentService_GetUserLicensesAndProducerOrders_ErrorsAndFallbacks(t *testing.T) {
+	s, or, _, lr, _, fs := newPaymentSvc()
+	ctx := context.Background()
+	userID := uuid.New()
+	producerID := uuid.New()
+
+	lr.On("ListByUser", ctx, userID, 5, 0, "q", "Basic").Return(nil, 0, errors.New("db")).Once()
+	_, _, err := s.GetUserLicenses(ctx, userID, 1, "q", "Basic")
+	assert.EqualError(t, err, "db")
+
+	img := "http://bucket/img.jpg"
+	licenses := []domain.License{{ID: uuid.New(), UserID: userID, SpecImage: &img}}
+	lr.On("ListByUser", ctx, userID, 5, 0, "", "").Return(licenses, 1, nil).Once()
+	fs.On("GetKeyFromUrl", img).Return("", errors.New("bad key")).Once()
+	out, total, err := s.GetUserLicenses(ctx, userID, 1, "", "")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, img, *out[0].SpecImage)
+
+	or.On("ListByProducer", ctx, producerID, 50, 0).Return(nil, 0, errors.New("repo")).Once()
+	_, err = s.GetProducerOrders(ctx, producerID, 1)
+	assert.EqualError(t, err, "repo")
+}
+
+func TestPaymentService_IssueLicense_MissingOptionID(t *testing.T) {
+	s, _, _, _, _, _ := newPaymentSvc()
+	_, err := s.issueLicense(context.Background(), &domain.Order{Notes: map[string]any{}})
+	assert.EqualError(t, err, "license_option_id missing")
+}
+
+func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
+	s, or, _, _, sf, _ := newPaymentSvc()
+	ctx := context.Background()
+	userID := uuid.New()
+	specID := uuid.New()
+	loID := uuid.New()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/orders" && r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "order_local_1"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s.razorpayClient = razorpay.NewClient("key", "secret")
+	s.razorpayClient.Request.BaseURL = ts.URL
+
+	spec := &catalogDomain.Spec{
+		ID:    specID,
+		Title: "Track",
+		Licenses: []catalogDomain.LicenseOption{
+			{ID: loID, LicenseType: catalogDomain.LicenseBasic, Name: "Basic", Price: 99},
+		},
+	}
+	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+	or.On("Create", ctx, mock.AnythingOfType("*domain.Order")).Return(nil).Once()
+
+	order, err := s.CreateOrder(ctx, userID, specID, loID)
+	assert.NoError(t, err)
+	assert.NotNil(t, order)
+	assert.Equal(t, "Basic", order.LicenseType)
+	assert.Equal(t, 9900, order.Amount)
+}
+
+func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
+	s, or, pr, lr, _, _ := newPaymentSvc()
+	ctx := context.Background()
+	orderID := uuid.New()
+	loID := uuid.New()
+	rzpOrderID := "order_local_2"
+	paymentID := "pay_local_1"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/payments/"+paymentID && r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":     paymentID,
+				"status": "captured",
+				"method": "card",
+				"email":  "buyer@example.com",
+			})
+			return
+		}
+		if r.URL.Path == "/v1/payments/pay_not_captured" && r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":     "pay_not_captured",
+				"status": "failed",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s.razorpayClient = razorpay.NewClient("key", "secret")
+	s.razorpayClient.Request.BaseURL = ts.URL
+
+	order := &domain.Order{
+		ID:              orderID,
+		UserID:          uuid.New(),
+		SpecID:          uuid.New(),
+		Status:          domain.OrderStatusPending,
+		ExpiresAt:       time.Now().Add(time.Hour),
+		RazorpayOrderID: &rzpOrderID,
+		LicenseType:     "Basic",
+		Amount:          1000,
+		Currency:        "INR",
+		Notes:           map[string]any{"license_option_id": loID.String()},
+	}
+
+	signature := s.generateSignature(rzpOrderID, paymentID)
+	or.On("GetByID", ctx, orderID).Return(order, nil).Twice()
+	pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
+	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
+	lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(nil).Once()
+
+	license, err := s.VerifyPayment(ctx, orderID, paymentID, signature)
+	assert.NoError(t, err)
+	assert.NotNil(t, license)
+
+	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
+	_, err = s.VerifyPayment(ctx, orderID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
+	assert.EqualError(t, err, "payment not captured")
+}
