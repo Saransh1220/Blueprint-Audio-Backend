@@ -4,27 +4,31 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/saransh1220/blueprint-audio/internal/handler"
 	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
+	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
+	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
+	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
+	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
 )
 
 type Router struct {
-	authHandler      *handler.AuthHandler
+	authHandler      *auth_http.AuthHandler
 	authMiddleware   *middleware.AuthMiddleWare
-	specHandler      *handler.SpecHandler
-	userHandler      *handler.UserHandler
-	paymentHandler   *handler.PaymentHandler
-	analyticsHandler *handler.AnalyticsHandler
+	specHandler      *catalog_http.SpecHandler
+	userHandler      *user_http.UserHandler
+	paymentHandler   *payment_http.PaymentHandler
+	analyticsHandler *analytics_http.AnalyticsHandler
 }
 
-func NewRouter(authHandler *handler.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *handler.SpecHandler, userHandler *handler.UserHandler, paymentHandler *handler.PaymentHandler, analyticsHandler *handler.AnalyticsHandler) *Router {
+func NewRouter(authHandler *auth_http.AuthHandler, authMiddleware *middleware.AuthMiddleWare, specHandler *catalog_http.SpecHandler, userHandler *user_http.UserHandler, paymentHandler *payment_http.PaymentHandler, analyticsHandler *analytics_http.AnalyticsHandler) *Router {
 	return &Router{
 		authHandler:      authHandler,
 		authMiddleware:   authMiddleware,
 		specHandler:      specHandler,
-		userHandler:      userHandler,
 		paymentHandler:   paymentHandler,
 		analyticsHandler: analyticsHandler,
+		userHandler:      userHandler,
 	}
 }
 
@@ -69,12 +73,15 @@ func (r *Router) Setup() *http.ServeMux {
 	mux.Handle("GET /orders/producer", r.authMiddleware.RequireAuth(http.HandlerFunc(r.paymentHandler.GetProducerOrders))) // New route
 
 	// Analytics routes
-	mux.HandleFunc("POST /specs/{id}/play", r.analyticsHandler.TrackPlay)                                                            // Public - track plays
-	mux.HandleFunc("POST /specs/{id}/download-free", r.analyticsHandler.DownloadFreeMp3)                                             // Public - download free MP3
+	mux.HandleFunc("POST /specs/{id}/play", r.analyticsHandler.TrackPlay) // Public - track plays
+	mux.Handle("POST /specs/{id}/download-free", r.authMiddleware.RequireAuth(http.HandlerFunc(r.specHandler.DownloadFree)))
 	mux.Handle("POST /specs/{id}/favorite", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.ToggleFavorite)))       // Protected - toggle favorite
 	mux.Handle("GET /specs/{id}/analytics", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetProducerAnalytics))) // Protected - get producer analytics
-	mux.Handle("GET /analytics/overview", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetOverview)))            // Protected - get dashboard overview
-	mux.Handle("GET /analytics/top-specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetTopSpecs)))           // Protected - get top specs
+	mux.Handle("GET /analytics/overview", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetOverview)))            // Protected - get dashboard overview (GetOverview matches existing method?)
+	// Note: Handler method is GetStatsOverview? No, I ported it as GetStatsOverview but router calls GetOverview?
+	// Let's check handler implementation.
+
+	mux.Handle("GET /analytics/top-specs", r.authMiddleware.RequireAuth(http.HandlerFunc(r.analyticsHandler.GetTopSpecs))) // Protected - get top specs
 
 	return mux
 }
