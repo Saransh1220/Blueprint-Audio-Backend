@@ -3,14 +3,10 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway"
+	gatewayMiddleware "github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog"
@@ -18,7 +14,6 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user"
-	"github.com/saransh1220/blueprint-audio/internal/router"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
 )
@@ -77,49 +72,25 @@ func main() {
 	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), fsModule.Service())
 
 	// 5. Middleware
-	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)
+	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret)
 
-	// 6. Router
-	appRouter := router.NewRouter(
-		authModule.HTTPHandler(),
-		authMiddleware,
-		catalogModule.HTTPHandler(),
-		userModule.HTTPHandler(),
-		paymentModule.HTTPHandler(),
-		analyticsModule.AnalyticsHandler,
-	)
+	// 6. Setup Routes
+	mux := gateway.SetupRoutes(gateway.RouterConfig{
+		AuthHandler:      authModule.HTTPHandler(),
+		AuthMiddleware:   authMiddleware,
+		SpecHandler:      catalogModule.HTTPHandler(),
+		UserHandler:      userModule.HTTPHandler(),
+		PaymentHandler:   paymentModule.HTTPHandler(),
+		AnalyticsHandler: analyticsModule.AnalyticsHandler,
+	})
 
-	// 7. Server Setup with Middleware
-	mux := appRouter.Setup()
+	// 7. Apply Middleware
+	handler := gatewayMiddleware.CORSMiddleware(mux, cfg.Server.AllowedOrigins)
+	handler = gatewayMiddleware.PrometheusMiddleware(handler)
 
-	// Apply CORS middleware
-	handler := middleware.CORSMiddleware(mux, cfg.Server.AllowedOrigins)
-	// Apply Prometheus middleware
-	handler = middleware.PrometheusMiddleware(handler)
-
-	srv := &http.Server{
-		Addr:    ":" + cfg.Server.Port,
-		Handler: handler,
+	// 8. Start Server
+	srv := gateway.NewServer(cfg.Server.Port, handler)
+	if err := srv.Start(); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
-
-	// Graceful Shutdown
-	go func() {
-		log.Printf("Server starting on port %s", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("ListenAndServe error: %v", err)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("Shutting down server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
-	}
-	log.Println("Server exiting")
 }

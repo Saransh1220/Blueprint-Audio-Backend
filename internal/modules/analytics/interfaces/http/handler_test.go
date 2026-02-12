@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	analyticsApp "github.com/saransh1220/blueprint-audio/internal/modules/analytics/application"
 	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
 	analyticsHTTP "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
