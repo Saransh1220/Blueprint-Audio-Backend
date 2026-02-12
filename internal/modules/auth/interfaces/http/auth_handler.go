@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 )

@@ -16,7 +16,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"golang.org/x/sync/errgroup"

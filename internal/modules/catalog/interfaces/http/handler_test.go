@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
 	catalogHTTP "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"

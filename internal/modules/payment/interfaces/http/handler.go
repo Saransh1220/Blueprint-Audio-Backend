@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/saransh1220/blueprint-audio/internal/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
 )
 
