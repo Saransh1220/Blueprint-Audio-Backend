@@ -34,7 +34,7 @@ func TestServer_Timeouts(t *testing.T) {
 	server := NewServer("8080", mux)
 
 	// Verify timeouts are set (check actual values from server.go)
-	assert.Equal(t, 15*time.Second, server.httpServer.ReadTimeout)
-	assert.Equal(t, 15*time.Second, server.httpServer.WriteTimeout)
-	assert.Equal(t, 60*time.Second, server.httpServer.IdleTimeout)
+	assert.Equal(t, 600*time.Second, server.httpServer.ReadTimeout)
+	assert.Equal(t, 600*time.Second, server.httpServer.WriteTimeout)
+	assert.Equal(t, 600*time.Second, server.httpServer.IdleTimeout)
 }
