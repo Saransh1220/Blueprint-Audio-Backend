@@ -39,9 +39,13 @@ func NewSpecHandler(service application.SpecService, fileService FileService, an
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	log.Printf("[SpecHandler.Create] Started")
+
 	// 1. Limit Total Request Size (1.5GB)
 	r.Body = http.MaxBytesReader(w, r.Body, 1500<<20) // 1.5GB limit
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		log.Printf("[SpecHandler.Create] ParseMultipartForm error: %v", err)
 		http.Error(w, "file too large", http.StatusBadRequest)
 		return
 	}
@@ -50,6 +54,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	metadata := r.FormValue("metadata")
 	var spec domain.Spec
 	if err := json.Unmarshal([]byte(metadata), &spec); err != nil {
+		log.Printf("[SpecHandler.Create] Metadata unmarshal error: %v", err)
 		http.Error(w, "invalid metadata json", http.StatusBadRequest)
 		return
 	}
@@ -57,6 +62,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// 3. Auth Check
 	producerId, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
 	if !ok {
+		log.Printf("[SpecHandler.Create] Unauthorized")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -68,6 +74,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var success bool
 	defer func() {
 		if !success {
+			log.Printf("[SpecHandler.Create] Operation failed, rolling back %d files", len(uploadedKeys))
 			// Rollback: Delete all uploaded files if operation failed
 			for _, key := range uploadedKeys {
 				_ = h.fileService.Delete(context.Background(), key)
@@ -97,6 +104,9 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return errors.New(formKey + " file too large")
 			}
 
+			log.Printf("[SpecHandler.Create] processing file %s (size: %d)", formKey, header.Size)
+			fileStart := time.Now()
+
 			var url, key string
 
 			if formKey == "image" {
@@ -111,6 +121,8 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 					return fmt.Errorf("failed to encode resized image: %w", err)
 				}
 
+				log.Printf("[SpecHandler.Create] Image processed in %v", time.Since(fileStart))
+
 				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
 				key = fmt.Sprintf("%s/%s", folder, filename)
 
@@ -124,6 +136,8 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 			}
+
+			log.Printf("[SpecHandler.Create] File %s uploaded in %v", formKey, time.Since(fileStart))
 
 			uploadedKeysMu.Lock()
 			uploadedKeys = append(uploadedKeys, key)
@@ -152,16 +166,22 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 		spec.StemsUrl = &val
 	}))
 
+	log.Printf("[SpecHandler.Create] Waiting for uploads...")
 	if err := g.Wait(); err != nil {
+		log.Printf("[SpecHandler.Create] Upload failed: %v", err)
 		http.Error(w, "upload failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[SpecHandler.Create] Uploads finished")
 
 	// 5. Call Service to Save DB Record
+	log.Printf("[SpecHandler.Create] Saving to DB...")
 	if err := h.service.CreateSpec(r.Context(), &spec); err != nil {
+		log.Printf("[SpecHandler.Create] Database save failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Printf("[SpecHandler.Create] Saved to DB. Duration so far: %v", time.Since(start))
 
 	// Mark success to prevent rollback
 	success = true
@@ -174,7 +194,10 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[SpecHandler.Create] Response encode error: %v", err)
+	}
+	log.Printf("[SpecHandler.Create] Response sent. Total time: %v", time.Since(start))
 }
 
 func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
