@@ -13,6 +13,7 @@ type SpecService interface {
 	GetSpec(ctx context.Context, id uuid.UUID) (*domain.Spec, error)
 	ListSpecs(ctx context.Context, filter domain.SpecFilter) ([]domain.Spec, int, error)
 	UpdateSpec(ctx context.Context, spec *domain.Spec, producerID uuid.UUID) error
+	UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error
 	DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error
 	GetUserSpecs(ctx context.Context, producerID uuid.UUID, page int) ([]domain.Spec, int, error)
 }
@@ -34,14 +35,16 @@ func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
 	}
 	if spec.Category == domain.CategoryBeat {
 		if spec.BPM < 50 || spec.BPM > 300 {
-			return errors.New("BPM must be between 60 and 200")
+			return errors.New("BPM must be between 50 and 300")
 		}
 
-		if spec.WavUrl == nil || *spec.WavUrl == "" {
-			return errors.New("WAV file is required!")
-		}
-		if spec.StemsUrl == nil || *spec.StemsUrl == "" {
-			return errors.New("stems file is mandatory for beats")
+		if spec.ProcessingStatus != domain.ProcessingStatusProcessing {
+			if spec.WavUrl == nil || *spec.WavUrl == "" {
+				return errors.New("WAV file is required!")
+			}
+			if spec.StemsUrl == nil || *spec.StemsUrl == "" {
+				return errors.New("stems file is mandatory for beats")
+			}
 		}
 	}
 	return s.repo.Create(ctx, spec)
@@ -99,4 +102,8 @@ func (s *specService) GetUserSpecs(ctx context.Context, producerID uuid.UUID, pa
 		offset = 0
 	}
 	return s.repo.ListByUserID(ctx, producerID, limit, offset)
+}
+
+func (s *specService) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
+	return s.repo.UpdateFilesAndStatus(ctx, id, files, status)
 }

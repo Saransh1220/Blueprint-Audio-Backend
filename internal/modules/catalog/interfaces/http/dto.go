@@ -9,25 +9,26 @@ import (
 
 // SpecResponse is the PUBLIC response
 type SpecResponse struct {
-	ID             uuid.UUID         `json:"id"`
-	ProducerID     uuid.UUID         `json:"producer_id"`
-	ProducerName   string            `json:"producer_name"`
-	Title          string            `json:"title"`
-	Category       string            `json:"category"`
-	Type           string            `json:"type"`
-	BPM            int               `json:"bpm"`
-	Key            string            `json:"key"`
-	ImageURL       string            `json:"image_url"`
-	PreviewURL     string            `json:"preview_url"`
-	Price          float64           `json:"price"`
-	Duration       int               `json:"duration"`
-	FreeMp3Enabled bool              `json:"free_mp3_enabled"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	Licenses       []LicenseResponse `json:"licenses,omitempty"`
-	Genres         []GenreResponse   `json:"genres,omitempty"`
-	Tags           []string          `json:"tags,omitempty"`
-	Analytics      *SpecAnalytics    `json:"analytics,omitempty"`
+	ID               uuid.UUID         `json:"id"`
+	ProducerID       uuid.UUID         `json:"producer_id"`
+	ProducerName     string            `json:"producer_name"`
+	Title            string            `json:"title"`
+	Category         string            `json:"category"`
+	Type             string            `json:"type"`
+	BPM              int               `json:"bpm"`
+	Key              string            `json:"key"`
+	ImageURL         string            `json:"image_url"`
+	PreviewURL       string            `json:"preview_url"`
+	Price            float64           `json:"price"`
+	Duration         int               `json:"duration"`
+	FreeMp3Enabled   bool              `json:"free_mp3_enabled"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	Licenses         []LicenseResponse `json:"licenses,omitempty"`
+	Genres           []GenreResponse   `json:"genres,omitempty"`
+	Tags             []string          `json:"tags,omitempty"`
+	Analytics        *SpecAnalytics    `json:"analytics,omitempty"`
+	ProcessingStatus string            `json:"processing_status"`
 }
 
 // SpecAnalytics contains publicly visible analytics
@@ -61,22 +62,23 @@ type GenreResponse struct {
 
 func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 	response := &SpecResponse{
-		ID:             spec.ID,
-		ProducerID:     spec.ProducerID,
-		ProducerName:   spec.ProducerName,
-		Title:          spec.Title,
-		Category:       string(spec.Category),
-		Type:           spec.Type,
-		BPM:            spec.BPM,
-		Key:            spec.Key,
-		ImageURL:       spec.ImageUrl,
-		PreviewURL:     spec.PreviewUrl,
-		Price:          spec.BasePrice,
-		Duration:       spec.Duration,
-		FreeMp3Enabled: spec.FreeMp3Enabled,
-		CreatedAt:      spec.CreatedAt,
-		UpdatedAt:      spec.UpdatedAt,
-		Tags:           spec.Tags,
+		ID:               spec.ID,
+		ProducerID:       spec.ProducerID,
+		ProducerName:     spec.ProducerName,
+		Title:            spec.Title,
+		Category:         string(spec.Category),
+		Type:             spec.Type,
+		BPM:              spec.BPM,
+		Key:              spec.Key,
+		ImageURL:         spec.ImageUrl,
+		PreviewURL:       spec.PreviewUrl,
+		Price:            spec.BasePrice,
+		Duration:         spec.Duration,
+		FreeMp3Enabled:   spec.FreeMp3Enabled,
+		CreatedAt:        spec.CreatedAt,
+		UpdatedAt:        spec.UpdatedAt,
+		Tags:             spec.Tags,
+		ProcessingStatus: string(spec.ProcessingStatus),
 	}
 
 	// Convert licenses

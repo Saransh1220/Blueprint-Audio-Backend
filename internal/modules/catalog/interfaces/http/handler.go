@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/disintegration/imaging"
@@ -19,27 +19,27 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
-	"golang.org/x/sync/errgroup"
 )
 
 type SpecHandler struct {
-	service          application.SpecService
-	fileService      FileService
-	analyticsService AnalyticsService
-	redisClient      *redis.Client
+	service             application.SpecService
+	fileService         FileService
+	analyticsService    AnalyticsService
+	notificationService NotificationService
+	redisClient         *redis.Client
 }
 
-func NewSpecHandler(service application.SpecService, fileService FileService, analyticsService AnalyticsService, redisClient *redis.Client) *SpecHandler {
+func NewSpecHandler(service application.SpecService, fileService FileService, analyticsService AnalyticsService, notificationService NotificationService, redisClient *redis.Client) *SpecHandler {
 	return &SpecHandler{
-		service:          service,
-		fileService:      fileService,
-		analyticsService: analyticsService,
-		redisClient:      redisClient,
+		service:             service,
+		fileService:         fileService,
+		analyticsService:    analyticsService,
+		notificationService: notificationService,
+		redisClient:         redisClient,
 	}
 }
 
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
 	log.Printf("[SpecHandler.Create] Started")
 
 	// 1. Limit Total Request Size (1.5GB)
@@ -68,136 +68,230 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	spec.ProducerID = producerId
 
-	// 4. Handle File Uploads with Rollback
-	var uploadedKeys []string
-	var uploadedKeysMu sync.Mutex
-	var success bool
-	defer func() {
-		if !success {
-			log.Printf("[SpecHandler.Create] Operation failed, rolling back %d files", len(uploadedKeys))
-			// Rollback: Delete all uploaded files if operation failed
-			for _, key := range uploadedKeys {
-				_ = h.fileService.Delete(context.Background(), key)
-			}
-		}
-	}()
+	// 4. Persist Files to Temp Storage for Async Processing
+	tempFiles := make(map[string]string)
 
-	g, ctx := errgroup.WithContext(r.Context())
-
-	uploadAsync := func(formKey, folder string, limit int64, setUrl func(string)) func() error {
-		return func() error {
-			// Check for context cancellation
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			file, header, err := r.FormFile(formKey)
-			if err == http.ErrMissingFile {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			if header.Size > limit {
-				return errors.New(formKey + " file too large")
-			}
-
-			log.Printf("[SpecHandler.Create] processing file %s (size: %d)", formKey, header.Size)
-			fileStart := time.Now()
-
-			var url, key string
-
-			if formKey == "image" {
-				src, err := imaging.Decode(file)
-				if err != nil {
-					return fmt.Errorf("failed to decode image: %w", err)
-				}
-
-				dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
-				buf := new(bytes.Buffer)
-				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
-					return fmt.Errorf("failed to encode resized image: %w", err)
-				}
-
-				log.Printf("[SpecHandler.Create] Image processed in %v", time.Since(fileStart))
-
-				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
-				key = fmt.Sprintf("%s/%s", folder, filename)
-
-				url, err = h.fileService.UploadWithKey(ctx, buf, key, "image/jpeg")
-				if err != nil {
-					return err
-				}
-			} else {
-				url, key, err = h.fileService.Upload(ctx, file, header, folder)
-				if err != nil {
-					return err
-				}
-			}
-
-			log.Printf("[SpecHandler.Create] File %s uploaded in %v", formKey, time.Since(fileStart))
-
-			uploadedKeysMu.Lock()
-			uploadedKeys = append(uploadedKeys, key)
-			uploadedKeysMu.Unlock()
-
-			setUrl(url)
+	// Helper to persist file
+	persistFile := func(formKey string) error {
+		file, _, err := r.FormFile(formKey)
+		if err == http.ErrMissingFile {
 			return nil
 		}
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// Create temp file
+		tempFile, err := os.CreateTemp("", "upload-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp file: %w", err)
+		}
+		defer tempFile.Close()
+
+		// Copy content
+		if _, err := io.Copy(tempFile, file); err != nil {
+			return fmt.Errorf("failed to save temp file: %w", err)
+		}
+
+		tempFiles[formKey] = tempFile.Name()
+		return nil
 	}
 
-	// Image (5MB)
-	g.Go(uploadAsync("image", "images", 5<<20, func(u string) { spec.ImageUrl = u }))
-
-	// Preview (30MB)
-	g.Go(uploadAsync("preview", "audio/previews", 30<<20, func(u string) { spec.PreviewUrl = u }))
-
-	// WAV (300MB)
-	g.Go(uploadAsync("wav", "audio/wavs", 300<<20, func(u string) {
-		val := u
-		spec.WavUrl = &val
-	}))
-
-	// Stems (1GB)
-	g.Go(uploadAsync("stems", "audio/stems", 1<<30, func(u string) {
-		val := u
-		spec.StemsUrl = &val
-	}))
-
-	log.Printf("[SpecHandler.Create] Waiting for uploads...")
-	if err := g.Wait(); err != nil {
-		log.Printf("[SpecHandler.Create] Upload failed: %v", err)
-		http.Error(w, "upload failed: "+err.Error(), http.StatusInternalServerError)
-		return
+	keysToProcess := []string{"image", "preview", "wav", "stems"}
+	for _, key := range keysToProcess {
+		if err := persistFile(key); err != nil {
+			// Cleanup any created temp files
+			for _, path := range tempFiles {
+				os.Remove(path)
+			}
+			log.Printf("[SpecHandler.Create] File persistence failed: %v", err)
+			http.Error(w, "file upload failed", http.StatusInternalServerError)
+			return
+		}
 	}
-	log.Printf("[SpecHandler.Create] Uploads finished")
 
-	// 5. Call Service to Save DB Record
-	log.Printf("[SpecHandler.Create] Saving to DB...")
+	// 4b. Validate required files presence
+	if spec.Category == domain.CategoryBeat {
+		if _, ok := tempFiles["wav"]; !ok {
+			// Cleanup
+			for _, path := range tempFiles {
+				os.Remove(path)
+			}
+			http.Error(w, "wav file is required for beats", http.StatusBadRequest)
+			return
+		}
+		if _, ok := tempFiles["stems"]; !ok {
+			// Cleanup
+			for _, path := range tempFiles {
+				os.Remove(path)
+			}
+			http.Error(w, "stems file is required for beats", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// 5. Initial DB Save
+	spec.ProcessingStatus = domain.ProcessingStatusProcessing
+	if spec.ID == uuid.Nil {
+		spec.ID = uuid.New()
+	}
+
 	if err := h.service.CreateSpec(r.Context(), &spec); err != nil {
+		// Cleanup temp files
+		for _, path := range tempFiles {
+			os.Remove(path)
+		}
 		log.Printf("[SpecHandler.Create] Database save failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	log.Printf("[SpecHandler.Create] Saved to DB. Duration so far: %v", time.Since(start))
 
-	// Mark success to prevent rollback
-	success = true
-
-	// 6. Return Created Spec
+	// 6. Respond 202
 	h.sanitizeSpec(&spec)
-
-	// Convert to DTO
 	response := ToSpecResponse(&spec)
-
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("[SpecHandler.Create] Response encode error: %v", err)
 	}
-	log.Printf("[SpecHandler.Create] Response sent. Total time: %v", time.Since(start))
+
+	// 7. Async Processing
+	go func(specID uuid.UUID, producerID uuid.UUID, filePaths map[string]string) {
+		asyncCtx := context.Background()
+		jobStart := time.Now()
+		log.Printf("[SpecHandler.Create] Starting async job for spec %s", specID)
+
+		var uploadedKeys []string
+		var funcErr error
+		filesToUpdate := make(map[string]*string)
+
+		// Final Cleanup & Status Update
+		defer func() {
+			// Always remove temp files
+			for _, path := range filePaths {
+				os.Remove(path)
+			}
+
+			if funcErr != nil {
+				log.Printf("[SpecHandler.Create] Async job failed: %v", funcErr)
+				// Rollback uploads
+				for _, key := range uploadedKeys {
+					_ = h.fileService.Delete(asyncCtx, key)
+				}
+				// Update Status Failed
+				_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
+				// Notify Failure
+				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
+			} else {
+				log.Printf("[SpecHandler.Create] Async job success in %v", time.Since(jobStart))
+				// Update Status Completed & URLs
+				if err := h.service.UpdateFilesAndStatus(asyncCtx, specID, filesToUpdate, domain.ProcessingStatusCompleted); err != nil {
+					log.Printf("Failed to update status: %v", err)
+				}
+				// Notify Success
+				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Complete", fmt.Sprintf("Your beat '%s' is now live!", spec.Title), "success")
+			}
+		}()
+
+		// Process each file
+		processFile := func(key, path string) (string, string, error) {
+			f, err := os.Open(path)
+			if err != nil {
+				return "", "", err
+			}
+			defer f.Close()
+
+			stat, _ := f.Stat()
+			fileSize := stat.Size()
+			log.Printf("Processing %s (%d bytes)", key, fileSize)
+
+			if key == "image" {
+				// Resize Image
+				src, err := imaging.Decode(f)
+				if err != nil {
+					return "", "", fmt.Errorf("image decode error: %w", err)
+				}
+				dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+				buf := new(bytes.Buffer)
+				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+					return "", "", fmt.Errorf("image encode error: %w", err)
+				}
+
+				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+				s3Key := fmt.Sprintf("images/%s", filename)
+				url, err := h.fileService.UploadWithKey(asyncCtx, buf, s3Key, "image/jpeg")
+				return url, s3Key, err
+			} else {
+				// Regular Upload
+				// We need a proper filename/ext. Since we lost original filename, we assume extensions based on key
+				// Or we just generate UUIDs
+				folder := "audio/misc"
+				if key == "preview" {
+					folder = "audio/previews"
+				}
+				if key == "wav" {
+					folder = "audio/wavs"
+				}
+				if key == "stems" {
+					folder = "audio/stems"
+				}
+
+				// construct a fake header or use UploadWithKey
+				// UploadWithKey reads io.Reader.
+				// existing h.fileService.Upload takes *multipart.FileHeader which we don't have.
+				// We should use UploadWithKey or a new method.
+				// SpecHandler uses FileService interface. Let's see if we can use UploadWithKey.
+
+				ext := ".bin"
+				mime := "application/octet-stream"
+				if key == "preview" {
+					ext = ".mp3"
+					mime = "audio/mpeg"
+				}
+				if key == "wav" {
+					ext = ".wav"
+					mime = "audio/wav"
+				}
+				if key == "stems" {
+					ext = ".zip"
+					mime = "application/zip"
+				}
+
+				filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+				s3Key := fmt.Sprintf("%s/%s", folder, filename)
+
+				url, err := h.fileService.UploadWithKey(asyncCtx, f, s3Key, mime)
+				return url, s3Key, err
+			}
+		}
+
+		for key, path := range filePaths {
+			url, s3Key, err := processFile(key, path)
+			if err != nil {
+				funcErr = err
+				return
+			}
+
+			uploadedKeys = append(uploadedKeys, s3Key)
+
+			// Map to DB field
+			val := url
+			if key == "image" {
+				filesToUpdate["image_url"] = &val
+			}
+			if key == "preview" {
+				filesToUpdate["preview_url"] = &val
+			}
+			if key == "wav" {
+				filesToUpdate["wav_url"] = &val
+			}
+			if key == "stems" {
+				filesToUpdate["stems_url"] = &val
+			}
+		}
+
+	}(spec.ID, spec.ProducerID, tempFiles)
 }
 
 func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {

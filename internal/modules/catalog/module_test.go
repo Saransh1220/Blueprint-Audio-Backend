@@ -11,7 +11,7 @@ import (
 
 func TestModuleAccessors(t *testing.T) {
 	repo := persistence.NewSpecRepository(&sqlx.DB{})
-	m := NewModule(&sqlx.DB{}, repo, nil, nil, &redis.Client{})
+	m := NewModule(&sqlx.DB{}, repo, nil, nil, nil, &redis.Client{})
 	require.NotNil(t, m)
 	require.NotNil(t, m.Repository())
 	require.NotNil(t, m.SpecFinder())

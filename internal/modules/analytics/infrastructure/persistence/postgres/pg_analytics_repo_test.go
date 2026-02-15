@@ -93,15 +93,17 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	producerID := uuid.New()
 	specID := uuid.New()
 
-	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(play_count\\), 0\\)").
-		WithArgs(producerID).WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(10))
-	plays, err := repo.GetTotalPlays(ctx, producerID)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM analytics_events").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+	plays, err := repo.GetTotalPlays(ctx, producerID, 30)
 	require.NoError(t, err)
 	assert.Equal(t, 10, plays)
 
 	mock.ExpectQuery("SELECT o\\.license_type, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
-		WithArgs(producerID).WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("Basic", 10.5))
-	rev, err := repo.GetRevenueByLicenseGlobal(ctx, producerID)
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("Basic", 10.5))
+	rev, err := repo.GetRevenueByLicenseGlobal(ctx, producerID, 30)
 	require.NoError(t, err)
 	assert.Equal(t, 10.5, rev["Basic"])
 
@@ -112,4 +114,3 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, top, 1)
 }
-

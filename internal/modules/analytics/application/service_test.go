@@ -48,24 +48,24 @@ func (m *mockAnalyticsRepository) GetLicensePurchaseCounts(ctx context.Context, 
 	}
 	return args.Get(0).(map[string]int), args.Error(1)
 }
-func (m *mockAnalyticsRepository) GetTotalPlays(ctx context.Context, producerID uuid.UUID) (int, error) {
-	args := m.Called(ctx, producerID)
+func (m *mockAnalyticsRepository) GetTotalPlays(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	args := m.Called(ctx, producerID, days)
 	return args.Int(0), args.Error(1)
 }
-func (m *mockAnalyticsRepository) GetTotalFavorites(ctx context.Context, producerID uuid.UUID) (int, error) {
-	args := m.Called(ctx, producerID)
+func (m *mockAnalyticsRepository) GetTotalFavorites(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	args := m.Called(ctx, producerID, days)
 	return args.Int(0), args.Error(1)
 }
-func (m *mockAnalyticsRepository) GetTotalDownloads(ctx context.Context, producerID uuid.UUID) (int, error) {
-	args := m.Called(ctx, producerID)
+func (m *mockAnalyticsRepository) GetTotalDownloads(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	args := m.Called(ctx, producerID, days)
 	return args.Int(0), args.Error(1)
 }
-func (m *mockAnalyticsRepository) GetTotalRevenue(ctx context.Context, producerID uuid.UUID) (float64, error) {
-	args := m.Called(ctx, producerID)
+func (m *mockAnalyticsRepository) GetTotalRevenue(ctx context.Context, producerID uuid.UUID, days int) (float64, error) {
+	args := m.Called(ctx, producerID, days)
 	return args.Get(0).(float64), args.Error(1)
 }
-func (m *mockAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID) (map[string]float64, error) {
-	args := m.Called(ctx, producerID)
+func (m *mockAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID, days int) (map[string]float64, error) {
+	args := m.Called(ctx, producerID, days)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -142,6 +142,9 @@ func (m *mockSpecRepository) ListByUserID(ctx context.Context, producerID uuid.U
 	}
 	return args.Get(0).([]catalogDomain.Spec), args.Int(1), args.Error(2)
 }
+func (m *mockSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
+	return nil
+}
 
 func TestAnalyticsService_ToggleFavorite(t *testing.T) {
 	ctx := context.Background()
@@ -214,15 +217,15 @@ func TestAnalyticsService_TrackOverviewAndTop(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, fav)
 
-	ar.On("GetTotalPlays", ctx, userID).Return(1, nil).Once()
-	ar.On("GetTotalFavorites", ctx, userID).Return(1, nil).Once()
-	ar.On("GetTotalDownloads", ctx, userID).Return(1, nil).Once()
-	ar.On("GetTotalRevenue", ctx, userID).Return(1.0, nil).Once()
+	ar.On("GetTotalPlays", ctx, userID, 30).Return(1, nil).Once()
+	ar.On("GetTotalFavorites", ctx, userID, 30).Return(1, nil).Once()
+	ar.On("GetTotalDownloads", ctx, userID, 30).Return(1, nil).Once()
+	ar.On("GetTotalRevenue", ctx, userID, 30).Return(1.0, nil).Once()
 	ar.On("GetPlaysByDay", ctx, userID, 30).Return([]analyticsDomain.DailyStat{}, nil).Once()
 	ar.On("GetDownloadsByDay", ctx, userID, 30).Return([]analyticsDomain.DailyStat{}, nil).Once()
 	ar.On("GetRevenueByDay", ctx, userID, 30).Return([]analyticsDomain.DailyRevenueStat{}, nil).Once()
 	ar.On("GetTopSpecs", ctx, userID, 5, "").Return([]analyticsDomain.TopSpecStat{}, nil).Once()
-	ar.On("GetRevenueByLicenseGlobal", ctx, userID).Return(map[string]float64{}, nil).Once()
+	ar.On("GetRevenueByLicenseGlobal", ctx, userID, 30).Return(map[string]float64{}, nil).Once()
 	overview, err := svc.GetStatsOverview(ctx, userID, 30, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, overview)
@@ -232,4 +235,3 @@ func TestAnalyticsService_TrackOverviewAndTop(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, top, 1)
 }
-

@@ -46,11 +46,23 @@ type Spec struct {
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
 
+	// Processing Status
+	ProcessingStatus ProcessingStatus `json:"processing_status" db:"processing_status"`
+
 	// Relations
 	Licenses []LicenseOption `json:"licenses,omitempty"`
 	Genres   []Genre         `json:"genres,omitempty"`
 	Tags     pq.StringArray  `json:"tags,omitempty" db:"tags"`
 }
+
+type ProcessingStatus string
+
+const (
+	ProcessingStatusPending    ProcessingStatus = "pending"
+	ProcessingStatusProcessing ProcessingStatus = "processing"
+	ProcessingStatusCompleted  ProcessingStatus = "completed"
+	ProcessingStatusFailed     ProcessingStatus = "failed"
+)
 
 // LicenseOption defines the pricing and features for a specific spec
 type LicenseOption struct {
@@ -97,6 +109,7 @@ type SpecRepository interface {
 	GetByIDSystem(ctx context.Context, id uuid.UUID) (*Spec, error)
 	List(ctx context.Context, filter SpecFilter) ([]Spec, int, error)
 	Update(ctx context.Context, spec *Spec) error
+	UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status ProcessingStatus) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
 	ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]Spec, int, error)
 }

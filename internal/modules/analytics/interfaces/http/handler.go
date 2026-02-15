@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -118,21 +119,32 @@ func (h *AnalyticsHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	daysStr := r.URL.Query().Get("days")
+	log.Printf("[Analytics Handler] GetOverview: Raw query param 'days' = '%s'", daysStr)
+	log.Printf("[Analytics Handler] GetOverview: Full query string = '%s'", r.URL.RawQuery)
+
 	days := 30
 	if daysStr != "" {
 		if d, err := strconv.Atoi(daysStr); err == nil {
 			days = d
+			log.Printf("[Analytics Handler] GetOverview: Parsed days = %d", days)
+		} else {
+			log.Printf("[Analytics Handler] GetOverview: Failed to parse days '%s', error: %v, using default: %d", daysStr, err, days)
 		}
+	} else {
+		log.Printf("[Analytics Handler] GetOverview: No days parameter provided, using default: %d", days)
 	}
 
-	sortBy := r.URL.Query().Get("sort")
+	sortBy := r.URL.Query().Get("sortBy")
+	log.Printf("[Analytics Handler] GetOverview: ProducerID=%s, Days=%d, SortBy=%s", producerID, days, sortBy)
 
 	stats, err := h.service.GetStatsOverview(r.Context(), producerID, days, sortBy)
 	if err != nil {
+		log.Printf("[Analytics Handler] GetOverview: Error from service: %v", err)
 		http.Error(w, "failed to fetch analytics overview", http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[Analytics Handler] GetOverview: Successfully fetched stats for %d days", days)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }

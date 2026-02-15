@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
@@ -123,46 +124,75 @@ func (s *analyticsService) GetProducerAnalytics(ctx context.Context, specID, pro
 }
 
 func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int, sortBy string) (*domain.AnalyticsOverviewResponse, error) {
-	totalPlays, err := s.repo.GetTotalPlays(ctx, producerID)
-	if err != nil {
-		return nil, err
-	}
-	totalFavorites, err := s.repo.GetTotalFavorites(ctx, producerID)
-	if err != nil {
-		return nil, err
-	}
-	totalDownloads, err := s.repo.GetTotalDownloads(ctx, producerID)
-	if err != nil {
-		return nil, err
-	}
-	totalRevenue, err := s.repo.GetTotalRevenue(ctx, producerID)
-	if err != nil {
-		return nil, err
-	}
+	log.Printf("[Analytics Service] GetStatsOverview: ProducerID=%s, Days=%d, SortBy=%s", producerID, days, sortBy)
 
+	totalPlays, err := s.repo.GetTotalPlays(ctx, producerID, days)
+	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting total plays: %v", err)
+		return nil, err
+	}
+	log.Printf("[Analytics Service] GetStatsOverview: TotalPlays=%d", totalPlays)
+
+	totalFavorites, err := s.repo.GetTotalFavorites(ctx, producerID, days)
+	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting total favorites: %v", err)
+		return nil, err
+	}
+	log.Printf("[Analytics Service] GetStatsOverview: TotalFavorites=%d", totalFavorites)
+
+	totalDownloads, err := s.repo.GetTotalDownloads(ctx, producerID, days)
+	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting total downloads: %v", err)
+		return nil, err
+	}
+	log.Printf("[Analytics Service] GetStatsOverview: TotalDownloads=%d", totalDownloads)
+
+	totalRevenue, err := s.repo.GetTotalRevenue(ctx, producerID, days)
+	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting total revenue: %v", err)
+		return nil, err
+	}
+	log.Printf("[Analytics Service] GetStatsOverview: TotalRevenue=%f", totalRevenue)
+
+	log.Printf("[Analytics Service] GetStatsOverview: Calling GetPlaysByDay with days=%d", days)
 	playsByDay, err := s.repo.GetPlaysByDay(ctx, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting plays by day: %v", err)
 		return nil, err
 	}
+	log.Printf("[Analytics Service] GetStatsOverview: PlaysByDay returned %d entries", len(playsByDay))
+
+	log.Printf("[Analytics Service] GetStatsOverview: Calling GetDownloadsByDay with days=%d", days)
 	downloadsByDay, err := s.repo.GetDownloadsByDay(ctx, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting downloads by day: %v", err)
 		return nil, err
 	}
+	log.Printf("[Analytics Service] GetStatsOverview: DownloadsByDay returned %d entries", len(downloadsByDay))
+
+	log.Printf("[Analytics Service] GetStatsOverview: Calling GetRevenueByDay with days=%d", days)
 	revenueByDay, err := s.repo.GetRevenueByDay(ctx, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting revenue by day: %v", err)
 		return nil, err
 	}
+	log.Printf("[Analytics Service] GetStatsOverview: RevenueByDay returned %d entries", len(revenueByDay))
 
 	topSpecs, err := s.repo.GetTopSpecs(ctx, producerID, 5, sortBy)
 	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting top specs: %v", err)
 		return nil, err
 	}
+	log.Printf("[Analytics Service] GetStatsOverview: TopSpecs returned %d entries", len(topSpecs))
 
-	revenueByLicense, err := s.repo.GetRevenueByLicenseGlobal(ctx, producerID)
+	revenueByLicense, err := s.repo.GetRevenueByLicenseGlobal(ctx, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Service] GetStatsOverview: Error getting revenue by license: %v", err)
 		return nil, err
 	}
+	log.Printf("[Analytics Service] GetStatsOverview: RevenueByLicense returned %d entries", len(revenueByLicense))
 
+	log.Printf("[Analytics Service] GetStatsOverview: Returning complete response for %d days", days)
 	return &domain.AnalyticsOverviewResponse{
 		TotalPlays:       totalPlays,
 		TotalFavorites:   totalFavorites,

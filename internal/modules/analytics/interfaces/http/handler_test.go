@@ -84,6 +84,9 @@ func (m *mockSpecRepo) Delete(ctx context.Context, id uuid.UUID, producerID uuid
 func (m *mockSpecRepo) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]catalogDomain.Spec, int, error) {
 	return nil, 0, nil
 }
+func (m *mockSpecRepo) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
+	return nil
+}
 
 type mockFileService struct{ mock.Mock }
 
@@ -150,7 +153,7 @@ func TestAnalyticsHandler_OverviewAndTopSpecs(t *testing.T) {
 	h.GetProducerAnalytics(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	req = httptest.NewRequest(http.MethodGet, "/analytics/overview?days=7&sort=revenue", nil)
+	req = httptest.NewRequest(http.MethodGet, "/analytics/overview?days=7&sortBy=revenue", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
 	as.On("GetStatsOverview", mock.Anything, userID, 7, "revenue").Return(&analyticsDomain.AnalyticsOverviewResponse{}, nil).Once()
 	w = httptest.NewRecorder()

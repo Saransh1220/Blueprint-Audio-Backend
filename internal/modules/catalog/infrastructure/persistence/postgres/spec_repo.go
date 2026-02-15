@@ -45,12 +45,12 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
             id, producer_id, title, category, type, bpm, key, 
             base_price, image_url, preview_url, wav_url, stems_url,
             tags, duration, free_mp3_enabled,
-            created_at, updated_at
+            created_at, updated_at, processing_status
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
             :base_price, :image_url, :preview_url, :wav_url, :stems_url,
             :tags, :duration, :free_mp3_enabled,
-            :created_at, :updated_at
+            :created_at, :updated_at, :processing_status
         )`
 
 	_, err = tx.NamedExecContext(ctx, query, spec)
@@ -678,4 +678,36 @@ func (r *PgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*do
 // Alias for GetByIDSystem - retrieves a spec even if it's soft-deleted
 func (r *PgSpecRepository) FindByIDIncludingDeleted(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
 	return r.GetByIDSystem(ctx, id)
+}
+
+func (r *PgSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
+	// Build dynamic query
+	query := "UPDATE specs SET processing_status = :status, updated_at = :updated_at"
+	params := map[string]interface{}{
+		"id":         id,
+		"status":     status,
+		"updated_at": time.Now(),
+	}
+
+	if val, ok := files["image_url"]; ok && val != nil {
+		query += ", image_url = :image_url"
+		params["image_url"] = *val
+	}
+	if val, ok := files["preview_url"]; ok && val != nil {
+		query += ", preview_url = :preview_url"
+		params["preview_url"] = *val
+	}
+	if val, ok := files["wav_url"]; ok && val != nil {
+		query += ", wav_url = :wav_url"
+		params["wav_url"] = *val
+	}
+	if val, ok := files["stems_url"]; ok && val != nil {
+		query += ", stems_url = :stems_url"
+		params["stems_url"] = *val
+	}
+
+	query += " WHERE id = :id"
+
+	_, err := r.db.NamedExecContext(ctx, query, params)
+	return err
 }

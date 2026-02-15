@@ -35,19 +35,25 @@ func NewAuthMiddleware(jwtSecret string) *AuthMiddleWare {
 // the user context enriched with identity and role information for RBAC purposes.
 func (m *AuthMiddleWare) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ""
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, `{"error": "missing authorization header"}`, http.StatusUnauthorized)
+
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				tokenStr = parts[1]
+			}
+		}
+
+		if tokenStr == "" {
+			tokenStr = r.URL.Query().Get("token")
+		}
+
+		if tokenStr == "" {
+			http.Error(w, `{"error": "missing or invalid authorization"}`, http.StatusUnauthorized)
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, `{"error": "invalid authorization header format"}`, http.StatusUnauthorized)
-			return
-		}
-
-		tokenStr := parts[1]
 		// Note: ValidateToken will be moved to auth module's JWT provider later
 		claims, err := utils.ValidateToken(tokenStr, m.jwtSecret)
 		if err != nil {
