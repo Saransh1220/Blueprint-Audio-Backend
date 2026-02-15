@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"log"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -28,6 +29,10 @@ type Hub struct {
 
 	// Unregister requests from clients.
 	unregister chan *Client
+
+	// Channel to signal termination
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 func NewHub() *Hub {
@@ -36,7 +41,9 @@ func NewHub() *Hub {
 		unicast:    make(chan UnicastMessage),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		clients:    make(map[*Client]bool),
+
+		clients: make(map[*Client]bool),
+		stop:    make(chan struct{}),
 	}
 }
 
@@ -45,12 +52,20 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
-			log.Printf("[WebSocket Hub] Client registered: %v (User: %s)", client.conn.RemoteAddr(), client.userID)
+			addr := "test"
+			if client.conn != nil {
+				addr = client.conn.RemoteAddr().String()
+			}
+			log.Printf("[WebSocket Hub] Client registered: %v (User: %s)", addr, client.userID)
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
-				log.Printf("[WebSocket Hub] Client unregistered: %v (User: %s)", client.conn.RemoteAddr(), client.userID)
+				addr := "test"
+				if client.conn != nil {
+					addr = client.conn.RemoteAddr().String()
+				}
+				log.Printf("[WebSocket Hub] Client unregistered: %v (User: %s)", addr, client.userID)
 			}
 		case message := <-h.broadcast:
 			log.Printf("[WebSocket Hub] Broadcasting message to %d clients", len(h.clients))
@@ -74,14 +89,33 @@ func (h *Hub) Run() {
 					}
 				}
 			}
+		case <-h.stop:
+			log.Println("[WebSocket Hub] Stopping hub")
+			for client := range h.clients {
+				close(client.send)
+				delete(h.clients, client)
+			}
+			return
 		}
 	}
 }
 
 func (h *Hub) BroadcastMessage(message []byte) {
-	h.broadcast <- message
+	select {
+	case h.broadcast <- message:
+	case <-h.stop:
+	}
 }
 
 func (h *Hub) SendToUser(userID uuid.UUID, message []byte) {
-	h.unicast <- UnicastMessage{UserID: userID, Message: message}
+	select {
+	case h.unicast <- UnicastMessage{UserID: userID, Message: message}:
+	case <-h.stop:
+	}
+}
+
+func (h *Hub) Stop() {
+	h.stopOnce.Do(func() {
+		close(h.stop)
+	})
 }

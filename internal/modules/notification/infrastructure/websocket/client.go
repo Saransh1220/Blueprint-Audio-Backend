@@ -26,9 +26,22 @@ const (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// Allow all origins for now (dev)
+	// CheckOrigin allows connections from localhost (dev) and the production domain.
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		// Allow no origin (e.g. non-browser clients)
+		if origin == "" {
+			return true
+		}
+		// Allow localhost for development
+		if origin == "http://localhost:4200" || origin == "http://localhost:3000" {
+			return true
+		}
+		// Allow production domain (adjust as needed)
+		if origin == "https://redwave.app" {
+			return true
+		}
+		return false
 	},
 }
 
@@ -96,14 +109,21 @@ func (c *Client) writePump() {
 			}
 			w.Write(message)
 
+			if err := w.Close(); err != nil {
+				return
+			}
+
 			// Add queued chat messages to the current websocket message.
 			n := len(c.send)
 			for i := 0; i < n; i++ {
+				w, err := c.conn.NextWriter(websocket.TextMessage)
+				if err != nil {
+					return
+				}
 				w.Write(<-c.send)
-			}
-
-			if err := w.Close(); err != nil {
-				return
+				if err := w.Close(); err != nil {
+					return
+				}
 			}
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))

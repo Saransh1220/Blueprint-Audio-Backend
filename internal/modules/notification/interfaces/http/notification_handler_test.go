@@ -20,7 +20,7 @@ import (
 
 type notificationRepoStub struct {
 	getByUserIDFn   func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error)
-	markAsReadFn    func(context.Context, uuid.UUID) error
+	markAsReadFn    func(context.Context, uuid.UUID, uuid.UUID) error
 	markAllAsReadFn func(context.Context, uuid.UUID) error
 	unreadCountFn   func(context.Context, uuid.UUID) (int, error)
 }
@@ -29,8 +29,8 @@ func (s notificationRepoStub) Create(context.Context, *domain.Notification) erro
 func (s notificationRepoStub) GetByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error) {
 	return s.getByUserIDFn(ctx, userID, limit, offset)
 }
-func (s notificationRepoStub) MarkAsRead(ctx context.Context, notificationID uuid.UUID) error {
-	return s.markAsReadFn(ctx, notificationID)
+func (s notificationRepoStub) MarkAsRead(ctx context.Context, notificationID, userID uuid.UUID) error {
+	return s.markAsReadFn(ctx, notificationID, userID)
 }
 func (s notificationRepoStub) MarkAllAsRead(ctx context.Context, userID uuid.UUID) error {
 	return s.markAllAsReadFn(ctx, userID)
@@ -53,6 +53,7 @@ func newHandler(repo notificationRepoStub, hub *ws.Hub) *notificationhttp.Notifi
 func TestNotificationHandler_SubscribeAndList(t *testing.T) {
 	hub := ws.NewHub()
 	go hub.Run()
+	defer hub.Stop()
 
 	userID := uuid.New()
 	h := newHandler(notificationRepoStub{
@@ -62,7 +63,7 @@ func TestNotificationHandler_SubscribeAndList(t *testing.T) {
 			assert.Equal(t, 2, offset)
 			return []domain.Notification{{ID: uuid.New(), UserID: userID, Title: "A"}}, nil
 		},
-		markAsReadFn:    func(context.Context, uuid.UUID) error { return nil },
+		markAsReadFn:    func(context.Context, uuid.UUID, uuid.UUID) error { return nil },
 		markAllAsReadFn: func(context.Context, uuid.UUID) error { return nil },
 		unreadCountFn:   func(context.Context, uuid.UUID) (int, error) { return 0, nil },
 	}, hub)
@@ -83,12 +84,13 @@ func TestNotificationHandler_ErrorAndMutationBranches(t *testing.T) {
 	nID := uuid.New()
 	hub := ws.NewHub()
 	go hub.Run()
+	defer hub.Stop()
 
 	h := newHandler(notificationRepoStub{
 		getByUserIDFn: func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error) {
 			return nil, errors.New("db")
 		},
-		markAsReadFn:    func(context.Context, uuid.UUID) error { return errors.New("db") },
+		markAsReadFn:    func(context.Context, uuid.UUID, uuid.UUID) error { return errors.New("db") },
 		markAllAsReadFn: func(context.Context, uuid.UUID) error { return errors.New("db") },
 		unreadCountFn:   func(context.Context, uuid.UUID) (int, error) { return 0, errors.New("db") },
 	}, hub)
@@ -135,10 +137,11 @@ func TestNotificationHandler_SuccessBranches(t *testing.T) {
 	nID := uuid.New()
 	hub := ws.NewHub()
 	go hub.Run()
+	defer hub.Stop()
 
 	h := newHandler(notificationRepoStub{
 		getByUserIDFn:   func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error) { return nil, nil },
-		markAsReadFn:    func(context.Context, uuid.UUID) error { return nil },
+		markAsReadFn:    func(context.Context, uuid.UUID, uuid.UUID) error { return nil },
 		markAllAsReadFn: func(context.Context, uuid.UUID) error { return nil },
 		unreadCountFn:   func(context.Context, uuid.UUID) (int, error) { return 3, nil },
 	}, hub)

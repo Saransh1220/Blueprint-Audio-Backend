@@ -124,6 +124,12 @@ func (s *analyticsService) GetProducerAnalytics(ctx context.Context, specID, pro
 }
 
 func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid.UUID, days int, sortBy string) (*domain.AnalyticsOverviewResponse, error) {
+	if days < 1 {
+		days = 1
+	}
+	if days > 3650 {
+		days = 3650
+	}
 	log.Printf("[Analytics Service] GetStatsOverview: ProducerID=%s, Days=%d, SortBy=%s", producerID, days, sortBy)
 
 	totalPlays, err := s.repo.GetTotalPlays(ctx, producerID, days)

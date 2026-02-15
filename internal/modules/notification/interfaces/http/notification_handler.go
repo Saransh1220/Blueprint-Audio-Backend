@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification/application"
+	"github.com/saransh1220/blueprint-audio/internal/modules/notification/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification/infrastructure/websocket"
 )
 
@@ -82,7 +84,17 @@ func (h *NotificationHandler) MarkAsRead(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.service.MarkAsRead(r.Context(), notificationID); err != nil {
+	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.service.MarkAsRead(r.Context(), notificationID, userID); err != nil {
+		if errors.Is(err, domain.ErrNotificationNotFound) {
+			http.Error(w, "notification not found or unauthorized", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to mark notification as read", http.StatusInternalServerError)
 		return
 	}

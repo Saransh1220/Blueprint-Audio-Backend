@@ -190,10 +190,9 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 
 	if filter.Search != "" {
 		searchTerm := "%" + filter.Search + "%"
-		lowerSearch := strings.ToLower(filter.Search)
-		query += fmt.Sprintf(" AND (title ILIKE $%d OR tags @> ARRAY[$%d])", argId, argId+1)
-		args = append(args, searchTerm, lowerSearch)
-		argId += 2
+		query += fmt.Sprintf(" AND (title ILIKE $%d OR array_to_string(tags, ',') ILIKE $%d)", argId, argId)
+		args = append(args, searchTerm)
+		argId++
 	}
 
 	if filter.MinBPM > 0 {
@@ -708,6 +707,18 @@ func (r *PgSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.UUI
 
 	query += " WHERE id = :id"
 
-	_, err := r.db.NamedExecContext(ctx, query, params)
-	return err
+	result, err := r.db.NamedExecContext(ctx, query, params)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return domain.ErrSpecNotFound
+	}
+
+	return nil
 }

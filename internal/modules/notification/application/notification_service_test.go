@@ -15,7 +15,7 @@ import (
 type notificationRepoMock struct {
 	createFn        func(context.Context, *domain.Notification) error
 	getByUserIDFn   func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error)
-	markAsReadFn    func(context.Context, uuid.UUID) error
+	markAsReadFn    func(context.Context, uuid.UUID, uuid.UUID) error
 	markAllAsReadFn func(context.Context, uuid.UUID) error
 	unreadCountFn   func(context.Context, uuid.UUID) (int, error)
 }
@@ -28,8 +28,8 @@ func (m notificationRepoMock) GetByUserID(ctx context.Context, userID uuid.UUID,
 	return m.getByUserIDFn(ctx, userID, limit, offset)
 }
 
-func (m notificationRepoMock) MarkAsRead(ctx context.Context, notificationID uuid.UUID) error {
-	return m.markAsReadFn(ctx, notificationID)
+func (m notificationRepoMock) MarkAsRead(ctx context.Context, notificationID, userID uuid.UUID) error {
+	return m.markAsReadFn(ctx, notificationID, userID)
 }
 
 func (m notificationRepoMock) MarkAllAsRead(ctx context.Context, userID uuid.UUID) error {
@@ -44,6 +44,7 @@ func TestNotificationService_Create(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		hub := ws.NewHub()
 		go hub.Run()
+		defer hub.Stop()
 
 		userID := uuid.New()
 		var captured *domain.Notification
@@ -53,7 +54,7 @@ func TestNotificationService_Create(t *testing.T) {
 				return nil
 			},
 			getByUserIDFn:   func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error) { return nil, nil },
-			markAsReadFn:    func(context.Context, uuid.UUID) error { return nil },
+			markAsReadFn:    func(context.Context, uuid.UUID, uuid.UUID) error { return nil },
 			markAllAsReadFn: func(context.Context, uuid.UUID) error { return nil },
 			unreadCountFn:   func(context.Context, uuid.UUID) (int, error) { return 0, nil },
 		}
@@ -75,11 +76,12 @@ func TestNotificationService_Create(t *testing.T) {
 	t.Run("repo error", func(t *testing.T) {
 		hub := ws.NewHub()
 		go hub.Run()
+		defer hub.Stop()
 
 		repo := notificationRepoMock{
 			createFn:        func(context.Context, *domain.Notification) error { return errors.New("db error") },
 			getByUserIDFn:   func(context.Context, uuid.UUID, int, int) ([]domain.Notification, error) { return nil, nil },
-			markAsReadFn:    func(context.Context, uuid.UUID) error { return nil },
+			markAsReadFn:    func(context.Context, uuid.UUID, uuid.UUID) error { return nil },
 			markAllAsReadFn: func(context.Context, uuid.UUID) error { return nil },
 			unreadCountFn:   func(context.Context, uuid.UUID) (int, error) { return 0, nil },
 		}
@@ -104,8 +106,9 @@ func TestNotificationService_Delegates(t *testing.T) {
 			assert.Equal(t, 5, offset)
 			return expected, nil
 		},
-		markAsReadFn: func(_ context.Context, gotNotificationID uuid.UUID) error {
+		markAsReadFn: func(_ context.Context, gotNotificationID, gotUserID uuid.UUID) error {
 			assert.Equal(t, notificationID, gotNotificationID)
+			assert.Equal(t, userID, gotUserID)
 			return nil
 		},
 		markAllAsReadFn: func(_ context.Context, gotUserID uuid.UUID) error {
@@ -124,7 +127,7 @@ func TestNotificationService_Delegates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected, items)
 
-	require.NoError(t, svc.MarkAsRead(ctx, notificationID))
+	require.NoError(t, svc.MarkAsRead(ctx, notificationID, userID))
 	require.NoError(t, svc.MarkAllAsRead(ctx, userID))
 
 	count, err := svc.UnreadCount(ctx, userID)

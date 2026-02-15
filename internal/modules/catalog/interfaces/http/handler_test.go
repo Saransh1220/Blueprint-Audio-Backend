@@ -198,4 +198,11 @@ func TestSpecHandler_CreateBranches(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.Create(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Beat without wav/stems should fail validation before service call.
+	req = makeReq(map[string]any{"title": "Beat", "category": "beat", "price": 10})
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
+	w = httptest.NewRecorder()
+	h.Create(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

@@ -17,6 +17,7 @@ func TestNewModule(t *testing.T) {
 
 	db := sqlx.NewDb(sqlDB, "sqlmock")
 	m := notification.NewModule(db)
+	defer m.Shutdown()
 	require.NotNil(t, m)
 	assert.NotNil(t, m.HTTPHandler())
 	assert.NotNil(t, m.Service())

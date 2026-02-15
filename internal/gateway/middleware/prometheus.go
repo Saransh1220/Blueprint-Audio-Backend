@@ -62,7 +62,11 @@ func (rw *responseWriter) WriteHeader(code int) {
 // Hijack implements the http.Hijacker interface to allow WebSockets to work
 func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := rw.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
+		conn, buf, err := h.Hijack()
+		if err == nil {
+			rw.status = http.StatusSwitchingProtocols
+		}
+		return conn, buf, err
 	}
 	return nil, nil, errors.New("hijack not supported")
 }

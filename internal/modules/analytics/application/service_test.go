@@ -143,7 +143,8 @@ func (m *mockSpecRepository) ListByUserID(ctx context.Context, producerID uuid.U
 	return args.Get(0).([]catalogDomain.Spec), args.Int(1), args.Error(2)
 }
 func (m *mockSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
-	return nil
+	args := m.Called(ctx, id, files, status)
+	return args.Error(0)
 }
 
 func TestAnalyticsService_ToggleFavorite(t *testing.T) {
@@ -234,4 +235,51 @@ func TestAnalyticsService_TrackOverviewAndTop(t *testing.T) {
 	top, err := svc.GetTopSpecs(ctx, userID, 3, "revenue")
 	assert.NoError(t, err)
 	assert.Len(t, top, 1)
+
+	// days should clamp to 1 when input < 1
+	ar.On("GetTotalPlays", ctx, userID, 1).Return(0, nil).Once()
+	ar.On("GetTotalFavorites", ctx, userID, 1).Return(0, nil).Once()
+	ar.On("GetTotalDownloads", ctx, userID, 1).Return(0, nil).Once()
+	ar.On("GetTotalRevenue", ctx, userID, 1).Return(0.0, nil).Once()
+	ar.On("GetPlaysByDay", ctx, userID, 1).Return([]analyticsDomain.DailyStat{}, nil).Once()
+	ar.On("GetDownloadsByDay", ctx, userID, 1).Return([]analyticsDomain.DailyStat{}, nil).Once()
+	ar.On("GetRevenueByDay", ctx, userID, 1).Return([]analyticsDomain.DailyRevenueStat{}, nil).Once()
+	ar.On("GetTopSpecs", ctx, userID, 5, "").Return([]analyticsDomain.TopSpecStat{}, nil).Once()
+	ar.On("GetRevenueByLicenseGlobal", ctx, userID, 1).Return(map[string]float64{}, nil).Once()
+	_, err = svc.GetStatsOverview(ctx, userID, 0, "")
+	assert.NoError(t, err)
+}
+
+func TestAnalyticsService_GetProducerAnalytics_ErrorBranches(t *testing.T) {
+	ctx := context.Background()
+	ar := new(mockAnalyticsRepository)
+	sr := new(mockSpecRepository)
+	svc := NewAnalyticsService(ar, sr)
+	specID := uuid.New()
+	producerID := uuid.New()
+
+	sr.On("GetByID", ctx, specID).Return(nil, errors.New("db")).Once()
+	_, err := svc.GetProducerAnalytics(ctx, specID, producerID)
+	assert.EqualError(t, err, "db")
+
+	sr.On("GetByID", ctx, specID).Return(nil, nil).Once()
+	_, err = svc.GetProducerAnalytics(ctx, specID, producerID)
+	assert.EqualError(t, err, "spec not found")
+
+	sr.On("GetByID", ctx, specID).Return(&catalogDomain.Spec{ID: specID, ProducerID: uuid.New()}, nil).Once()
+	_, err = svc.GetProducerAnalytics(ctx, specID, producerID)
+	assert.EqualError(t, err, "unauthorized")
+}
+
+func TestAnalyticsService_GetStatsOverview_DaysCapAndError(t *testing.T) {
+	ctx := context.Background()
+	ar := new(mockAnalyticsRepository)
+	sr := new(mockSpecRepository)
+	svc := NewAnalyticsService(ar, sr)
+	producerID := uuid.New()
+
+	// days should clamp to 3650 when input > 3650
+	ar.On("GetTotalPlays", ctx, producerID, 3650).Return(0, errors.New("plays fail")).Once()
+	_, err := svc.GetStatsOverview(ctx, producerID, 5000, "")
+	assert.EqualError(t, err, "plays fail")
 }

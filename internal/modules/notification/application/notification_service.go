@@ -47,9 +47,11 @@ func (s *NotificationService) Create(ctx context.Context, userID uuid.UUID, titl
 	// I'll update the Hub later or now to support filtering, but let's stick to the plan.
 	// Sending the notification as JSON.
 
-	msgBytes, _ := json.Marshal(notification)
-	// s.hub.BroadcastMessage(msgBytes) // OLD: Insecure broadcast
-	s.hub.SendToUser(userID, msgBytes) // NEW: Secure unicast
+	msgBytes, err := json.Marshal(notification)
+	if err == nil {
+		// s.hub.BroadcastMessage(msgBytes) // OLD: Insecure broadcast
+		s.hub.SendToUser(userID, msgBytes) // NEW: Secure unicast
+	}
 
 	return nil
 }
@@ -62,8 +64,8 @@ func (s *NotificationService) GetUserNotifications(ctx context.Context, userID u
 	return s.repo.GetByUserID(ctx, userID, limit, offset)
 }
 
-func (s *NotificationService) MarkAsRead(ctx context.Context, notificationID uuid.UUID) error {
-	return s.repo.MarkAsRead(ctx, notificationID)
+func (s *NotificationService) MarkAsRead(ctx context.Context, notificationID, userID uuid.UUID) error {
+	return s.repo.MarkAsRead(ctx, notificationID, userID)
 }
 
 func (s *NotificationService) MarkAllAsRead(ctx context.Context, userID uuid.UUID) error {

@@ -91,6 +91,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 		// Copy content
 		if _, err := io.Copy(tempFile, file); err != nil {
+			os.Remove(tempFile.Name()) // Clean up on error
 			return fmt.Errorf("failed to save temp file: %w", err)
 		}
 
@@ -181,14 +182,40 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 				// Update Status Failed
 				_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
+
+				// Invalidate Cache
+				h.redisClient.Del(asyncCtx, "spec:"+specID.String())
+
 				// Notify Failure
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
 			} else {
 				log.Printf("[SpecHandler.Create] Async job success in %v", time.Since(jobStart))
+
 				// Update Status Completed & URLs
 				if err := h.service.UpdateFilesAndStatus(asyncCtx, specID, filesToUpdate, domain.ProcessingStatusCompleted); err != nil {
 					log.Printf("Failed to update status: %v", err)
+
+					// Treat as failure
+					// Rollback uploads
+					for _, key := range uploadedKeys {
+						_ = h.fileService.Delete(asyncCtx, key)
+					}
+					// Update Status Failed
+					_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
+
+					// Invalidate Cache (to reflect failed status)
+					cacheKey := "spec:" + specID.String()
+					h.redisClient.Del(asyncCtx, cacheKey)
+
+					// Notify Failure
+					_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
+					return
 				}
+
+				// Invalidate Cache (to reflect new status and files)
+				cacheKey := "spec:" + specID.String()
+				h.redisClient.Del(asyncCtx, cacheKey)
+
 				// Notify Success
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Complete", fmt.Sprintf("Your beat '%s' is now live!", spec.Title), "success")
 			}
@@ -212,9 +239,9 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return "", "", fmt.Errorf("image decode error: %w", err)
 				}
-				dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+				dst := imaging.Fit(src, 500, 500, imaging.Lanczos)
 				buf := new(bytes.Buffer)
-				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+				if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(80)); err != nil {
 					return "", "", fmt.Errorf("image encode error: %w", err)
 				}
 
@@ -648,9 +675,9 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		dst := imaging.Fit(src, 800, 800, imaging.Lanczos)
+		dst := imaging.Fit(src, 500, 500, imaging.Lanczos)
 		buf := new(bytes.Buffer)
-		if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(90)); err != nil {
+		if err := imaging.Encode(buf, dst, imaging.JPEG, imaging.JPEGQuality(80)); err != nil {
 			http.Error(w, "failed to encode image", http.StatusInternalServerError)
 			return
 		}

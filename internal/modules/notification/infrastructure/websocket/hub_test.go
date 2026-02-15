@@ -11,11 +11,16 @@ import (
 
 func TestHub_BroadcastAndUnicast(t *testing.T) {
 	h := NewHub()
-	userID := uuid.New()
-	client := &Client{send: make(chan []byte, 2), userID: userID}
-	h.clients[client] = true
-
 	go h.Run()
+	defer h.Stop()
+
+	userID := uuid.New()
+	client := &Client{send: make(chan []byte, 2), userID: userID, hub: h}
+
+	// Register via channel to avoid race
+	h.register <- client
+	// Wait for registration to process (simplified synchronization for test)
+	time.Sleep(10 * time.Millisecond)
 
 	h.BroadcastMessage([]byte("broadcast"))
 	select {
@@ -36,15 +41,18 @@ func TestHub_BroadcastAndUnicast(t *testing.T) {
 
 func TestHub_SendToUser_OnlyMatchingClientsReceive(t *testing.T) {
 	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+
 	targetID := uuid.New()
 	otherID := uuid.New()
 
-	target := &Client{send: make(chan []byte, 1), userID: targetID}
-	other := &Client{send: make(chan []byte, 1), userID: otherID}
-	h.clients[target] = true
-	h.clients[other] = true
+	target := &Client{send: make(chan []byte, 1), userID: targetID, hub: h}
+	other := &Client{send: make(chan []byte, 1), userID: otherID, hub: h}
 
-	go h.Run()
+	h.register <- target
+	h.register <- other
+	time.Sleep(10 * time.Millisecond)
 
 	h.SendToUser(targetID, []byte("only-target"))
 
@@ -77,4 +85,62 @@ func TestHub_SenderHelpers(t *testing.T) {
 	got := <-doneUnicast
 	require.Equal(t, uid, got.UserID)
 	require.Equal(t, "y", string(got.Message))
+}
+
+func TestHub_UnregisterRemovesClientAndClosesChannel(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+
+	client := &Client{send: make(chan []byte, 1), userID: uuid.New(), hub: h}
+	h.register <- client
+	time.Sleep(10 * time.Millisecond)
+
+	// We can't safely access h.clients here without a mutex or similar mechanism on Hub
+	// But we can test the *effect* of unregistering: the channel should be closed.
+
+	h.unregister <- client
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify channel is closed
+	_, ok := <-client.send
+	assert.False(t, ok, "client send channel should be closed")
+}
+
+func TestHub_DropsBlockedClientOnBroadcastAndUnicast(t *testing.T) {
+	t.Run("broadcast blocked send removes client", func(t *testing.T) {
+		h := NewHub()
+		go h.Run()
+		defer h.Stop()
+
+		// Unbuffered channel without receiver forces default branch.
+		client := &Client{send: make(chan []byte), userID: uuid.New(), hub: h}
+		h.register <- client
+		time.Sleep(10 * time.Millisecond)
+
+		h.BroadcastMessage([]byte("x"))
+		time.Sleep(10 * time.Millisecond)
+
+		// Verify channel is closed (client removed)
+		_, ok := <-client.send
+		assert.False(t, ok, "blocked client should be removed and channel closed")
+	})
+
+	t.Run("unicast blocked send removes client", func(t *testing.T) {
+		h := NewHub()
+		go h.Run()
+		defer h.Stop()
+
+		uid := uuid.New()
+		client := &Client{send: make(chan []byte), userID: uid, hub: h}
+		h.register <- client
+		time.Sleep(10 * time.Millisecond)
+
+		h.SendToUser(uid, []byte("x"))
+		time.Sleep(10 * time.Millisecond)
+
+		// Verify channel is closed (client removed)
+		_, ok := <-client.send
+		assert.False(t, ok, "blocked client should be removed and channel closed")
+	})
 }

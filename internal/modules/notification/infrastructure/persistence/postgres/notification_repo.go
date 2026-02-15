@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -17,6 +18,9 @@ func NewPgNotificationRepository(db *sqlx.DB) *PgNotificationRepository {
 }
 
 func (r *PgNotificationRepository) Create(ctx context.Context, n *domain.Notification) error {
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = time.Now()
+	}
 	query := `
 		INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
 		VALUES (:id, :user_id, :title, :message, :type, :is_read, :created_at)
@@ -40,14 +44,25 @@ func (r *PgNotificationRepository) GetByUserID(ctx context.Context, userID uuid.
 	return notifications, nil
 }
 
-func (r *PgNotificationRepository) MarkAsRead(ctx context.Context, notificationID uuid.UUID) error {
+func (r *PgNotificationRepository) MarkAsRead(ctx context.Context, notificationID, userID uuid.UUID) error {
 	query := `
 		UPDATE notifications
 		SET is_read = TRUE
-		WHERE id = $1
+		WHERE id = $1 AND user_id = $2
 	`
-	_, err := r.db.ExecContext(ctx, query, notificationID)
-	return err
+	result, err := r.db.ExecContext(ctx, query, notificationID, userID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotificationNotFound
+	}
+	return nil
 }
 
 func (r *PgNotificationRepository) MarkAllAsRead(ctx context.Context, userID uuid.UUID) error {

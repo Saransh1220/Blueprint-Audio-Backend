@@ -36,3 +36,7 @@ func (m *Module) HTTPHandler() *notification_http.NotificationHandler {
 func (m *Module) Service() *application.NotificationService {
 	return m.service
 }
+
+func (m *Module) Shutdown() {
+	m.hub.Stop()
+}

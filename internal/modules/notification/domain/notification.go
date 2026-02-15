@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,3 +25,7 @@ type Notification struct {
 	IsRead    bool             `json:"is_read" db:"is_read"`
 	CreatedAt time.Time        `json:"created_at" db:"created_at"`
 }
+
+var (
+	ErrNotificationNotFound = errors.New("notification not found")
+)
