@@ -65,7 +65,10 @@ type Client struct {
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		select {
+		case c.hub.unregister <- c:
+		case <-c.hub.stop:
+		}
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
@@ -142,7 +145,10 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userID uuid.UUID)
 		return
 	}
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), userID: userID}
-	client.hub.register <- client
+	select {
+	case client.hub.register <- client:
+	case <-client.hub.stop:
+	}
 
 	// Allow collection of memory referenced by the caller by doing all work in
 	// new goroutines.

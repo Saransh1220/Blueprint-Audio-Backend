@@ -32,6 +32,11 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 	}
 	spec.UpdatedAt = time.Now()
 
+	// 1b. Set Default Processing Status
+	if spec.ProcessingStatus == "" {
+		spec.ProcessingStatus = domain.ProcessingStatusPending
+	}
+
 	// 2. Start Transaction
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
