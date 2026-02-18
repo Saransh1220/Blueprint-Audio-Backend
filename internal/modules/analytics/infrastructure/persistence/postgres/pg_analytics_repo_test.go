@@ -93,15 +93,17 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	producerID := uuid.New()
 	specID := uuid.New()
 
-	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(play_count\\), 0\\)").
-		WithArgs(producerID).WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(10))
-	plays, err := repo.GetTotalPlays(ctx, producerID)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM analytics_events").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+	plays, err := repo.GetTotalPlays(ctx, producerID, 30)
 	require.NoError(t, err)
 	assert.Equal(t, 10, plays)
 
 	mock.ExpectQuery("SELECT o\\.license_type, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
-		WithArgs(producerID).WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("Basic", 10.5))
-	rev, err := repo.GetRevenueByLicenseGlobal(ctx, producerID)
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("Basic", 10.5))
+	rev, err := repo.GetRevenueByLicenseGlobal(ctx, producerID, 30)
 	require.NoError(t, err)
 	assert.Equal(t, 10.5, rev["Basic"])
 
@@ -113,3 +115,70 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	assert.Len(t, top, 1)
 }
 
+func TestPGAnalyticsRepository_AdditionalCoverage(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	repo := analyticsPostgres.NewAnalyticsRepository(db)
+	ctx := context.Background()
+	producerID := uuid.New()
+	specID := uuid.New()
+
+	mock.ExpectQuery("SELECT\\s+o\\.license_type,\\s+COUNT\\(\\*\\) as count").
+		WithArgs(specID).
+		WillReturnRows(sqlmock.NewRows([]string{"license_type", "count"}).AddRow("Basic", 2))
+	counts, err := repo.GetLicensePurchaseCounts(ctx, specID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, counts["Basic"])
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)\\s+FROM analytics_events").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	v, err := repo.GetTotalFavorites(ctx, producerID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 3, v)
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)\\s+FROM analytics_events").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+	v, err = repo.GetTotalDownloads(ctx, producerID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 4, v)
+
+	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(amount\\), 0\\) / 100\\.0").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(12.5))
+	rev, err := repo.GetTotalRevenue(ctx, producerID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 12.5, rev)
+
+	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', ae\\.created_at\\), 'YYYY-MM-DD'\\) as date,\\s+COUNT\\(\\*\\) as count").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "count"}).AddRow("2026-02-15", 7))
+	plays, err := repo.GetPlaysByDay(ctx, producerID, 0)
+	require.NoError(t, err)
+	require.Len(t, plays, 1)
+	assert.Equal(t, 7, plays[0].Count)
+
+	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', ae\\.created_at\\), 'YYYY-MM-DD'\\) as date,\\s+COUNT\\(\\*\\) as count").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "count"}).AddRow("2026-02-15", 5))
+	downloads, err := repo.GetDownloadsByDay(ctx, producerID, 0)
+	require.NoError(t, err)
+	require.Len(t, downloads, 1)
+	assert.Equal(t, 5, downloads[0].Count)
+
+	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', o\\.created_at\\), 'YYYY-MM-DD'\\) as date,\\s+COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
+		WithArgs(producerID, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "revenue"}).AddRow("2026-02-15", 33.3))
+	revenueByDay, err := repo.GetRevenueByDay(ctx, producerID, 0)
+	require.NoError(t, err)
+	require.Len(t, revenueByDay, 1)
+	assert.Equal(t, 33.3, revenueByDay[0].Revenue)
+
+	mock.ExpectQuery("SELECT\\s+s\\.id as spec_id,\\s+s\\.title").
+		WithArgs(producerID, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).AddRow(specID.String(), "Track", 2, 1, 9.9))
+	top, err := repo.GetTopSpecs(ctx, producerID, 2, "downloads")
+	require.NoError(t, err)
+	assert.Len(t, top, 1)
+}

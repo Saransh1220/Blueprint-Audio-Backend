@@ -20,14 +20,23 @@ type mockRepo struct {
 	listByUserIDFn func(context.Context, uuid.UUID, int, int) ([]domain.Spec, int, error)
 }
 
-func (m mockRepo) Create(ctx context.Context, s *domain.Spec) error                          { return m.createFn(ctx, s) }
-func (m mockRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Spec, error)           { return m.getByIDFn(ctx, id) }
-func (m mockRepo) GetByIDSystem(context.Context, uuid.UUID) (*domain.Spec, error)            { return nil, nil }
-func (m mockRepo) List(ctx context.Context, f domain.SpecFilter) ([]domain.Spec, int, error) { return m.listFn(ctx, f) }
-func (m mockRepo) Update(ctx context.Context, s *domain.Spec) error                          { return m.updateFn(ctx, s) }
-func (m mockRepo) Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error      { return m.deleteFn(ctx, id, producerID) }
+func (m mockRepo) Create(ctx context.Context, s *domain.Spec) error { return m.createFn(ctx, s) }
+func (m mockRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
+	return m.getByIDFn(ctx, id)
+}
+func (m mockRepo) GetByIDSystem(context.Context, uuid.UUID) (*domain.Spec, error) { return nil, nil }
+func (m mockRepo) List(ctx context.Context, f domain.SpecFilter) ([]domain.Spec, int, error) {
+	return m.listFn(ctx, f)
+}
+func (m mockRepo) Update(ctx context.Context, s *domain.Spec) error { return m.updateFn(ctx, s) }
+func (m mockRepo) Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error {
+	return m.deleteFn(ctx, id, producerID)
+}
 func (m mockRepo) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.Spec, int, error) {
 	return m.listByUserIDFn(ctx, producerID, limit, offset)
+}
+func (m mockRepo) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
+	return nil
 }
 
 func TestSpecService_CreateSpecValidation(t *testing.T) {
@@ -41,7 +50,7 @@ func TestSpecService_CreateSpecValidation(t *testing.T) {
 	require.EqualError(t, err, "price cannot be negative")
 
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 20})
-	require.EqualError(t, err, "BPM must be between 60 and 200")
+	require.EqualError(t, err, "BPM must be between 50 and 300")
 
 	stems := "stems"
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 120, StemsUrl: &stems})
@@ -68,7 +77,9 @@ func TestSpecService_DelegatesAndUpdate(t *testing.T) {
 			}
 			return nil
 		},
-		listFn: func(context.Context, domain.SpecFilter) ([]domain.Spec, int, error) { return []domain.Spec{{ID: specID}}, 1, nil },
+		listFn: func(context.Context, domain.SpecFilter) ([]domain.Spec, int, error) {
+			return []domain.Spec{{ID: specID}}, 1, nil
+		},
 		deleteFn: func(context.Context, uuid.UUID, uuid.UUID) error { return nil },
 		listByUserIDFn: func(_ context.Context, _ uuid.UUID, limit, offset int) ([]domain.Spec, int, error) {
 			assert.Equal(t, 20, limit)

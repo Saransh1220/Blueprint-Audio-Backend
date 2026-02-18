@@ -7,6 +7,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	persistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	catalogHttp "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
+	notificationApp "github.com/saransh1220/blueprint-audio/internal/modules/notification/application"
 )
 
 // Module represents the Catalog module
@@ -23,11 +24,11 @@ func NewModule(
 	repository *persistence.PgSpecRepository, // Accept repository here
 	fileService catalogHttp.FileService,
 	analyticsService catalogHttp.AnalyticsService,
+	notificationService *notificationApp.NotificationService,
 	redisClient *redis.Client,
 ) *Module {
-	// repository := persistence.NewSpecRepository(db) // Removed internal instantiation
 	service := application.NewSpecService(repository)
-	handler := catalogHttp.NewSpecHandler(service, fileService, analyticsService, redisClient)
+	handler := catalogHttp.NewSpecHandler(service, fileService, analyticsService, notificationService, redisClient)
 
 	return &Module{
 		repository: repository,

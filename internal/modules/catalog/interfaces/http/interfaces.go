@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
+	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
+	notificationDomain "github.com/saransh1220/blueprint-audio/internal/modules/notification/domain"
 )
 
 // FileService defines the interface for file operations
@@ -22,6 +23,11 @@ type FileService interface {
 
 // AnalyticsService defines the dependencies on the analytics module
 type AnalyticsService interface {
-	GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*domain.PublicAnalytics, error)
+	GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*analyticsDomain.PublicAnalytics, error)
 	TrackFreeDownload(ctx context.Context, specID uuid.UUID) error
+}
+
+// NotificationService defines the dependency on the notification module
+type NotificationService interface {
+	Create(ctx context.Context, userID uuid.UUID, title, message string, type_ notificationDomain.NotificationType) error
 }

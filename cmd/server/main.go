@@ -12,6 +12,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog"
 	catalogPersistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
+	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
@@ -58,6 +59,9 @@ func main() {
 	// User Module
 	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service())
 
+	// Notification Module
+	notificationModule := notification.NewModule(db)
+
 	// Catalog Module Prerequisites
 	// We need to instantiate the SpecRepository explicitly to share it between Catalog and Analytics
 	specRepo := catalogPersistence.NewSpecRepository(db)
@@ -66,7 +70,7 @@ func main() {
 	analyticsModule := analytics.NewModule(db, specRepo, fsModule.Service())
 
 	// Catalog Module
-	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, redisClient)
+	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, notificationModule.Service(), redisClient)
 
 	// Payment Module
 	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), fsModule.Service())
@@ -76,12 +80,13 @@ func main() {
 
 	// 6. Setup Routes
 	mux := gateway.SetupRoutes(gateway.RouterConfig{
-		AuthHandler:      authModule.HTTPHandler(),
-		AuthMiddleware:   authMiddleware,
-		SpecHandler:      catalogModule.HTTPHandler(),
-		UserHandler:      userModule.HTTPHandler(),
-		PaymentHandler:   paymentModule.HTTPHandler(),
-		AnalyticsHandler: analyticsModule.AnalyticsHandler,
+		AuthHandler:         authModule.HTTPHandler(),
+		AuthMiddleware:      authMiddleware,
+		SpecHandler:         catalogModule.HTTPHandler(),
+		UserHandler:         userModule.HTTPHandler(),
+		PaymentHandler:      paymentModule.HTTPHandler(),
+		AnalyticsHandler:    analyticsModule.AnalyticsHandler,
+		NotificationHandler: notificationModule.HTTPHandler(),
 	})
 
 	// 7. Apply Middleware

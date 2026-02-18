@@ -12,23 +12,24 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
-	catalogHTTP "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	catalogHTTP "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-func newHandler() (*catalogHTTP.SpecHandler, *mockSpecService, *mockFileService, *mockAnalyticsService) {
+func newHandler() (*catalogHTTP.SpecHandler, *mockSpecService, *mockFileService, *mockAnalyticsService, *mockNotificationService) {
 	specSvc := new(mockSpecService)
 	fileSvc := new(mockFileService)
 	analyticsSvc := new(mockAnalyticsService)
+	notificationSvc := new(mockNotificationService)
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
-	h := catalogHTTP.NewSpecHandler(specSvc, fileSvc, analyticsSvc, rdb)
-	return h, specSvc, fileSvc, analyticsSvc
+	h := catalogHTTP.NewSpecHandler(specSvc, fileSvc, analyticsSvc, notificationSvc, rdb)
+	return h, specSvc, fileSvc, analyticsSvc, notificationSvc
 }
 
 func TestSpecHandler_BasicValidationBranches(t *testing.T) {
-	h, specSvc, _, _ := newHandler()
+	h, specSvc, _, _, _ := newHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/specs", bytes.NewBufferString("not-multipart"))
 	w := httptest.NewRecorder()
@@ -67,7 +68,7 @@ func TestSpecHandler_BasicValidationBranches(t *testing.T) {
 }
 
 func TestSpecHandler_ListAndGetUserSpecs_Success(t *testing.T) {
-	h, specSvc, fileSvc, analyticsSvc := newHandler()
+	h, specSvc, fileSvc, analyticsSvc, _ := newHandler()
 
 	specID := uuid.New()
 	userID := uuid.New()
@@ -108,7 +109,7 @@ func TestSpecHandler_ListAndGetUserSpecs_Success(t *testing.T) {
 }
 
 func TestSpecHandler_GetAndDeleteFlow(t *testing.T) {
-	h, specSvc, fileSvc, analyticsSvc := newHandler()
+	h, specSvc, fileSvc, analyticsSvc, _ := newHandler()
 
 	specID := uuid.New()
 	producerID := uuid.New()
@@ -150,7 +151,7 @@ func TestSpecHandler_GetAndDeleteFlow(t *testing.T) {
 }
 
 func TestSpecHandler_UpdateBranches(t *testing.T) {
-	h, specSvc, _, _ := newHandler()
+	h, specSvc, _, _, _ := newHandler()
 
 	specID := uuid.New()
 	producerID := uuid.New()
@@ -172,7 +173,7 @@ func TestSpecHandler_UpdateBranches(t *testing.T) {
 }
 
 func TestSpecHandler_CreateBranches(t *testing.T) {
-	h, specSvc, _, _ := newHandler()
+	h, specSvc, _, _, _ := newHandler()
 	producerID := uuid.New()
 
 	makeReq := func(metadata map[string]any) *http.Request {
@@ -194,6 +195,13 @@ func TestSpecHandler_CreateBranches(t *testing.T) {
 	req = makeReq(map[string]any{"title": "T", "category": "sample", "price": 10})
 	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
 	specSvc.On("CreateSpec", mock.Anything, mock.AnythingOfType("*domain.Spec")).Return(assert.AnError).Once()
+	w = httptest.NewRecorder()
+	h.Create(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Beat without wav/stems should fail validation before service call.
+	req = makeReq(map[string]any{"title": "Beat", "category": "beat", "price": 10})
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
 	w = httptest.NewRecorder()
 	h.Create(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)

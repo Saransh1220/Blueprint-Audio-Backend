@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +11,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 )
+
+type hijackableWriter struct {
+	http.ResponseWriter
+	hijackErr error
+}
+
+func (h hijackableWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h.hijackErr != nil {
+		return nil, nil, h.hijackErr
+	}
+	c1, c2 := net.Pipe()
+	_ = c2.Close()
+	rw := bufio.NewReadWriter(bufio.NewReader(c1), bufio.NewWriter(c1))
+	return c1, rw, nil
+}
 
 func TestPrometheusMiddleware_RecordsMetrics(t *testing.T) {
 	// Reset metrics
@@ -82,4 +100,45 @@ func TestPrometheusMiddleware_DifferentMethods(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 		})
 	}
+}
+
+func TestResponseWriter_Hijack(t *testing.T) {
+	t.Run("supported_success_sets_status", func(t *testing.T) {
+		base := httptest.NewRecorder()
+		rw := &responseWriter{
+			ResponseWriter: hijackableWriter{ResponseWriter: base},
+			status:         http.StatusOK,
+		}
+
+		conn, _, err := rw.Hijack()
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusSwitchingProtocols, rw.status)
+		if conn != nil {
+			_ = conn.Close()
+		}
+	})
+
+	t.Run("supported_error_keeps_status", func(t *testing.T) {
+		base := httptest.NewRecorder()
+		rw := &responseWriter{
+			ResponseWriter: hijackableWriter{ResponseWriter: base, hijackErr: errors.New("boom")},
+			status:         http.StatusOK,
+		}
+
+		_, _, err := rw.Hijack()
+		assert.EqualError(t, err, "boom")
+		assert.Equal(t, http.StatusOK, rw.status)
+	})
+
+	t.Run("unsupported_hijack_returns_error", func(t *testing.T) {
+		base := httptest.NewRecorder()
+		rw := &responseWriter{
+			ResponseWriter: base,
+			status:         http.StatusOK,
+		}
+
+		_, _, err := rw.Hijack()
+		assert.EqualError(t, err, "hijack not supported")
+		assert.Equal(t, http.StatusOK, rw.status)
+	})
 }

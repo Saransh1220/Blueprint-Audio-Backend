@@ -33,6 +33,9 @@ func (s *specRepoStub) Delete(ctx context.Context, id uuid.UUID, producerID uuid
 func (s *specRepoStub) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]catalogDomain.Spec, int, error) {
 	return nil, 0, nil
 }
+func (s *specRepoStub) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
+	return nil
+}
 
 type fileSvcStub struct{}
 
@@ -52,4 +55,3 @@ func TestNewModule(t *testing.T) {
 	assert.NotNil(t, m.AnalyticsService)
 	assert.NotNil(t, m.AnalyticsHandler)
 }
-

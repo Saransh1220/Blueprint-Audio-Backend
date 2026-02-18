@@ -335,7 +335,7 @@ func TestPGSpecRepository_List_WithAllFiltersAndProducerName(t *testing.T) {
 	}).AddRow(specID, producerID, "Track", "beat", "WAV", 120, "C", 10.0, "img", "prev", 120, true, 1, "Producer Alias")
 
 	mock.ExpectQuery("SELECT s\\.\\*, u\\.display_name as producer_name, COUNT\\(\\*\\) OVER\\(\\) as total_count").
-		WithArgs("beat", sqlmock.AnyArg(), sqlmock.AnyArg(), "%track%", "track", 100, 160, 5.0, 20.0, "C", 10, 0).
+		WithArgs("beat", sqlmock.AnyArg(), sqlmock.AnyArg(), "%track%", 100, 160, 5.0, 20.0, "C", 10, 0).
 		WillReturnRows(mainRows)
 	mock.ExpectQuery("SELECT sg\\.spec_id, g\\.\\*").
 		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "id", "name", "slug", "created_at"}))

@@ -86,11 +86,11 @@ type AnalyticsRepository interface {
 	GetLicensePurchaseCounts(ctx context.Context, specID uuid.UUID) (map[string]int, error)
 
 	// Overview Analytics
-	GetTotalPlays(ctx context.Context, producerID uuid.UUID) (int, error)
-	GetTotalFavorites(ctx context.Context, producerID uuid.UUID) (int, error)
-	GetTotalDownloads(ctx context.Context, producerID uuid.UUID) (int, error)
-	GetTotalRevenue(ctx context.Context, producerID uuid.UUID) (float64, error)
-	GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID) (map[string]float64, error)
+	GetTotalPlays(ctx context.Context, producerID uuid.UUID, days int) (int, error)
+	GetTotalFavorites(ctx context.Context, producerID uuid.UUID, days int) (int, error)
+	GetTotalDownloads(ctx context.Context, producerID uuid.UUID, days int) (int, error)
+	GetTotalRevenue(ctx context.Context, producerID uuid.UUID, days int) (float64, error)
+	GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID, days int) (map[string]float64, error)
 	GetPlaysByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
 	GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
 	GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyRevenueStat, error)

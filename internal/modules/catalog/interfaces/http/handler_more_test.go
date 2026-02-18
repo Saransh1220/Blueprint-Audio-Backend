@@ -15,7 +15,7 @@ import (
 )
 
 func TestSpecHandler_DownloadFree_Branches(t *testing.T) {
-	h, specSvc, fileSvc, analyticsSvc := newHandler()
+	h, specSvc, fileSvc, analyticsSvc, _ := newHandler()
 	specID := uuid.New()
 	analyticsSvc.On("TrackFreeDownload", mock.Anything, specID).Return(nil).Maybe()
 
@@ -84,7 +84,7 @@ func TestSpecHandler_DownloadFree_Branches(t *testing.T) {
 }
 
 func TestSpecHandler_GetAndDelete_ErrorBranches(t *testing.T) {
-	h, specSvc, _, _ := newHandler()
+	h, specSvc, _, _, _ := newHandler()
 	specID := uuid.New()
 	producerID := uuid.New()
 

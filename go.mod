@@ -12,13 +12,13 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.11.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/razorpay/razorpay-go v1.4.0
 	github.com/redis/go-redis/v9 v9.17.3
 	golang.org/x/crypto v0.47.0
-	golang.org/x/sync v0.19.0
 )
 
 require (

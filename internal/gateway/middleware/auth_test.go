@@ -61,7 +61,7 @@ func TestRequireAuth_MissingHeader(t *testing.T) {
 
 	assert.False(t, nextCalled)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Contains(t, rec.Body.String(), "missing authorization header")
+	assert.Contains(t, rec.Body.String(), "missing or invalid authorization")
 }
 
 func TestRequireAuth_InvalidFormat(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -237,51 +238,74 @@ func (r *PgAnalyticsRepository) GetLicensePurchaseCounts(ctx context.Context, sp
 
 // Overview Analytics Implementations
 
-func (r *PgAnalyticsRepository) GetTotalPlays(ctx context.Context, producerID uuid.UUID) (int, error) {
+func (r *PgAnalyticsRepository) GetTotalPlays(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	if days <= 0 {
+		days = 30
+	}
 	var total int
 	query := `
-		SELECT COALESCE(SUM(play_count), 0)
-		FROM spec_analytics sa
-		JOIN specs s ON sa.spec_id = s.id
-		WHERE s.producer_id = $1`
-	err := r.db.GetContext(ctx, &total, query, producerID)
+		SELECT COUNT(*)
+		FROM analytics_events ae
+		JOIN specs s ON ae.spec_id = s.id
+		WHERE s.producer_id = $1
+		  AND ae.event_type = 'play'
+		  AND ae.created_at > NOW() - ($2 || ' days')::INTERVAL`
+	err := r.db.GetContext(ctx, &total, query, producerID, days)
 	return total, err
 }
 
-func (r *PgAnalyticsRepository) GetTotalFavorites(ctx context.Context, producerID uuid.UUID) (int, error) {
+func (r *PgAnalyticsRepository) GetTotalFavorites(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	if days <= 0 {
+		days = 30
+	}
 	var total int
 	query := `
-		SELECT COALESCE(SUM(favorite_count), 0)
-		FROM spec_analytics sa
-		JOIN specs s ON sa.spec_id = s.id
-		WHERE s.producer_id = $1`
-	err := r.db.GetContext(ctx, &total, query, producerID)
+		SELECT COUNT(*)
+		FROM analytics_events ae
+		JOIN specs s ON ae.spec_id = s.id
+		WHERE s.producer_id = $1
+		  AND ae.event_type = 'favorite'
+		  AND ae.created_at > NOW() - ($2 || ' days')::INTERVAL`
+	err := r.db.GetContext(ctx, &total, query, producerID, days)
 	return total, err
 }
 
-func (r *PgAnalyticsRepository) GetTotalDownloads(ctx context.Context, producerID uuid.UUID) (int, error) {
+func (r *PgAnalyticsRepository) GetTotalDownloads(ctx context.Context, producerID uuid.UUID, days int) (int, error) {
+	if days <= 0 {
+		days = 30
+	}
 	var total int
 	query := `
-		SELECT COALESCE(SUM(free_download_count), 0)
-		FROM spec_analytics sa
-		JOIN specs s ON sa.spec_id = s.id
-		WHERE s.producer_id = $1`
-	err := r.db.GetContext(ctx, &total, query, producerID)
+		SELECT COUNT(*)
+		FROM analytics_events ae
+		JOIN specs s ON ae.spec_id = s.id
+		WHERE s.producer_id = $1
+		  AND ae.event_type = 'download'
+		  AND ae.created_at > NOW() - ($2 || ' days')::INTERVAL`
+	err := r.db.GetContext(ctx, &total, query, producerID, days)
 	return total, err
 }
 
-func (r *PgAnalyticsRepository) GetTotalRevenue(ctx context.Context, producerID uuid.UUID) (float64, error) {
+func (r *PgAnalyticsRepository) GetTotalRevenue(ctx context.Context, producerID uuid.UUID, days int) (float64, error) {
+	if days <= 0 {
+		days = 30
+	}
 	var total float64
 	query := `
 		SELECT COALESCE(SUM(amount), 0) / 100.0
 		FROM orders o
 		JOIN specs s ON o.spec_id = s.id
-		WHERE s.producer_id = $1 AND o.status = 'paid'`
-	err := r.db.GetContext(ctx, &total, query, producerID)
+		WHERE s.producer_id = $1 
+		  AND o.status = 'paid'
+		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL`
+	err := r.db.GetContext(ctx, &total, query, producerID, days)
 	return total, err
 }
 
-func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID) (map[string]float64, error) {
+func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID, days int) (map[string]float64, error) {
+	if days <= 0 {
+		days = 30
+	}
 	type licenseRev struct {
 		LicenseType string  `db:"license_type"`
 		Revenue     float64 `db:"revenue"`
@@ -290,10 +314,12 @@ func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, p
 		SELECT o.license_type, COALESCE(SUM(o.amount), 0) / 100.0 as revenue
 		FROM orders o
 		JOIN specs s ON o.spec_id = s.id
-		WHERE s.producer_id = $1 AND o.status = 'paid'
+		WHERE s.producer_id = $1 
+		  AND o.status = 'paid'
+		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL
 		GROUP BY o.license_type`
 	var rows []licenseRev
-	err := r.db.SelectContext(ctx, &rows, query, producerID)
+	err := r.db.SelectContext(ctx, &rows, query, producerID, days)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get global revenue by license: %w", err)
 	}
@@ -306,10 +332,14 @@ func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, p
 }
 
 func (r *PgAnalyticsRepository) GetPlaysByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyStat, error) {
+	log.Printf("[Analytics Repo] GetPlaysByDay: ProducerID=%s, Days=%d (raw)", producerID, days)
+
 	if days <= 0 {
+		log.Printf("[Analytics Repo] GetPlaysByDay: Days <= 0, defaulting to 30")
 		days = 30
 	}
 
+	log.Printf("[Analytics Repo] GetPlaysByDay: Using days=%d for query", days)
 	query := `
 		SELECT 
 			to_char(date_trunc('day', ae.created_at), 'YYYY-MM-DD') as date,
@@ -322,19 +352,26 @@ func (r *PgAnalyticsRepository) GetPlaysByDay(ctx context.Context, producerID uu
 		GROUP BY 1
 		ORDER BY 1 ASC
 	`
+	log.Printf("[Analytics Repo] GetPlaysByDay: Executing query with producerID=%s, days=%d", producerID, days)
 	var stats []domain.DailyStat
 	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Repo] GetPlaysByDay: Query error: %v", err)
 		return nil, fmt.Errorf("failed to get plays by day: %w", err)
 	}
+	log.Printf("[Analytics Repo] GetPlaysByDay: Query returned %d rows", len(stats))
 	return stats, nil
 }
 
 func (r *PgAnalyticsRepository) GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyStat, error) {
+	log.Printf("[Analytics Repo] GetDownloadsByDay: ProducerID=%s, Days=%d (raw)", producerID, days)
+
 	if days <= 0 {
+		log.Printf("[Analytics Repo] GetDownloadsByDay: Days <= 0, defaulting to 30")
 		days = 30
 	}
 
+	log.Printf("[Analytics Repo] GetDownloadsByDay: Using days=%d for query", days)
 	query := `
 		SELECT 
 			to_char(date_trunc('day', ae.created_at), 'YYYY-MM-DD') as date,
@@ -347,19 +384,26 @@ func (r *PgAnalyticsRepository) GetDownloadsByDay(ctx context.Context, producerI
 		GROUP BY 1
 		ORDER BY 1 ASC
 	`
+	log.Printf("[Analytics Repo] GetDownloadsByDay: Executing query with producerID=%s, days=%d", producerID, days)
 	var stats []domain.DailyStat
 	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Repo] GetDownloadsByDay: Query error: %v", err)
 		return nil, fmt.Errorf("failed to get downloads by day: %w", err)
 	}
+	log.Printf("[Analytics Repo] GetDownloadsByDay: Query returned %d rows", len(stats))
 	return stats, nil
 }
 
 func (r *PgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyRevenueStat, error) {
+	log.Printf("[Analytics Repo] GetRevenueByDay: ProducerID=%s, Days=%d (raw)", producerID, days)
+
 	if days <= 0 {
+		log.Printf("[Analytics Repo] GetRevenueByDay: Days <= 0, defaulting to 30")
 		days = 30
 	}
 
+	log.Printf("[Analytics Repo] GetRevenueByDay: Using days=%d for query", days)
 	query := `
 		SELECT 
 			to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') as date,
@@ -372,11 +416,14 @@ func (r *PgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID 
 		GROUP BY 1
 		ORDER BY 1 ASC
 	`
+	log.Printf("[Analytics Repo] GetRevenueByDay: Executing query with producerID=%s, days=%d", producerID, days)
 	var stats []domain.DailyRevenueStat
 	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
 	if err != nil {
+		log.Printf("[Analytics Repo] GetRevenueByDay: Query error: %v", err)
 		return nil, fmt.Errorf("failed to get revenue by day: %w", err)
 	}
+	log.Printf("[Analytics Repo] GetRevenueByDay: Query returned %d rows", len(stats))
 	return stats, nil
 }
 

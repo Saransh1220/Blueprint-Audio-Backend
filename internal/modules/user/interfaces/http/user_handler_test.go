@@ -65,6 +65,11 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 	svc := new(mockUserService)
 	fileSvc := new(mockFileService)
 	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
 	userID := uuid.New()
 
 	// Bad Request (Invalid JSON)
@@ -100,6 +105,11 @@ func TestUserHandler_GetPublicProfile(t *testing.T) {
 	svc := new(mockUserService)
 	fileSvc := new(mockFileService)
 	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
 	userID := uuid.New()
 	avatar := "http://storage/bucket/avatar.jpg"
 	profile := &application.PublicUserResponse{ID: userID.String(), AvatarURL: &avatar}
@@ -121,6 +131,11 @@ func TestUserHandler_UploadAvatar(t *testing.T) {
 	svc := new(mockUserService)
 	fileSvc := new(mockFileService)
 	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
 	userID := uuid.New()
 
 	// Unauthorized
@@ -159,4 +174,78 @@ func TestUserHandler_UploadAvatar(t *testing.T) {
 	h.UploadAvatar(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "signed-new-avatar")
+}
+
+func TestUserHandler_GetPublicProfile_ErrorBranches(t *testing.T) {
+	svc := new(mockUserService)
+	fileSvc := new(mockFileService)
+	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/users/bad/public", nil)
+	req.SetPathValue("id", "bad")
+	w := httptest.NewRecorder()
+	h.GetPublicProfile(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	userID := uuid.New()
+	req = httptest.NewRequest(http.MethodGet, "/users/"+userID.String()+"/public", nil)
+	req.SetPathValue("id", userID.String())
+	svc.On("GetPublicProfile", mock.Anything, userID).Return(nil, errors.New("db")).Once()
+	w = httptest.NewRecorder()
+	h.GetPublicProfile(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUserHandler_UpdateProfile_Unauthorized(t *testing.T) {
+	svc := new(mockUserService)
+	fileSvc := new(mockFileService)
+	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
+
+	req := httptest.NewRequest(http.MethodPatch, "/users/profile", bytes.NewBufferString(`{"bio":"x"}`))
+	w := httptest.NewRecorder()
+	h.UpdateProfile(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUserHandler_UploadAvatar_RollbackOnUpdateError(t *testing.T) {
+	svc := new(mockUserService)
+	fileSvc := new(mockFileService)
+	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Cleanup(func() {
+		svc.AssertExpectations(t)
+		fileSvc.AssertExpectations(t)
+	})
+	userID := uuid.New()
+
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	part, _ := mw.CreateFormFile("avatar", "test.jpg")
+	_, _ = part.Write([]byte("image content"))
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/users/profile/avatar", &b)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+
+	newAvatar := "http://new/avatar.jpg"
+	svc.On("GetPublicProfile", mock.Anything, userID).Return(&application.PublicUserResponse{ID: userID.String()}, nil).Once()
+	fileSvc.On("Upload", mock.Anything, mock.Anything, mock.Anything, "avatars").Return(newAvatar, "new_key", nil).Once()
+	svc.On("UpdateProfile", mock.Anything, userID, mock.Anything).Return(errors.New("update fail")).Once()
+	fileSvc.On("GetKeyFromUrl", newAvatar).Return("new_key", nil).Once()
+	fileSvc.On("Delete", mock.Anything, "new_key").Return(nil).Once()
+
+	w := httptest.NewRecorder()
+	h.UploadAvatar(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

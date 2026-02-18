@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -54,4 +57,16 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack implements the http.Hijacker interface to allow WebSockets to work
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		conn, buf, err := h.Hijack()
+		if err == nil {
+			rw.status = http.StatusSwitchingProtocols
+		}
+		return conn, buf, err
+	}
+	return nil, nil, errors.New("hijack not supported")
 }

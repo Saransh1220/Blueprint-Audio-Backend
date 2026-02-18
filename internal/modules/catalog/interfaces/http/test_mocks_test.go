@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	notificationDomain "github.com/saransh1220/blueprint-audio/internal/modules/notification/domain"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -51,6 +52,11 @@ func (m *mockSpecService) GetUserSpecs(ctx context.Context, producerID uuid.UUID
 		return nil, args.Int(1), args.Error(2)
 	}
 	return args.Get(0).([]domain.Spec), args.Int(1), args.Error(2)
+}
+
+func (m *mockSpecService) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
+	args := m.Called(ctx, id, files, status)
+	return args.Error(0)
 }
 
 type mockAnalyticsService struct{ mock.Mock }
@@ -100,3 +106,9 @@ func (m *mockFileService) Delete(ctx context.Context, key string) error {
 	return args.Error(0)
 }
 
+type mockNotificationService struct{ mock.Mock }
+
+func (m *mockNotificationService) Create(ctx context.Context, userID uuid.UUID, title, message string, notificationType notificationDomain.NotificationType) error {
+	args := m.Called(ctx, userID, title, message, notificationType)
+	return args.Error(0)
+}
