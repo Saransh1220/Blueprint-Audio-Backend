@@ -34,7 +34,7 @@ type PaymentService interface {
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error)
-	GetProducerOrders(ctx context.Context, producerID uuid.UUID, page int) (*ProducerOrderResponse, error)
+	GetProducerOrders(ctx context.Context, producerID uuid.UUID, page, limit int) (*ProducerOrderResponse, error)
 }
 
 type paymentService struct {
@@ -368,8 +368,7 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 	return response, nil
 }
 
-func (s *paymentService) GetProducerOrders(ctx context.Context, producerID uuid.UUID, page int) (*ProducerOrderResponse, error) {
-	limit := 50
+func (s *paymentService) GetProducerOrders(ctx context.Context, producerID uuid.UUID, page, limit int) (*ProducerOrderResponse, error) {
 	offset := (page - 1) * limit
 	if offset < 0 {
 		offset = 0

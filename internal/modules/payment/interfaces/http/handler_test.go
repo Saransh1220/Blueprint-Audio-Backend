@@ -24,7 +24,7 @@ type mockPaymentService struct {
 	getUserOrdersFn    func(context.Context, uuid.UUID, int) ([]domain.Order, error)
 	getUserLicensesFn  func(context.Context, uuid.UUID, int, string, string) ([]domain.License, int, error)
 	getDownloadsFn     func(context.Context, uuid.UUID, uuid.UUID) (*application.LicenseDownloadsResponse, error)
-	getProducerOrdersFn func(context.Context, uuid.UUID, int) (*application.ProducerOrderResponse, error)
+	getProducerOrdersFn func(context.Context, uuid.UUID, int, int) (*application.ProducerOrderResponse, error)
 }
 
 func (m mockPaymentService) CreateOrder(ctx context.Context, u, s, l uuid.UUID) (*domain.Order, error) {
@@ -45,8 +45,8 @@ func (m mockPaymentService) GetUserLicenses(ctx context.Context, u uuid.UUID, p 
 func (m mockPaymentService) GetLicenseDownloads(ctx context.Context, l, u uuid.UUID) (*application.LicenseDownloadsResponse, error) {
 	return m.getDownloadsFn(ctx, l, u)
 }
-func (m mockPaymentService) GetProducerOrders(ctx context.Context, u uuid.UUID, p int) (*application.ProducerOrderResponse, error) {
-	return m.getProducerOrdersFn(ctx, u, p)
+func (m mockPaymentService) GetProducerOrders(ctx context.Context, u uuid.UUID, p int, l int) (*application.ProducerOrderResponse, error) {
+	return m.getProducerOrdersFn(ctx, u, p, l)
 }
 
 func authedReq(method, path, body string) *http.Request {
@@ -73,7 +73,7 @@ func TestPaymentHandler_BasicFlows(t *testing.T) {
 		getDownloadsFn: func(context.Context, uuid.UUID, uuid.UUID) (*application.LicenseDownloadsResponse, error) {
 			return &application.LicenseDownloadsResponse{LicenseID: uuid.NewString()}, nil
 		},
-		getProducerOrdersFn: func(context.Context, uuid.UUID, int) (*application.ProducerOrderResponse, error) {
+		getProducerOrdersFn: func(context.Context, uuid.UUID, int, int) (*application.ProducerOrderResponse, error) {
 			return &application.ProducerOrderResponse{Total: 1}, nil
 		},
 	})
@@ -129,7 +129,7 @@ func TestPaymentHandler_ErrorBranches(t *testing.T) {
 		getDownloadsFn: func(context.Context, uuid.UUID, uuid.UUID) (*application.LicenseDownloadsResponse, error) {
 			return nil, errors.New("license not found")
 		},
-		getProducerOrdersFn: func(context.Context, uuid.UUID, int) (*application.ProducerOrderResponse, error) {
+		getProducerOrdersFn: func(context.Context, uuid.UUID, int, int) (*application.ProducerOrderResponse, error) {
 			return nil, errors.New("x")
 		},
 	})

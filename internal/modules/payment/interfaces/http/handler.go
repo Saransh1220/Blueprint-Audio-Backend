@@ -248,8 +248,15 @@ func (h *PaymentHandler) GetProducerOrders(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	limit := 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
 	// Fetch orders
-	response, err := h.service.GetProducerOrders(r.Context(), producerID, page)
+	response, err := h.service.GetProducerOrders(r.Context(), producerID, page, limit)
 	if err != nil {
 		http.Error(w, "failed to fetch producer orders", http.StatusInternalServerError)
 		return

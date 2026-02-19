@@ -255,7 +255,7 @@ func TestPaymentService_GetUserOrdersAndProducerOrders(t *testing.T) {
 	assert.NotNil(t, orders)
 
 	or.On("ListByProducer", ctx, producerID, 50, 0).Return([]domain.OrderWithBuyer{}, 0, nil).Once()
-	resp, err := s.GetProducerOrders(ctx, producerID, 0)
+	resp, err := s.GetProducerOrders(ctx, producerID, 0, 50)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, 50, resp.Limit)
@@ -417,7 +417,7 @@ func TestPaymentService_GetUserLicensesAndProducerOrders_ErrorsAndFallbacks(t *t
 	assert.Equal(t, img, *out[0].SpecImage)
 
 	or.On("ListByProducer", ctx, producerID, 50, 0).Return(nil, 0, errors.New("repo")).Once()
-	_, err = s.GetProducerOrders(ctx, producerID, 1)
+	_, err = s.GetProducerOrders(ctx, producerID, 1, 50)
 	assert.EqualError(t, err, "repo")
 }
 
