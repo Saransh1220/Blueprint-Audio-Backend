@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
+	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
 	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
 )
@@ -20,14 +22,16 @@ func TestSetupRoutes(t *testing.T) {
 	userHandler := &user_http.UserHandler{}
 	paymentHandler := &payment_http.PaymentHandler{}
 	analyticsHandler := &analytics_http.AnalyticsHandler{}
+	notificationHandler := &notification_http.NotificationHandler{}
 
 	config := RouterConfig{
-		AuthHandler:      authHandler,
-		AuthMiddleware:   authMiddleware,
-		SpecHandler:      specHandler,
-		UserHandler:      userHandler,
-		PaymentHandler:   paymentHandler,
-		AnalyticsHandler: analyticsHandler,
+		AuthHandler:         authHandler,
+		AuthMiddleware:      authMiddleware,
+		SpecHandler:         specHandler,
+		UserHandler:         userHandler,
+		PaymentHandler:      paymentHandler,
+		AnalyticsHandler:    analyticsHandler,
+		NotificationHandler: notificationHandler,
 	}
 
 	mux := SetupRoutes(config)
@@ -40,12 +44,13 @@ func TestSetupRoutes(t *testing.T) {
 
 func TestSetupRoutes_HealthCheck(t *testing.T) {
 	config := RouterConfig{
-		AuthHandler:      &auth_http.AuthHandler{},
-		AuthMiddleware:   middleware.NewAuthMiddleware("test-secret"),
-		SpecHandler:      &catalog_http.SpecHandler{},
-		UserHandler:      &user_http.UserHandler{},
-		PaymentHandler:   &payment_http.PaymentHandler{},
-		AnalyticsHandler: &analytics_http.AnalyticsHandler{},
+		AuthHandler:         &auth_http.AuthHandler{},
+		AuthMiddleware:      middleware.NewAuthMiddleware("test-secret"),
+		SpecHandler:         &catalog_http.SpecHandler{},
+		UserHandler:         &user_http.UserHandler{},
+		PaymentHandler:      &payment_http.PaymentHandler{},
+		AnalyticsHandler:    &analytics_http.AnalyticsHandler{},
+		NotificationHandler: &notification_http.NotificationHandler{},
 	}
 
 	mux := SetupRoutes(config)
@@ -68,6 +73,26 @@ func TestSetupRoutes_HealthCheck(t *testing.T) {
 	// Check body
 	if rr.body != "OK" {
 		t.Errorf("Expected body 'OK', got '%s'", rr.body)
+	}
+}
+
+func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
+	config := RouterConfig{
+		AuthHandler:         &auth_http.AuthHandler{},
+		AuthMiddleware:      middleware.NewAuthMiddleware("test-secret"),
+		SpecHandler:         &catalog_http.SpecHandler{},
+		UserHandler:         &user_http.UserHandler{},
+		PaymentHandler:      &payment_http.PaymentHandler{},
+		AnalyticsHandler:    &analytics_http.AnalyticsHandler{},
+		NotificationHandler: &notification_http.NotificationHandler{},
+	}
+	mux := SetupRoutes(config)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for metrics, got %d", w.Code)
 	}
 }
 

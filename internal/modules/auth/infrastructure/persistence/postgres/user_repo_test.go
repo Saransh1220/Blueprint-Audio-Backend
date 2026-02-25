@@ -44,7 +44,7 @@ func TestPgUserRepository_CreateAndGets(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT \* FROM users WHERE email = \$1`).WithArgs("missing@x.com").WillReturnError(sql.ErrNoRows)
 	got, err = repo.GetByEmail(ctx, "missing@x.com")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, domain.ErrUserNotFound)
 	assert.Nil(t, got)
 
 	idRows := sqlmock.NewRows([]string{"id", "email", "password_hash", "name", "role"}).AddRow(u.ID, u.Email, u.PasswordHash, u.Name, u.Role)

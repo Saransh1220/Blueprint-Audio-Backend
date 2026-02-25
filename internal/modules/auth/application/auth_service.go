@@ -30,9 +30,10 @@ type LoginRequest struct {
 
 // AuthService provides authentication operations
 type AuthService struct {
-	repo      domain.UserRepository
-	jwtSecret string
-	jwtExpiry time.Duration
+	repo                 domain.UserRepository
+	jwtSecret            string
+	jwtExpiry            time.Duration
+	googleTokenValidator func(ctx context.Context, token string, audience string) (*idtoken.Payload, error)
 }
 type GoogleLoginRequest struct {
 	Token string `json:"token"`
@@ -41,9 +42,10 @@ type GoogleLoginRequest struct {
 // NewAuthService creates a new auth service
 func NewAuthService(repo domain.UserRepository, jwtSecret string, jwtExpiry time.Duration) *AuthService {
 	return &AuthService{
-		repo:      repo,
-		jwtSecret: jwtSecret,
-		jwtExpiry: jwtExpiry,
+		repo:                 repo,
+		jwtSecret:            jwtSecret,
+		jwtExpiry:            jwtExpiry,
+		googleTokenValidator: idtoken.Validate,
 	}
 }
 
@@ -143,7 +145,12 @@ func (s *AuthService) ValidateToken(tokenStr string) (*jwt.CustomClaims, error) 
 func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, req GoogleLoginRequest) (string, error) {
 	log.Printf("AuthService.GoogleLogin started. ClientID length: %d", len(googleClientID))
 
-	payload, err := idtoken.Validate(ctx, req.Token, googleClientID)
+	validate := s.googleTokenValidator
+	if validate == nil {
+		validate = idtoken.Validate
+	}
+
+	payload, err := validate(ctx, req.Token, googleClientID)
 	if err != nil {
 		log.Printf("AuthService.GoogleLogin token validate failed: %v", err)
 		return "", errors.New("invalid google token")
