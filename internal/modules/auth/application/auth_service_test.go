@@ -10,6 +10,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/api/idtoken"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -202,5 +203,106 @@ func TestGetUser(t *testing.T) {
 	user, err := svc.GetUser(ctx, id)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, user)
+}
+
+func TestValidateToken_Invalid(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+
+	claims, err := svc.ValidateToken("invalid-token")
+	assert.Error(t, err)
+	assert.Nil(t, claims)
+}
+
+func TestGoogleLogin_InvalidToken(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	ctx := context.Background()
+
+	_, err := svc.GoogleLogin(ctx, "fake-google-client-id", GoogleLoginRequest{Token: "not-a-google-token"})
+	assert.EqualError(t, err, "invalid google token")
+}
+
+func TestGoogleLogin_MissingEmail(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Claims: map[string]interface{}{"name": "Tester"}}, nil
+	}
+
+	_, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
+	assert.EqualError(t, err, "email not provided by google")
+}
+
+func TestGoogleLogin_RepoError(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Claims: map[string]interface{}{"email": "user@example.com", "name": "Tester"}}, nil
+	}
+
+	repo.On("GetByEmail", mock.Anything, "user@example.com").Return(nil, errors.New("repo down")).Once()
+
+	_, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
+	assert.EqualError(t, err, "repo down")
+}
+
+func TestGoogleLogin_CreateUserError(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Claims: map[string]interface{}{
+			"email":   "new@example.com",
+			"name":    "New User",
+			"picture": "https://img.example.com/a.jpg",
+		}}, nil
+	}
+
+	repo.On("GetByEmail", mock.Anything, "new@example.com").Return(nil, domain.ErrUserNotFound).Once()
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).Return(errors.New("create failed")).Once()
+
+	_, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
+	assert.EqualError(t, err, "create failed")
+}
+
+func TestGoogleLogin_CreateUserSuccess(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Claims: map[string]interface{}{
+			"email":   "new2@example.com",
+			"name":    "New User2",
+			"picture": "https://img.example.com/b.jpg",
+		}}, nil
+	}
+
+	repo.On("GetByEmail", mock.Anything, "new2@example.com").Return(nil, domain.ErrUserNotFound).Once()
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).Return(nil).Once()
+
+	token, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+}
+
+func TestGoogleLogin_ExistingUserSuccess(t *testing.T) {
+	repo := new(mockUserRepository)
+	svc := NewAuthService(repo, "secret", time.Hour)
+	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
+		return &idtoken.Payload{Claims: map[string]interface{}{
+			"email": "existing@example.com",
+			"name":  "Existing",
+		}}, nil
+	}
+
+	existing := &domain.User{
+		ID:    uuid.New(),
+		Email: "existing@example.com",
+		Role:  domain.RoleProducer,
+	}
+	repo.On("GetByEmail", mock.Anything, "existing@example.com").Return(existing, nil).Once()
+
+	token, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
 }
 
