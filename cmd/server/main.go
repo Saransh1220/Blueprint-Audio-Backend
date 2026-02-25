@@ -51,7 +51,7 @@ func main() {
 	}
 
 	// Auth Module
-	authModule, err := auth.NewModule(db, cfg.JWT.Secret, cfg.JWT.Expiry, fsModule.Service())
+	authModule, err := auth.NewModule(db, cfg.JWT.Secret, cfg.JWT.Expiry, fsModule.Service(), cfg.Google.ClientID)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth module: %v", err)
 	}

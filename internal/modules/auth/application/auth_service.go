@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +11,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/infrastructure/jwt"
 	"github.com/saransh1220/blueprint-audio/internal/shared/utils"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/api/idtoken"
 )
 
 // DTOs for registration and login
@@ -31,6 +33,9 @@ type AuthService struct {
 	repo      domain.UserRepository
 	jwtSecret string
 	jwtExpiry time.Duration
+}
+type GoogleLoginRequest struct {
+	Token string `json:"token"`
 }
 
 // NewAuthService creates a new auth service
@@ -133,4 +138,63 @@ func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, 
 // ValidateToken validates a JWT token and returns the claims
 func (s *AuthService) ValidateToken(tokenStr string) (*jwt.CustomClaims, error) {
 	return jwt.ValidateToken(tokenStr, s.jwtSecret)
+}
+
+func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, req GoogleLoginRequest) (string, error) {
+	log.Printf("AuthService.GoogleLogin started. ClientID length: %d", len(googleClientID))
+
+	payload, err := idtoken.Validate(ctx, req.Token, googleClientID)
+	if err != nil {
+		log.Printf("AuthService.GoogleLogin token validate failed: %v", err)
+		return "", errors.New("invalid google token")
+	}
+
+	email, _ := payload.Claims["email"].(string)
+	name, _ := payload.Claims["name"].(string)
+	picture, _ := payload.Claims["picture"].(string)
+
+	log.Printf("AuthService.GoogleLogin token valid. Email: %s, Name: %s", email, name)
+
+	if email == "" {
+		log.Printf("AuthService.GoogleLogin missing email in token")
+		return "", errors.New("email not provided by google")
+	}
+
+	user, err := s.repo.GetByEmail(ctx, email)
+	if err != nil {
+		if err == domain.ErrUserNotFound {
+			log.Printf("AuthService.GoogleLogin user not found, creating new one for %s", email)
+			// 4. Create new user if they don't exist
+			user = &domain.User{
+				ID:           uuid.New(),
+				Email:        email,
+				PasswordHash: "", // No password for OAuth users
+				Name:         name,
+				DisplayName:  &name,
+				Role:         domain.RoleArtist, // Default role
+				AvatarUrl:    &picture,
+				CreatedAt:    time.Now(),
+				UpdatedAt:    time.Now(),
+			}
+			if createErr := s.repo.Create(ctx, user); createErr != nil {
+				log.Printf("AuthService.GoogleLogin failed to create user: %v", createErr)
+				return "", createErr
+			}
+		} else {
+			log.Printf("AuthService.GoogleLogin repo error: %v", err)
+			return "", err
+		}
+	} else {
+		log.Printf("AuthService.GoogleLogin user found for %s", email)
+	}
+
+	// 5. Generate our own Application JWT
+	token, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	if err != nil {
+		log.Printf("AuthService.GoogleLogin failed to generate JWT: %v", err)
+		return "", err
+	}
+
+	log.Printf("AuthService.GoogleLogin returning success token")
+	return token, nil
 }

@@ -15,9 +15,13 @@ import (
 
 type noopStorage struct{}
 
-func (noopStorage) UploadFile(_ context.Context, _ string, _ io.Reader, _ string) (string, error) { return "", nil }
-func (noopStorage) DeleteFile(_ context.Context, _ string) error                                    { return nil }
-func (noopStorage) GetPresignedURL(_ context.Context, _ string, _ time.Duration) (string, error)    { return "", nil }
+func (noopStorage) UploadFile(_ context.Context, _ string, _ io.Reader, _ string) (string, error) {
+	return "", nil
+}
+func (noopStorage) DeleteFile(_ context.Context, _ string) error { return nil }
+func (noopStorage) GetPresignedURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", nil
+}
 func (noopStorage) GetPresignedDownloadURL(_ context.Context, _ string, _ string, _ time.Duration) (string, error) {
 	return "", nil
 }
@@ -27,7 +31,7 @@ var _ domain.FileStorage = noopStorage{}
 
 func TestNewModuleAndAccessors(t *testing.T) {
 	fs := fileapp.NewFileService(noopStorage{})
-	m, err := NewModule(&sqlx.DB{}, "secret", time.Hour, fs)
+	m, err := NewModule(&sqlx.DB{}, "secret", time.Hour, fs, "test-client-id")
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	require.NotNil(t, m.Service())
