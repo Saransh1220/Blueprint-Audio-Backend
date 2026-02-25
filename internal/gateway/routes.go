@@ -40,6 +40,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	// Auth Routes
 	mux.HandleFunc("POST /register", config.AuthHandler.Register)
 	mux.HandleFunc("POST /login", config.AuthHandler.Login)
+	mux.HandleFunc("POST /auth/google", config.AuthHandler.GoogleLogin)
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
 	// Catalog/Spec Routes

@@ -63,7 +63,7 @@ func (r *PgUserRepository) GetByEmail(ctx context.Context, email string) (*domai
 
 	err := r.db.GetContext(ctx, user, query, email)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, domain.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, err

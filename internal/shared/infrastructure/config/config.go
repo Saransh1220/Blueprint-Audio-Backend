@@ -15,6 +15,12 @@ type Config struct {
 	JWT         JWTConfig
 	Razorpay    RazorpayConfig
 	FileStorage FileStorageConfig
+	Google      GoogleConfig
+}
+
+// GoogleConfig holds Google OAuth configuration
+type GoogleConfig struct {
+	ClientID string
 }
 
 // ServerConfig holds server configuration
@@ -87,6 +93,9 @@ func Load() Config {
 			S3BucketName:     getEnv("S3_BUCKET", ""),
 			S3UseSSL:         getEnv("S3_USE_SSL", "true") == "true",
 			LocalPath:        getEnv("LOCAL_STORAGE_PATH", "./uploads"),
+		},
+		Google: GoogleConfig{
+			ClientID: getEnv("GOOGLE_CLIENT_ID", ""),
 		},
 	}
 }

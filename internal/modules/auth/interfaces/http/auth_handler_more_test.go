@@ -20,7 +20,7 @@ import (
 func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString("bad"))
@@ -78,7 +78,7 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/register", nil)
