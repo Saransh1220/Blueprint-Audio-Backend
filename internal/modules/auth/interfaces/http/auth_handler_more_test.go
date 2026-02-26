@@ -20,7 +20,7 @@ import (
 func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString("bad"))
@@ -78,7 +78,7 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/register", nil)
@@ -89,4 +89,31 @@ func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString("bad"))
 	h.Register(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestAuthHandler_GoogleLoginBranches(t *testing.T) {
+	mockService := new(MockAuthService)
+	mockFileService := new(MockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
+
+	// bad json
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/auth/google", bytes.NewBufferString("bad"))
+	h.GoogleLogin(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// auth failure
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/auth/google", bytes.NewBufferString(`{"token":"x"}`))
+	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "x"}).Return("", errors.New("invalid google token")).Once()
+	h.GoogleLogin(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// success
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/auth/google", bytes.NewBufferString(`{"token":"y"}`))
+	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "y"}).Return("jwt-token", nil).Once()
+	h.GoogleLogin(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "jwt-token")
 }

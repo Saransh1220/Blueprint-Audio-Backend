@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -17,6 +18,7 @@ type AuthService interface {
 	Register(ctx context.Context, req application.RegisterRequest) (*domain.User, error)
 	Login(ctx context.Context, req application.LoginRequest) (string, error)
 	GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (string, error)
 }
 
 // FileService defines the interface for file operations
@@ -26,14 +28,16 @@ type FileService interface {
 }
 
 type AuthHandler struct {
-	service     AuthService
-	fileService FileService
+	service        AuthService
+	fileService    FileService
+	googleClientID string
 }
 
-func NewAuthHandler(service AuthService, fileService FileService) *AuthHandler {
+func NewAuthHandler(service AuthService, fileService FileService, googleClientID string) *AuthHandler {
 	return &AuthHandler{
-		service:     service,
-		fileService: fileService,
+		service:        service,
+		fileService:    fileService,
+		googleClientID: googleClientID,
 	}
 }
 
@@ -117,4 +121,27 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
+}
+
+func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+	var req application.GoogleLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("GoogleLogin Error: invalid request body - %v", err)
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("GoogleLogin Request Received: token length = %d", len(req.Token))
+
+	token, err := h.service.GoogleLogin(r.Context(), h.googleClientID, req)
+	if err != nil {
+		log.Printf("GoogleLogin Auth Service Error: %v", err)
+		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("GoogleLogin Success!")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
