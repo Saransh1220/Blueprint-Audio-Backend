@@ -19,7 +19,11 @@ func NewPaymentRepository(db *sqlx.DB) domain.PaymentRepository {
 
 func (r *PgPaymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
 	if payment.ID == uuid.Nil {
-		payment.ID = uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		payment.ID = id
 	}
 	if payment.CreatedAt.IsZero() {
 		payment.CreatedAt = time.Now()

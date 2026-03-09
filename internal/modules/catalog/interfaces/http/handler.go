@@ -135,7 +135,13 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// 5. Initial DB Save
 	spec.ProcessingStatus = domain.ProcessingStatusProcessing
 	if spec.ID == uuid.Nil {
-		spec.ID = uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			log.Printf("[SpecHandler.Create] Failed to generate UUID: %v", err)
+			http.Error(w, "failed to generate id", http.StatusInternalServerError)
+			return
+		}
+		spec.ID = id
 	}
 
 	if err := h.service.CreateSpec(r.Context(), &spec); err != nil {
@@ -245,7 +251,11 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 					return "", "", fmt.Errorf("image encode error: %w", err)
 				}
 
-				filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+				id, err := uuid.NewV7()
+				if err != nil {
+					return "", "", fmt.Errorf("failed to generate uuid: %w", err)
+				}
+				filename := fmt.Sprintf("%s.jpg", id.String())
 				s3Key := fmt.Sprintf("images/%s", filename)
 				url, err := h.fileService.UploadWithKey(asyncCtx, buf, s3Key, "image/jpeg")
 				return url, s3Key, err
@@ -285,7 +295,11 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 					mime = "application/zip"
 				}
 
-				filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+				id, err := uuid.NewV7()
+				if err != nil {
+					return "", "", fmt.Errorf("failed to generate uuid: %w", err)
+				}
+				filename := fmt.Sprintf("%s%s", id.String(), ext)
 				s3Key := fmt.Sprintf("%s/%s", folder, filename)
 
 				url, err := h.fileService.UploadWithKey(asyncCtx, f, s3Key, mime)
@@ -682,7 +696,12 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		filename := fmt.Sprintf("%s.jpg", uuid.New().String())
+		id, err := uuid.NewV7()
+		if err != nil {
+			http.Error(w, "failed to generate uuid", http.StatusInternalServerError)
+			return
+		}
+		filename := fmt.Sprintf("%s.jpg", id.String())
 		key := fmt.Sprintf("images/%s", filename)
 
 		url, err := h.fileService.UploadWithKey(r.Context(), buf, key, "image/jpeg")

@@ -25,7 +25,11 @@ func NewSpecRepository(db *sqlx.DB) *PgSpecRepository {
 func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error {
 	// 1. Initialize metadata
 	if spec.ID == uuid.Nil {
-		spec.ID = uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		spec.ID = id
 	}
 	if spec.CreatedAt.IsZero() {
 		spec.CreatedAt = time.Now()
@@ -82,7 +86,11 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 			err = tx.GetContext(ctx, &genreID, "SELECT id FROM genres WHERE slug = $1", genre.Slug)
 			if err != nil {
 				// Not found, Create new Genre
-				genreID = uuid.New()
+				id, err := uuid.NewV7()
+				if err != nil {
+					return err
+				}
+				genreID = id
 				now := time.Now()
 				createGenreQuery := `INSERT INTO genres (id, name, slug, created_at) VALUES ($1, $2, $3, $4)`
 				_, err = tx.ExecContext(ctx, createGenreQuery, genreID, genre.Name, genre.Slug, now)
@@ -103,7 +111,11 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 	for i := range spec.Licenses {
 		license := &spec.Licenses[i]
 		if license.ID == uuid.Nil {
-			license.ID = uuid.New()
+			id, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+			license.ID = id
 		}
 		license.SpecID = spec.ID
 
@@ -475,7 +487,11 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 
 			if license.ID == uuid.Nil {
 				// New License (and no match found) -> INSERT
-				license.ID = uuid.New()
+				id, err := uuid.NewV7()
+				if err != nil {
+					return err
+				}
+				license.ID = id
 				_, err = tx.NamedExecContext(ctx, insertQuery, license)
 				if err != nil {
 					return err

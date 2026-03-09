@@ -28,7 +28,11 @@ func NewFileService(storage domain.FileStorage) *FileService {
 func (s *FileService) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, folder string) (string, string, error) {
 	// Generate unique filename
 	ext := filepath.Ext(header.Filename)
-	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+	fileID, err := uuid.NewV7()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate uuid: %w", err)
+	}
+	filename := fmt.Sprintf("%s%s", fileID.String(), ext)
 	key := fmt.Sprintf("%s/%s", folder, filename)
 
 	url, err := s.UploadWithKey(ctx, file, key, header.Header.Get("Content-Type"))

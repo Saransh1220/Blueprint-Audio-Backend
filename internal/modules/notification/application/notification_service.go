@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"encoding/json"
@@ -21,8 +22,13 @@ func NewNotificationService(repo domain.NotificationRepository, hub *websocket.H
 }
 
 func (s *NotificationService) Create(ctx context.Context, userID uuid.UUID, title, message string, type_ domain.NotificationType) error {
+	notificationID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
 	notification := &domain.Notification{
-		ID:        uuid.New(),
+		ID:        notificationID,
 		UserID:    userID,
 		Title:     title,
 		Message:   message,
@@ -30,9 +36,9 @@ func (s *NotificationService) Create(ctx context.Context, userID uuid.UUID, titl
 		IsRead:    false,
 		CreatedAt: time.Now(),
 	}
-	err := s.repo.Create(ctx, notification)
-	if err != nil {
-		return err
+	saveErr := s.repo.Create(ctx, notification)
+	if saveErr != nil {
+		return saveErr
 	}
 
 	// Broadcast to WebSocket

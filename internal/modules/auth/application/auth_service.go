@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,8 +80,13 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 		displayName = &req.DisplayName
 	}
 
+	userID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
 	user := &domain.User{
-		ID:           uuid.New(),
+		ID:           userID,
 		Email:        req.Email,
 		PasswordHash: string(hashedPass),
 		Name:         req.Name,

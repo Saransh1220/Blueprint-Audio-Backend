@@ -20,7 +20,11 @@ func NewLicenseRepository(db *sqlx.DB) domain.LicenseRepository {
 
 func (r *PgLicenseRepository) Create(ctx context.Context, license *domain.License) error {
 	if license.ID == uuid.Nil {
-		license.ID = uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		license.ID = id
 	}
 	if license.CreatedAt.IsZero() {
 		license.CreatedAt = time.Now()

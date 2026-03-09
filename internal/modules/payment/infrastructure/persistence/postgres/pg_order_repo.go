@@ -22,7 +22,11 @@ func NewOrderRepository(db *sqlx.DB) domain.OrderRepository {
 func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) error {
 
 	if order.ID == uuid.Nil {
-		order.ID = uuid.New()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		order.ID = id
 	}
 	if order.CreatedAt.IsZero() {
 		order.CreatedAt = time.Now()

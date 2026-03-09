@@ -90,10 +90,15 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 
 	amountInPaise := int(licenseOption.Price * 100)
 
+	receiptID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
 	razorpayOrderData := map[string]interface{}{
 		"amount":   amountInPaise,
 		"currency": "INR",
-		"receipt":  fmt.Sprintf("order_%s", uuid.New().String()[:8]),
+		"receipt":  fmt.Sprintf("order_%s", receiptID.String()[:8]),
 	}
 
 	razorpayOrder, err := s.razorpayClient.Order.Create(razorpayOrderData, nil)
@@ -266,6 +271,11 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		return nil, errors.New("invalid license_option_id")
 	}
 
+	licenseKeyID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
 	// We might check if LICENSE KEY already exists? UUID generation is random enough.
 	license := &domain.License{
 		OrderID:         order.ID,
@@ -274,7 +284,7 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		LicenseOptionID: licenseOptionID,
 		LicenseType:     order.LicenseType,
 		PurchasePrice:   order.Amount,
-		LicenseKey:      fmt.Sprintf("LIC-%s", uuid.New().String()),
+		LicenseKey:      fmt.Sprintf("LIC-%s", licenseKeyID.String()),
 		IsActive:        true,
 		IsRevoked:       false,
 		DownloadsCount:  0,
