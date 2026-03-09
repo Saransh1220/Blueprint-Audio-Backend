@@ -31,8 +31,9 @@ type ServerConfig struct {
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	Secret string
-	Expiry time.Duration
+	Secret        string
+	Expiry        time.Duration
+	RefreshExpiry time.Duration
 }
 
 // RazorpayConfig holds Razorpay payment gateway configuration
@@ -76,8 +77,9 @@ func Load() Config {
 			DB:       0,
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "default-dev-secret"),
-			Expiry: parseDuration(getEnv("JWT_EXPIRATION", "24h"), 24*time.Hour),
+			Secret:        getEnv("JWT_SECRET", "default-dev-secret"),
+			Expiry:        parseDuration(getEnv("JWT_EXPIRATION", "24h"), 24*time.Hour),
+			RefreshExpiry: parseDuration(getEnv("JWT_REFRESH_EXPIRATION", "720h"), 30*24*time.Hour),
 		},
 		Razorpay: RazorpayConfig{
 			KeyID:     getEnv("RAZORPAY_KEY_ID", ""),

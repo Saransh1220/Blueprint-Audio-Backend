@@ -13,21 +13,24 @@ import (
 
 // Module represents the Auth module
 type Module struct {
-	service    *application.AuthService
-	repository *postgres.PgUserRepository
-	handler    *auth_http.AuthHandler
+	service     *application.AuthService
+	userRepo    *postgres.PgUserRepository
+	sessionRepo *postgres.PgSessionRepository
+	handler     *auth_http.AuthHandler
 }
 
 // NewModule creates and initializes the Auth module
-func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, fileService *fileApp.FileService, googleClientID string) (*Module, error) {
-	repository := postgres.NewUserRepository(db)
-	service := application.NewAuthService(repository, jwtSecret, jwtExpiry)
-	handler := auth_http.NewAuthHandler(service, fileService, googleClientID)
+func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration, fileService *fileApp.FileService, googleClientID string) (*Module, error) {
+	userRepo := postgres.NewUserRepository(db)
+	sessionRepo := postgres.NewSessionRepository(db)
+	service := application.NewAuthService(userRepo, sessionRepo, jwtSecret, jwtExpiry, jwtRefreshExpiry)
+	handler := auth_http.NewAuthHandler(service, fileService, googleClientID, jwtRefreshExpiry)
 
 	return &Module{
-		service:    service,
-		repository: repository,
-		handler:    handler,
+		service:     service,
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		handler:     handler,
 	}, nil
 }
 
@@ -38,12 +41,12 @@ func (m *Module) Service() *application.AuthService {
 
 // UserFinder returns the user finder interface for use by other modules
 func (m *Module) UserFinder() domain.UserFinder {
-	return m.repository
+	return m.userRepo
 }
 
 // UserRepository returns the user repository (for handlers still using old interfaces)
 func (m *Module) UserRepository() *postgres.PgUserRepository {
-	return m.repository
+	return m.userRepo
 }
 
 // HTTPHandler returns the HTTP handler for the auth module

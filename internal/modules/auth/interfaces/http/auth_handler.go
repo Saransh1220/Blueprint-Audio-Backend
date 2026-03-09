@@ -16,9 +16,11 @@ import (
 // AuthService defines the interface for auth operations
 type AuthService interface {
 	Register(ctx context.Context, req application.RegisterRequest) (*domain.User, error)
-	Login(ctx context.Context, req application.LoginRequest) (string, error)
+	Login(ctx context.Context, req application.LoginRequest) (*application.TokenPair, error)
 	GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error)
-	GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (string, error)
+	GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (*application.TokenPair, error)
+	RefreshSession(ctx context.Context, refreshToken string) (string, error)
+	Logout(ctx context.Context, refreshToken string) error
 }
 
 // FileService defines the interface for file operations
@@ -31,13 +33,15 @@ type AuthHandler struct {
 	service        AuthService
 	fileService    FileService
 	googleClientID string
+	refreshExpiry  time.Duration
 }
 
-func NewAuthHandler(service AuthService, fileService FileService, googleClientID string) *AuthHandler {
+func NewAuthHandler(service AuthService, fileService FileService, googleClientID string, refreshExpiry time.Duration) *AuthHandler {
 	return &AuthHandler{
 		service:        service,
 		fileService:    fileService,
 		googleClientID: googleClientID,
+		refreshExpiry:  refreshExpiry,
 	}
 }
 
@@ -78,7 +82,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.service.Login(r.Context(), req)
+	tokens, err := h.service.Login(r.Context(), req)
 	if err != nil {
 		if err == domain.ErrInvalidCredentials {
 			http.Error(w, `{"error": "invalid credentials"}`, http.StatusUnauthorized)
@@ -87,8 +91,20 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}
+
+	// Set HTTP-Only Cookie for the Refresh Token
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    tokens.RefreshToken,
+		Path:     "/",
+		Expires:  time.Now().Add(h.refreshExpiry),
+		HttpOnly: true,
+		Secure:   true, // Secure in production (HTTPS)
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	json.NewEncoder(w).Encode(map[string]string{"token": tokens.AccessToken})
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +149,7 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("GoogleLogin Request Received: token length = %d", len(req.Token))
 
-	token, err := h.service.GoogleLogin(r.Context(), h.googleClientID, req)
+	tokens, err := h.service.GoogleLogin(r.Context(), h.googleClientID, req)
 	if err != nil {
 		log.Printf("GoogleLogin Auth Service Error: %v", err)
 		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusUnauthorized)
@@ -141,7 +157,79 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("GoogleLogin Success!")
+	// Set HTTP-Only Cookie for the Refresh Token
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    tokens.RefreshToken,
+		Path:     "/",
+		Expires:  time.Now().Add(30 * 24 * time.Hour), // 30 Days
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	json.NewEncoder(w).Encode(map[string]string{"token": tokens.AccessToken})
+}
+
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read refresh token from HttpOnly cookie
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		// Log specific error for debugging
+		log.Printf("Refresh Token Error: Missing cookie - %v", err)
+		http.Error(w, `{"error": "refresh token missing"}`, http.StatusUnauthorized)
+		return
+	}
+
+	newAccessToken, err := h.service.RefreshSession(r.Context(), cookie.Value)
+	if err != nil {
+		log.Printf("Refresh Error (Service): %v", err)
+		// Specifically check for specific domain errors if necessary
+		http.Error(w, `{"error": "invalid or expired refresh token"}`, http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"token": newAccessToken})
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read refresh token (if it exists)
+	cookie, err := r.Cookie("refresh_token")
+	if err == nil && cookie.Value != "" {
+		// Invalidate session in DB
+		err = h.service.Logout(r.Context(), cookie.Value)
+		if err != nil {
+			log.Printf("Failed to revoke session: %v", err)
+			// Continue to clear cookie even if DB update fails
+		}
+	}
+
+	// Clear the refresh_token cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0), // Expire immediately
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "logged out successfully"})
 }

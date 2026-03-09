@@ -31,9 +31,12 @@ func (m *MockAuthService) Register(ctx context.Context, req application.Register
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockAuthService) Login(ctx context.Context, req application.LoginRequest) (string, error) {
+func (m *MockAuthService) Login(ctx context.Context, req application.LoginRequest) (*application.TokenPair, error) {
 	args := m.Called(ctx, req)
-	return args.String(0), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*application.TokenPair), args.Error(1)
 }
 
 func (m *MockAuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
@@ -44,9 +47,22 @@ func (m *MockAuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.Us
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockAuthService) GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (string, error) {
+func (m *MockAuthService) GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (*application.TokenPair, error) {
 	args := m.Called(ctx, googleClientID, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*application.TokenPair), args.Error(1)
+}
+
+func (m *MockAuthService) RefreshSession(ctx context.Context, refreshToken string) (string, error) {
+	args := m.Called(ctx, refreshToken)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockAuthService) Logout(ctx context.Context, refreshToken string) error {
+	args := m.Called(ctx, refreshToken)
+	return args.Error(0)
 }
 
 // Mock FileService
@@ -67,7 +83,7 @@ func (m *MockFileService) GetPresignedURL(ctx context.Context, objectName string
 func TestRegisterHandler_Success(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
 
 	reqBody := application.RegisterRequest{
 		Email:    "test@example.com",
@@ -95,7 +111,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 func TestRegisterHandler_Conflict(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
 
 	reqBody := application.RegisterRequest{
 		Email: "existing@example.com",
@@ -114,7 +130,7 @@ func TestRegisterHandler_Conflict(t *testing.T) {
 func TestRegisterHandler_BadRequest(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id")
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
 
 	reqBody := application.RegisterRequest{Email: ""}
 	body, _ := json.Marshal(reqBody)

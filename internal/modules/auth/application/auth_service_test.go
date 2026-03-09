@@ -10,8 +10,8 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"google.golang.org/api/idtoken"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/api/idtoken"
 )
 
 type mockUserRepository struct {
@@ -44,9 +44,37 @@ func (m *mockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bi
 	return args.Error(0)
 }
 
+type mockSessionRepository struct {
+	mock.Mock
+}
+
+func (m *mockSessionRepository) Create(ctx context.Context, session *domain.UserSession) error {
+	args := m.Called(ctx, session)
+	return args.Error(0)
+}
+
+func (m *mockSessionRepository) GetByToken(ctx context.Context, token string) (*domain.UserSession, error) {
+	args := m.Called(ctx, token)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.UserSession), args.Error(1)
+}
+
+func (m *mockSessionRepository) Revoke(ctx context.Context, token string) error {
+	args := m.Called(ctx, token)
+	return args.Error(0)
+}
+
+func (m *mockSessionRepository) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
 func TestRegister_Success(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	ctx := context.Background()
 
 	req := RegisterRequest{
@@ -68,7 +96,8 @@ func TestRegister_Success(t *testing.T) {
 
 func TestRegister_InvalidInput(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	ctx := context.Background()
 
 	_, err := svc.Register(ctx, RegisterRequest{
@@ -96,7 +125,8 @@ func TestRegister_InvalidInput(t *testing.T) {
 
 func TestRegister_InvalidRoleAndEmail(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	ctx := context.Background()
 
 	_, err := svc.Register(ctx, RegisterRequest{
@@ -120,7 +150,8 @@ func TestRegister_InvalidRoleAndEmail(t *testing.T) {
 
 func TestRegister_RepoError(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	ctx := context.Background()
 
 	req := RegisterRequest{
@@ -141,14 +172,16 @@ func TestLogin(t *testing.T) {
 
 	t.Run("missing fields", func(t *testing.T) {
 		repo := new(mockUserRepository)
-		svc := NewAuthService(repo, "secret", time.Hour)
+		sessionRepo := new(mockSessionRepository)
+		svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 		_, err := svc.Login(ctx, LoginRequest{})
 		assert.EqualError(t, err, "missing email or password")
 	})
 
 	t.Run("repo user not found maps to invalid credentials", func(t *testing.T) {
 		repo := new(mockUserRepository)
-		svc := NewAuthService(repo, "secret", time.Hour)
+		sessionRepo := new(mockSessionRepository)
+		svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 		repo.On("GetByEmail", ctx, "missing@example.com").Return(nil, domain.ErrUserNotFound).Once()
 
 		_, err := svc.Login(ctx, LoginRequest{Email: "missing@example.com", Password: "password123"})
@@ -157,7 +190,8 @@ func TestLogin(t *testing.T) {
 
 	t.Run("wrong password", func(t *testing.T) {
 		repo := new(mockUserRepository)
-		svc := NewAuthService(repo, "secret", time.Hour)
+		sessionRepo := new(mockSessionRepository)
+		svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 
 		hash, err := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.DefaultCost)
 		assert.NoError(t, err)
@@ -170,12 +204,14 @@ func TestLogin(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		repo := new(mockUserRepository)
-		svc := NewAuthService(repo, "secret", time.Hour)
+		sessionRepo := new(mockSessionRepository)
+		svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 
 		hash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		assert.NoError(t, err)
 		user := &domain.User{ID: uuid.New(), Email: "a@a.com", PasswordHash: string(hash), Role: domain.RoleProducer}
 		repo.On("GetByEmail", ctx, "a@a.com").Return(user, nil).Once()
+		sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil).Once()
 
 		token, err := svc.Login(ctx, LoginRequest{Email: "a@a.com", Password: "password123"})
 		assert.NoError(t, err)
@@ -184,7 +220,8 @@ func TestLogin(t *testing.T) {
 
 	t.Run("repo generic error", func(t *testing.T) {
 		repo := new(mockUserRepository)
-		svc := NewAuthService(repo, "secret", time.Hour)
+		sessionRepo := new(mockSessionRepository)
+		svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 		repo.On("GetByEmail", ctx, "x@example.com").Return(nil, errors.New("db down")).Once()
 
 		_, err := svc.Login(ctx, LoginRequest{Email: "x@example.com", Password: "password123"})
@@ -195,7 +232,8 @@ func TestLogin(t *testing.T) {
 func TestGetUser(t *testing.T) {
 	ctx := context.Background()
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	id := uuid.New()
 	expected := &domain.User{ID: id}
 	repo.On("GetByID", ctx, id).Return(expected, nil).Once()
@@ -207,7 +245,8 @@ func TestGetUser(t *testing.T) {
 
 func TestValidateToken_Invalid(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 
 	claims, err := svc.ValidateToken("invalid-token")
 	assert.Error(t, err)
@@ -216,7 +255,8 @@ func TestValidateToken_Invalid(t *testing.T) {
 
 func TestGoogleLogin_InvalidToken(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	ctx := context.Background()
 
 	_, err := svc.GoogleLogin(ctx, "fake-google-client-id", GoogleLoginRequest{Token: "not-a-google-token"})
@@ -225,7 +265,8 @@ func TestGoogleLogin_InvalidToken(t *testing.T) {
 
 func TestGoogleLogin_MissingEmail(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{"name": "Tester"}}, nil
 	}
@@ -236,7 +277,8 @@ func TestGoogleLogin_MissingEmail(t *testing.T) {
 
 func TestGoogleLogin_RepoError(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{"email": "user@example.com", "name": "Tester"}}, nil
 	}
@@ -249,7 +291,8 @@ func TestGoogleLogin_RepoError(t *testing.T) {
 
 func TestGoogleLogin_CreateUserError(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{
 			"email":   "new@example.com",
@@ -267,7 +310,9 @@ func TestGoogleLogin_CreateUserError(t *testing.T) {
 
 func TestGoogleLogin_CreateUserSuccess(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
+	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{
 			"email":   "new2@example.com",
@@ -286,7 +331,9 @@ func TestGoogleLogin_CreateUserSuccess(t *testing.T) {
 
 func TestGoogleLogin_ExistingUserSuccess(t *testing.T) {
 	repo := new(mockUserRepository)
-	svc := NewAuthService(repo, "secret", time.Hour)
+	sessionRepo := new(mockSessionRepository)
+	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
+	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{
 			"email": "existing@example.com",
@@ -305,4 +352,3 @@ func TestGoogleLogin_ExistingUserSuccess(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
-

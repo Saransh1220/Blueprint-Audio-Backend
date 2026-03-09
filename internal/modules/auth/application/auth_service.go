@@ -31,21 +31,29 @@ type LoginRequest struct {
 
 // AuthService provides authentication operations
 type AuthService struct {
-	repo                 domain.UserRepository
+	userRepo             domain.UserRepository
+	sessionRepo          domain.SessionRepository
 	jwtSecret            string
 	jwtExpiry            time.Duration
+	jwtRefreshExpiry     time.Duration
 	googleTokenValidator func(ctx context.Context, token string, audience string) (*idtoken.Payload, error)
 }
 type GoogleLoginRequest struct {
 	Token string `json:"token"`
 }
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+}
 
 // NewAuthService creates a new auth service
-func NewAuthService(repo domain.UserRepository, jwtSecret string, jwtExpiry time.Duration) *AuthService {
+func NewAuthService(userRepo domain.UserRepository, sessionRepo domain.SessionRepository, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration) *AuthService {
 	return &AuthService{
-		repo:                 repo,
+		userRepo:             userRepo,
+		sessionRepo:          sessionRepo,
 		jwtSecret:            jwtSecret,
 		jwtExpiry:            jwtExpiry,
+		jwtRefreshExpiry:     jwtRefreshExpiry,
 		googleTokenValidator: idtoken.Validate,
 	}
 }
@@ -103,7 +111,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 		UpdatedAt:    time.Now(),
 	}
 
-	if err := s.repo.Create(ctx, user); err != nil {
+	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
 	}
 
@@ -111,36 +119,36 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 }
 
 // Login authenticates a user and returns a JWT token
-func (s *AuthService) Login(ctx context.Context, req LoginRequest) (string, error) {
+func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, error) {
 	if req.Email == "" || req.Password == "" {
-		return "", errors.New("missing email or password")
+		return nil, errors.New("missing email or password")
 	}
 
-	user, err := s.repo.GetByEmail(ctx, req.Email)
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		if err == domain.ErrUserNotFound {
-			return "", domain.ErrInvalidCredentials // Don't reveal user existence
+			return nil, domain.ErrInvalidCredentials // Don't reveal user existence
 		}
-		return "", err
+		return nil, err
 	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return "", domain.ErrInvalidCredentials
+		return nil, domain.ErrInvalidCredentials
 	}
 
-	// Generate token
-	token, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	// Generate session (NEW)
+	tokens, err := s.generateSession(ctx, user)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return token, nil
+	return tokens, nil
 }
 
 // GetUser retrieves a user by ID
 func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	return s.repo.GetByID(ctx, id)
+	return s.userRepo.GetByID(ctx, id)
 }
 
 // ValidateToken validates a JWT token and returns the claims
@@ -148,7 +156,7 @@ func (s *AuthService) ValidateToken(tokenStr string) (*jwt.CustomClaims, error) 
 	return jwt.ValidateToken(tokenStr, s.jwtSecret)
 }
 
-func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, req GoogleLoginRequest) (string, error) {
+func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, req GoogleLoginRequest) (*TokenPair, error) {
 	log.Printf("AuthService.GoogleLogin started. ClientID length: %d", len(googleClientID))
 
 	validate := s.googleTokenValidator
@@ -159,7 +167,7 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 	payload, err := validate(ctx, req.Token, googleClientID)
 	if err != nil {
 		log.Printf("AuthService.GoogleLogin token validate failed: %v", err)
-		return "", errors.New("invalid google token")
+		return nil, errors.New("invalid google token")
 	}
 
 	email, _ := payload.Claims["email"].(string)
@@ -170,10 +178,10 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 
 	if email == "" {
 		log.Printf("AuthService.GoogleLogin missing email in token")
-		return "", errors.New("email not provided by google")
+		return nil, errors.New("email not provided by google")
 	}
 
-	user, err := s.repo.GetByEmail(ctx, email)
+	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if err == domain.ErrUserNotFound {
 			log.Printf("AuthService.GoogleLogin user not found, creating new one for %s", email)
@@ -189,25 +197,112 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 				CreatedAt:    time.Now(),
 				UpdatedAt:    time.Now(),
 			}
-			if createErr := s.repo.Create(ctx, user); createErr != nil {
+			if createErr := s.userRepo.Create(ctx, user); createErr != nil {
 				log.Printf("AuthService.GoogleLogin failed to create user: %v", createErr)
-				return "", createErr
+				return nil, createErr
 			}
 		} else {
 			log.Printf("AuthService.GoogleLogin repo error: %v", err)
-			return "", err
+			return nil, err
 		}
 	} else {
 		log.Printf("AuthService.GoogleLogin user found for %s", email)
 	}
 
-	// 5. Generate our own Application JWT
-	token, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	// 5. Generate Session
+	tokens, err := s.generateSession(ctx, user)
 	if err != nil {
-		log.Printf("AuthService.GoogleLogin failed to generate JWT: %v", err)
+		log.Printf("AuthService.GoogleLogin failed to generate session: %v", err)
+		return nil, err
+	}
+
+	log.Printf("AuthService.GoogleLogin returning success tokens")
+	return tokens, nil
+}
+
+func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*TokenPair, error) {
+	// 1. Generate Access Token (JWT)
+	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Generate Refresh Token
+	refreshTokenString, err := jwt.GenerateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Save session in DB
+	expiresAt := time.Now().Add(s.jwtRefreshExpiry)
+	session := &domain.UserSession{
+		ID:           uuid.New(),
+		UserID:       user.ID,
+		RefreshToken: refreshTokenString,
+		IsRevoked:    false,
+		ExpiresAt:    expiresAt,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+
+	if err := s.sessionRepo.Create(ctx, session); err != nil {
+		return nil, err
+	}
+
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshTokenString,
+	}, nil
+}
+
+// RefreshSession validates a refresh token and issues a new access token
+func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (string, error) {
+	if refreshToken == "" {
+		return "", errors.New("refresh token is required")
+	}
+
+	// 1. Get session from DB
+	session, err := s.sessionRepo.GetByToken(ctx, refreshToken)
+	if err != nil {
+		return "", err
+	}
+	if session == nil {
+		return "", errors.New("invalid refresh token")
+	}
+
+	// 2. Validate session
+	if session.IsRevoked {
+		return "", errors.New("session has been revoked")
+	}
+	if time.Now().After(session.ExpiresAt) {
+		return "", errors.New("refresh token expired")
+	}
+
+	// 3. Get user to encode into the new JWT
+	user, err := s.userRepo.GetByID(ctx, session.UserID)
+	if err != nil {
 		return "", err
 	}
 
-	log.Printf("AuthService.GoogleLogin returning success token")
-	return token, nil
+	// 4. Generate NEW Access Token
+	newAccessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	if err != nil {
+		return "", err
+	}
+
+	// Note: We are currently keeping the same refresh token until it expires.
+	// You could implement "Refresh Token Rotation" here by generating a new one
+	// and invalidating the old one if desired for extra security!
+
+	return newAccessToken, nil
+}
+
+// Logout revokes a specific session
+func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	if refreshToken == "" {
+		return nil // Nothing to revoke
+	}
+
+	// Mark the session as revoked in the database
+	return s.sessionRepo.Revoke(ctx, refreshToken)
 }
