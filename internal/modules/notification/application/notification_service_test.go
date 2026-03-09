@@ -69,6 +69,7 @@ func TestNotificationService_Create(t *testing.T) {
 		assert.Equal(t, domain.NotificationTypeInfo, captured.Type)
 		assert.False(t, captured.IsRead)
 		assert.NotEqual(t, uuid.Nil, captured.ID)
+		assert.Equal(t, uuid.Version(7), captured.ID.Version())
 		assert.False(t, captured.CreatedAt.IsZero())
 		assert.Equal(t, hub, svc.GetHub())
 	})

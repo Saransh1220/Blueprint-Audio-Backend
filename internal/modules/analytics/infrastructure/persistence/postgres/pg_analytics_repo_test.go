@@ -52,8 +52,8 @@ func TestPGAnalyticsRepository_IncrementAndFavoriteTx(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO spec_analytics \\(spec_id, play_count\\)").
 		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO analytics_events \\(spec_id, event_type\\) VALUES \\(\\$1, 'play'\\)").
-		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO analytics_events \\(id, spec_id, event_type\\) VALUES \\(\\$1, \\$2, 'play'\\)").
+		WithArgs(sqlmock.AnyArg(), specID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, repo.IncrementPlayCount(ctx, specID))
 
@@ -63,8 +63,8 @@ func TestPGAnalyticsRepository_IncrementAndFavoriteTx(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO spec_analytics \\(spec_id, favorite_count\\)").
 		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO analytics_events \\(spec_id, event_type, user_id\\) VALUES \\(\\$1, 'favorite', \\$2\\)").
-		WithArgs(specID, userID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO analytics_events \\(id, spec_id, event_type, user_id\\) VALUES \\(\\$1, \\$2, 'favorite', \\$3\\)").
+		WithArgs(sqlmock.AnyArg(), specID, userID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, repo.AddFavorite(ctx, userID, specID))
 
@@ -79,8 +79,8 @@ func TestPGAnalyticsRepository_IncrementAndFavoriteTx(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO spec_analytics \\(spec_id, free_download_count\\)").
 		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO analytics_events \\(spec_id, event_type\\) VALUES \\(\\$1, 'download'\\)").
-		WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO analytics_events \\(id, spec_id, event_type\\) VALUES \\(\\$1, \\$2, 'download'\\)").
+		WithArgs(sqlmock.AnyArg(), specID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	require.NoError(t, repo.IncrementFreeDownloadCount(ctx, specID))
 }

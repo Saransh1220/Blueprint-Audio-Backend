@@ -22,6 +22,10 @@ import (
 
 // Interfaces
 
+func formatRazorpayReceipt(id uuid.UUID) string {
+	return "order_" + strings.ReplaceAll(id.String(), "-", "")
+}
+
 type FileService interface {
 	GetKeyFromUrl(url string) (string, error)
 	GetPresignedURL(ctx context.Context, key string, expiresIn time.Duration) (string, error)
@@ -98,7 +102,7 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 	razorpayOrderData := map[string]interface{}{
 		"amount":   amountInPaise,
 		"currency": "INR",
-		"receipt":  fmt.Sprintf("order_%s", receiptID.String()[:8]),
+		"receipt":  formatRazorpayReceipt(receiptID),
 	}
 
 	razorpayOrder, err := s.razorpayClient.Order.Create(razorpayOrderData, nil)

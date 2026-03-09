@@ -50,6 +50,11 @@ func (r *PgAnalyticsRepository) IncrementPlayCount(ctx context.Context, specID u
 	}
 	defer tx.Rollback()
 
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("failed to generate analytics event id: %w", err)
+	}
+
 	// 1. Update totals
 	query := `
 		INSERT INTO spec_analytics (spec_id, play_count)
@@ -65,8 +70,8 @@ func (r *PgAnalyticsRepository) IncrementPlayCount(ctx context.Context, specID u
 	}
 
 	// 2. Log event
-	eventQuery := `INSERT INTO analytics_events (spec_id, event_type) VALUES ($1, 'play')`
-	_, err = tx.ExecContext(ctx, eventQuery, specID)
+	eventQuery := `INSERT INTO analytics_events (id, spec_id, event_type) VALUES ($1, $2, 'play')`
+	_, err = tx.ExecContext(ctx, eventQuery, eventID, specID)
 	if err != nil {
 		return fmt.Errorf("failed to log play event: %w", err)
 	}
@@ -81,6 +86,11 @@ func (r *PgAnalyticsRepository) IncrementFreeDownloadCount(ctx context.Context, 
 		return err
 	}
 	defer tx.Rollback()
+
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("failed to generate analytics event id: %w", err)
+	}
 
 	// 1. Update totals
 	query := `
@@ -97,8 +107,8 @@ func (r *PgAnalyticsRepository) IncrementFreeDownloadCount(ctx context.Context, 
 	}
 
 	// 2. Log event
-	eventQuery := `INSERT INTO analytics_events (spec_id, event_type) VALUES ($1, 'download')`
-	_, err = tx.ExecContext(ctx, eventQuery, specID)
+	eventQuery := `INSERT INTO analytics_events (id, spec_id, event_type) VALUES ($1, $2, 'download')`
+	_, err = tx.ExecContext(ctx, eventQuery, eventID, specID)
 	if err != nil {
 		return fmt.Errorf("failed to log download event: %w", err)
 	}
@@ -113,6 +123,11 @@ func (r *PgAnalyticsRepository) AddFavorite(ctx context.Context, userID, specID 
 		return err
 	}
 	defer tx.Rollback()
+
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("failed to generate analytics event id: %w", err)
+	}
 
 	// Insert favorite
 	favoriteQuery := `
@@ -147,8 +162,8 @@ func (r *PgAnalyticsRepository) AddFavorite(ctx context.Context, userID, specID 
 	}
 
 	// 3. Log event
-	eventQuery := `INSERT INTO analytics_events (spec_id, event_type, user_id) VALUES ($1, 'favorite', $2)`
-	_, err = tx.ExecContext(ctx, eventQuery, specID, userID)
+	eventQuery := `INSERT INTO analytics_events (id, spec_id, event_type, user_id) VALUES ($1, $2, 'favorite', $3)`
+	_, err = tx.ExecContext(ctx, eventQuery, eventID, specID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to log favorite event: %w", err)
 	}

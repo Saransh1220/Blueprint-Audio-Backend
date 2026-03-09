@@ -1,5 +1,7 @@
 # Binaries
 /bin/
+/blueprint-audio
+/server
 *.exe
 *.exe~
 *.dll

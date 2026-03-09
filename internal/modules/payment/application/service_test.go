@@ -15,6 +15,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type orderRepoMock struct{ mock.Mock }
@@ -187,6 +188,16 @@ func TestPaymentService_GenerateSignature(t *testing.T) {
 	sig := s.generateSignature("order_1", "pay_1")
 	assert.NotEmpty(t, sig)
 	assert.Equal(t, sig, s.generateSignature("order_1", "pay_1"))
+}
+
+func TestFormatRazorpayReceipt(t *testing.T) {
+	receiptID := uuid.MustParse("018f0f61-8f17-7b1d-b3c2-dc681d7b6adf")
+
+	receipt := formatRazorpayReceipt(receiptID)
+
+	assert.Equal(t, "order_018f0f618f177b1db3c2dc681d7b6adf", receipt)
+	assert.Len(t, receipt, 38)
+	assert.NotContains(t, receipt, "-")
 }
 
 func TestPaymentService_CreateOrder_Errors(t *testing.T) {
@@ -433,9 +444,15 @@ func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
 	userID := uuid.New()
 	specID := uuid.New()
 	loID := uuid.New()
+	var capturedReceipt string
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/orders" && r.Method == http.MethodPost {
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			receiptValue, ok := body["receipt"].(string)
+			require.True(t, ok)
+			capturedReceipt = receiptValue
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "order_local_1"})
 			return
 		}
@@ -461,6 +478,9 @@ func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
 	assert.NotNil(t, order)
 	assert.Equal(t, "Basic", order.LicenseType)
 	assert.Equal(t, 9900, order.Amount)
+	assert.Len(t, capturedReceipt, 38)
+	assert.NotContains(t, capturedReceipt, "-")
+	assert.Regexp(t, "^order_[0-9a-f]{32}$", capturedReceipt)
 }
 
 func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
