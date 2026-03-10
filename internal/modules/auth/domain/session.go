@@ -9,13 +9,14 @@ import (
 
 // UserSession represents a user's refresh token session
 type UserSession struct {
-	ID           uuid.UUID `json:"id" db:"id"`
-	UserID       uuid.UUID `json:"user_id" db:"user_id"`
-	RefreshToken string    `json:"refresh_token" db:"refresh_token"`
-	IsRevoked    bool      `json:"is_revoked" db:"is_revoked"`
-	ExpiresAt    time.Time `json:"expires_at" db:"expires_at"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID                 uuid.UUID `json:"id" db:"id"`
+	UserID             uuid.UUID `json:"user_id" db:"user_id"`
+	RefreshToken       string    `json:"-" db:"-"`
+	RefreshTokenDigest string    `json:"-" db:"refresh_token_digest"`
+	IsRevoked          bool      `json:"is_revoked" db:"is_revoked"`
+	ExpiresAt          time.Time `json:"expires_at" db:"expires_at"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // SessionRepository defines the contract for session data access

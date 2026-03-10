@@ -8,5 +8,5 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_user_sessions_token ON user_sessions(refresh_token);
-CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(refresh_token);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);

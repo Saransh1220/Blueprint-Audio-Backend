@@ -2,9 +2,12 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"hash"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +17,49 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
 )
+
+var (
+	ErrGoogleAuthFailed             = errors.New("google authentication failed")
+	ErrGoogleClientIDNotConfigured  = errors.New("google oauth client id is not configured")
+)
+
+type googleAuthError struct {
+	msg string
+}
+
+func (e googleAuthError) Error() string {
+	return e.msg
+}
+
+func (e googleAuthError) Is(target error) bool {
+	return target == ErrGoogleAuthFailed
+}
+
+func newGoogleAuthError(msg string) error {
+	return googleAuthError{msg: msg}
+}
+
+func isGoogleEmailVerified(claim any) bool {
+	switch value := claim.(type) {
+	case bool:
+		return value
+	case string:
+		return strings.EqualFold(strings.TrimSpace(value), "true")
+	default:
+		return false
+	}
+}
+
+func authLogKey(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown"
+	}
+
+	var hasher hash.Hash = sha256.New()
+	_, _ = hasher.Write([]byte(strings.ToLower(strings.TrimSpace(value))))
+	sum := hasher.Sum(nil)
+	return fmt.Sprintf("%x", sum[:6])
+}
 
 // DTOs for registration and login
 type RegisterRequest struct {
@@ -126,7 +172,7 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, 
 
 	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
-		if err == domain.ErrUserNotFound {
+		if errors.Is(err, domain.ErrUserNotFound) {
 			return nil, domain.ErrInvalidCredentials // Don't reveal user existence
 		}
 		return nil, err
@@ -157,7 +203,14 @@ func (s *AuthService) ValidateToken(tokenStr string) (*jwt.CustomClaims, error) 
 }
 
 func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, req GoogleLoginRequest) (*TokenPair, error) {
-	log.Printf("AuthService.GoogleLogin started. ClientID length: %d", len(googleClientID))
+	if strings.TrimSpace(googleClientID) == "" {
+		return nil, ErrGoogleClientIDNotConfigured
+	}
+	if strings.TrimSpace(req.Token) == "" {
+		return nil, newGoogleAuthError("google token is required")
+	}
+
+	log.Printf("AuthService.GoogleLogin started. client_id_length=%d token_length=%d", len(googleClientID), len(req.Token))
 
 	validate := s.googleTokenValidator
 	if validate == nil {
@@ -167,24 +220,30 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 	payload, err := validate(ctx, req.Token, googleClientID)
 	if err != nil {
 		log.Printf("AuthService.GoogleLogin token validate failed: %v", err)
-		return nil, errors.New("invalid google token")
+		return nil, newGoogleAuthError("invalid google token")
 	}
 
 	email, _ := payload.Claims["email"].(string)
+	emailVerified := isGoogleEmailVerified(payload.Claims["email_verified"])
 	name, _ := payload.Claims["name"].(string)
 	picture, _ := payload.Claims["picture"].(string)
+	accountKey := authLogKey(email)
 
-	log.Printf("AuthService.GoogleLogin token valid. Email: %s, Name: %s", email, name)
+	log.Printf("AuthService.GoogleLogin token valid. account=%s", accountKey)
 
 	if email == "" {
-		log.Printf("AuthService.GoogleLogin missing email in token")
-		return nil, errors.New("email not provided by google")
+		log.Printf("AuthService.GoogleLogin missing email claim. account=%s", accountKey)
+		return nil, newGoogleAuthError("email not provided by google")
+	}
+	if !emailVerified {
+		log.Printf("AuthService.GoogleLogin email not verified. account=%s", accountKey)
+		return nil, newGoogleAuthError("google email is not verified")
 	}
 
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
-		if err == domain.ErrUserNotFound {
-			log.Printf("AuthService.GoogleLogin user not found, creating new one for %s", email)
+		if errors.Is(err, domain.ErrUserNotFound) {
+			log.Printf("AuthService.GoogleLogin creating user. account=%s", accountKey)
 			userID, uuidErr := uuid.NewV7()
 			if uuidErr != nil {
 				return nil, fmt.Errorf("failed to generate uuid: %w", uuidErr)
@@ -203,25 +262,25 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 				UpdatedAt:    time.Now(),
 			}
 			if createErr := s.userRepo.Create(ctx, user); createErr != nil {
-				log.Printf("AuthService.GoogleLogin failed to create user: %v", createErr)
+				log.Printf("AuthService.GoogleLogin failed to create user. account=%s err=%v", accountKey, createErr)
 				return nil, createErr
 			}
 		} else {
-			log.Printf("AuthService.GoogleLogin repo error: %v", err)
+			log.Printf("AuthService.GoogleLogin repo error. account=%s err=%v", accountKey, err)
 			return nil, err
 		}
 	} else {
-		log.Printf("AuthService.GoogleLogin user found for %s", email)
+		log.Printf("AuthService.GoogleLogin user found. account=%s user_id=%s", accountKey, user.ID)
 	}
 
 	// 5. Generate Session
 	tokens, err := s.generateSession(ctx, user)
 	if err != nil {
-		log.Printf("AuthService.GoogleLogin failed to generate session: %v", err)
+		log.Printf("AuthService.GoogleLogin failed to generate session. user_id=%s err=%v", user.ID, err)
 		return nil, err
 	}
 
-	log.Printf("AuthService.GoogleLogin returning success tokens")
+	log.Printf("AuthService.GoogleLogin succeeded. user_id=%s", user.ID)
 	return tokens, nil
 }
 

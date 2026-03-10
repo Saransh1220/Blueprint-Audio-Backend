@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -152,7 +153,11 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	tokens, err := h.service.GoogleLogin(r.Context(), h.googleClientID, req)
 	if err != nil {
 		log.Printf("GoogleLogin Auth Service Error: %v", err)
-		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusUnauthorized)
+		if errors.Is(err, application.ErrGoogleAuthFailed) {
+			http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -162,7 +167,7 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		Name:     "refresh_token",
 		Value:    tokens.RefreshToken,
 		Path:     "/",
-		Expires:  time.Now().Add(30 * 24 * time.Hour), // 30 Days
+		Expires:  time.Now().Add(h.refreshExpiry),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
