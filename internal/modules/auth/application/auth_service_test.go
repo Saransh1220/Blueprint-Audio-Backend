@@ -92,6 +92,7 @@ func TestRegister_Success(t *testing.T) {
 	assert.Equal(t, req.Email, user.Email)
 	assert.Equal(t, domain.RoleArtist, user.Role)
 	assert.NotZero(t, user.ID)
+	assert.Equal(t, uuid.Version(7), user.ID.Version())
 }
 
 func TestRegister_InvalidInput(t *testing.T) {
@@ -211,7 +212,12 @@ func TestLogin(t *testing.T) {
 		assert.NoError(t, err)
 		user := &domain.User{ID: uuid.New(), Email: "a@a.com", PasswordHash: string(hash), Role: domain.RoleProducer}
 		repo.On("GetByEmail", ctx, "a@a.com").Return(user, nil).Once()
-		sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil).Once()
+		sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).
+			Run(func(args mock.Arguments) {
+				session := args.Get(1).(*domain.UserSession)
+				assert.Equal(t, uuid.Version(7), session.ID.Version())
+			}).
+			Return(nil).Once()
 
 		token, err := svc.Login(ctx, LoginRequest{Email: "a@a.com", Password: "password123"})
 		assert.NoError(t, err)
@@ -302,7 +308,12 @@ func TestGoogleLogin_CreateUserError(t *testing.T) {
 	}
 
 	repo.On("GetByEmail", mock.Anything, "new@example.com").Return(nil, domain.ErrUserNotFound).Once()
-	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).Return(errors.New("create failed")).Once()
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).
+		Run(func(args mock.Arguments) {
+			user := args.Get(1).(*domain.User)
+			assert.Equal(t, uuid.Version(7), user.ID.Version())
+		}).
+		Return(errors.New("create failed")).Once()
 
 	_, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
 	assert.EqualError(t, err, "create failed")
@@ -312,7 +323,12 @@ func TestGoogleLogin_CreateUserSuccess(t *testing.T) {
 	repo := new(mockUserRepository)
 	sessionRepo := new(mockSessionRepository)
 	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
-	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil)
+	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).
+		Run(func(args mock.Arguments) {
+			session := args.Get(1).(*domain.UserSession)
+			assert.Equal(t, uuid.Version(7), session.ID.Version())
+		}).
+		Return(nil)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{
 			"email":   "new2@example.com",
@@ -322,7 +338,12 @@ func TestGoogleLogin_CreateUserSuccess(t *testing.T) {
 	}
 
 	repo.On("GetByEmail", mock.Anything, "new2@example.com").Return(nil, domain.ErrUserNotFound).Once()
-	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).Return(nil).Once()
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).
+		Run(func(args mock.Arguments) {
+			user := args.Get(1).(*domain.User)
+			assert.Equal(t, uuid.Version(7), user.ID.Version())
+		}).
+		Return(nil).Once()
 
 	token, err := svc.GoogleLogin(context.Background(), "google-client", GoogleLoginRequest{Token: "token"})
 	assert.NoError(t, err)
@@ -333,7 +354,12 @@ func TestGoogleLogin_ExistingUserSuccess(t *testing.T) {
 	repo := new(mockUserRepository)
 	sessionRepo := new(mockSessionRepository)
 	svc := NewAuthService(repo, sessionRepo, "secret", time.Hour, time.Hour*720)
-	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).Return(nil)
+	sessionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.UserSession")).
+		Run(func(args mock.Arguments) {
+			session := args.Get(1).(*domain.UserSession)
+			assert.Equal(t, uuid.Version(7), session.ID.Version())
+		}).
+		Return(nil)
 	svc.googleTokenValidator = func(ctx context.Context, token string, audience string) (*idtoken.Payload, error) {
 		return &idtoken.Payload{Claims: map[string]interface{}{
 			"email": "existing@example.com",

@@ -185,9 +185,14 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 	if err != nil {
 		if err == domain.ErrUserNotFound {
 			log.Printf("AuthService.GoogleLogin user not found, creating new one for %s", email)
+			userID, uuidErr := uuid.NewV7()
+			if uuidErr != nil {
+				return nil, fmt.Errorf("failed to generate uuid: %w", uuidErr)
+			}
+
 			// 4. Create new user if they don't exist
 			user = &domain.User{
-				ID:           uuid.New(),
+				ID:           userID,
 				Email:        email,
 				PasswordHash: "", // No password for OAuth users
 				Name:         name,
@@ -235,8 +240,13 @@ func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*
 
 	// 3. Save session in DB
 	expiresAt := time.Now().Add(s.jwtRefreshExpiry)
+	sessionID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate uuid: %w", err)
+	}
+
 	session := &domain.UserSession{
-		ID:           uuid.New(),
+		ID:           sessionID,
 		UserID:       user.ID,
 		RefreshToken: refreshTokenString,
 		IsRevoked:    false,

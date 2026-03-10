@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,14 @@ func NewSessionRepository(db *sqlx.DB) *PgSessionRepository {
 func (r *PgSessionRepository) Create(ctx context.Context, session *domain.UserSession) error {
 	query := `INSERT INTO user_sessions (id, user_id, refresh_token, is_revoked, expires_at, created_at, updated_at) 
 			  VALUES (:id, :user_id, :refresh_token, :is_revoked, :expires_at, :created_at, :updated_at)`
+
+	if session.ID == uuid.Nil {
+		sessionID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("failed to generate uuid: %w", err)
+		}
+		session.ID = sessionID
+	}
 
 	if session.CreatedAt.IsZero() {
 		session.CreatedAt = time.Now()
