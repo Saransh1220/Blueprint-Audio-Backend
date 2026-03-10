@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -121,17 +122,17 @@ func TestAuthHandler_GoogleLoginBranches(t *testing.T) {
 	h.GoogleLogin(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	// auth failure
+	// auth failure — wrapped ErrGoogleAuthFailed so handler returns 401
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/auth/google", bytes.NewBufferString(`{"token":"x"}`))
-	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "x"}).Return(nil, errors.New("invalid google token")).Once()
+	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "x"}).Return((*application.TokenPair)(nil), fmt.Errorf("invalid google token: %w", application.ErrGoogleAuthFailed)).Once()
 	h.GoogleLogin(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
-	// internal error
+	// internal error — plain error (not ErrGoogleAuthFailed) → 500
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/auth/google", bytes.NewBufferString(`{"token":"z"}`))
-	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "z"}).Return(nil, errors.New("db down")).Once()
+	mockService.On("GoogleLogin", mock.Anything, "test-client-id", application.GoogleLoginRequest{Token: "z"}).Return((*application.TokenPair)(nil), errors.New("db down")).Once()
 	h.GoogleLogin(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 
