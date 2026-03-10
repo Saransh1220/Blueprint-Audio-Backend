@@ -97,3 +97,76 @@ func TestClient_WritePump_ClosedChannelSendsCloseFrame(t *testing.T) {
 	_, _, err = conn.ReadMessage()
 	assert.Error(t, err)
 }
+
+func TestClient_WritePump_DrainsQueuedMessages(t *testing.T) {
+	hub := &Hub{
+		register:   make(chan *Client, 1),
+		unregister: make(chan *Client, 1),
+		stop:       make(chan struct{}),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ServeWs(hub, w, r, uuid.New())
+	}))
+	defer srv.Close()
+	defer close(hub.stop)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	registered := <-hub.register
+	registered.send <- []byte("one")
+	registered.send <- []byte("two")
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg1, err := conn.ReadMessage()
+	require.NoError(t, err)
+	_, msg2, err := conn.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "one", string(msg1))
+	assert.Equal(t, "two", string(msg2))
+}
+
+func TestServeWs_WhenHubStopped_DoesNotBlockRegistration(t *testing.T) {
+	hub := &Hub{
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		stop:       make(chan struct{}),
+	}
+	close(hub.stop)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ServeWs(hub, w, r, uuid.New())
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	_ = conn.Close()
+}
+
+func TestClient_WritePump_StopsWhenConnectionClosed(t *testing.T) {
+	hub := &Hub{
+		register:   make(chan *Client, 1),
+		unregister: make(chan *Client, 1),
+		stop:       make(chan struct{}),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ServeWs(hub, w, r, uuid.New())
+	}))
+	defer srv.Close()
+	defer close(hub.stop)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+
+	registered := <-hub.register
+	require.NoError(t, conn.Close())
+
+	// writePump should hit a write error path and return without blocking.
+	registered.send <- []byte("after-close")
+	time.Sleep(50 * time.Millisecond)
+}
