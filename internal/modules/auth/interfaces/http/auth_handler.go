@@ -35,15 +35,30 @@ type AuthHandler struct {
 	fileService    FileService
 	googleClientID string
 	refreshExpiry  time.Duration
+	secureCookie   bool
 }
 
-func NewAuthHandler(service AuthService, fileService FileService, googleClientID string, refreshExpiry time.Duration) *AuthHandler {
+func NewAuthHandler(service AuthService, fileService FileService, googleClientID string, refreshExpiry time.Duration, secureCookie bool) *AuthHandler {
 	return &AuthHandler{
 		service:        service,
 		fileService:    fileService,
 		googleClientID: googleClientID,
 		refreshExpiry:  refreshExpiry,
+		secureCookie:   secureCookie,
 	}
+}
+
+func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    value,
+		Path:     "/",
+		Expires:  expires,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteStrictMode,
+	})
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -94,15 +109,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set HTTP-Only Cookie for the Refresh Token
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokens.RefreshToken,
-		Path:     "/",
-		Expires:  time.Now().Add(h.refreshExpiry),
-		HttpOnly: true,
-		Secure:   true, // Secure in production (HTTPS)
-		SameSite: http.SameSiteStrictMode,
-	})
+	h.setRefreshCookie(w, tokens.RefreshToken, time.Now().Add(h.refreshExpiry), 0)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"token": tokens.AccessToken})
@@ -163,15 +170,7 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("GoogleLogin Success!")
 	// Set HTTP-Only Cookie for the Refresh Token
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    tokens.RefreshToken,
-		Path:     "/",
-		Expires:  time.Now().Add(h.refreshExpiry),
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-	})
+	h.setRefreshCookie(w, tokens.RefreshToken, time.Now().Add(h.refreshExpiry), 0)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -224,16 +223,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear the refresh_token cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    "",
-		Path:     "/",
-		Expires:  time.Unix(0, 0), // Expire immediately
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-	})
+	h.setRefreshCookie(w, "", time.Unix(0, 0), -1)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "logged out successfully"})

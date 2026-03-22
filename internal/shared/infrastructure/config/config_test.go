@@ -24,6 +24,8 @@ func TestLoad_Defaults(t *testing.T) {
 	// Verify defaults
 	assert.Equal(t, "8080", cfg.Server.Port)
 	assert.Equal(t, "http://localhost:4200", cfg.Server.AllowedOrigins)
+	assert.Equal(t, "development", cfg.Server.Environment)
+	assert.False(t, cfg.Server.SecureCookies)
 	assert.Equal(t, "default-dev-secret", cfg.JWT.Secret)
 	assert.Equal(t, 24*time.Hour, cfg.JWT.Expiry)
 	assert.Equal(t, "localhost", cfg.Database.Host)
@@ -36,6 +38,7 @@ func TestLoad_CustomValues(t *testing.T) {
 	// Set custom values
 	os.Setenv("PORT", "9000")
 	os.Setenv("ALLOWED_ORIGINS", "https://example.com")
+	os.Setenv("ENV", "production")
 	os.Setenv("JWT_SECRET", "my-secret")
 	os.Setenv("JWT_EXPIRATION", "2h")
 	os.Setenv("DB_HOST", "db-server")
@@ -52,6 +55,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	// Verify custom values
 	assert.Equal(t, "9000", cfg.Server.Port)
 	assert.Equal(t, "https://example.com", cfg.Server.AllowedOrigins)
+	assert.Equal(t, "production", cfg.Server.Environment)
+	assert.True(t, cfg.Server.SecureCookies)
 	assert.Equal(t, "my-secret", cfg.JWT.Secret)
 	assert.Equal(t, 2*time.Hour, cfg.JWT.Expiry)
 	assert.Equal(t, "db-server", cfg.Database.Host)

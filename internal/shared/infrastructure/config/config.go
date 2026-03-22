@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
@@ -27,6 +28,8 @@ type GoogleConfig struct {
 type ServerConfig struct {
 	Port           string
 	AllowedOrigins string
+	Environment    string
+	SecureCookies  bool
 }
 
 // JWTConfig holds JWT configuration
@@ -57,10 +60,14 @@ type FileStorageConfig struct {
 
 // Load reads configuration from environment variables
 func Load() Config {
+	environment := strings.ToLower(getEnv("ENV", "development"))
+
 	return Config{
 		Server: ServerConfig{
 			Port:           getEnv("PORT", "8080"),
 			AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:4200"),
+			Environment:    environment,
+			SecureCookies:  environment == "production",
 		},
 		Database: database.PostgresConfig{
 			Host:     getEnv("DB_HOST", "localhost"),

@@ -39,7 +39,7 @@ var _ filedomain.FileStorage = noopStorage{}
 
 func TestCoverageSmoke_AuthModuleAndRoutes(t *testing.T) {
 	fs := fileapp.NewFileService(noopStorage{})
-	m, err := auth.NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "google-client-id")
+	m, err := auth.NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "google-client-id", false)
 	require.NoError(t, err)
 	require.NotNil(t, m.Service())
 	require.NotNil(t, m.UserFinder())

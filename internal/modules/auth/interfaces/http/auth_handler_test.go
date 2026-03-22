@@ -83,7 +83,7 @@ func (m *MockFileService) GetPresignedURL(ctx context.Context, objectName string
 func TestRegisterHandler_Success(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
 
 	reqBody := application.RegisterRequest{
 		Email:    "test@example.com",
@@ -111,7 +111,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 func TestRegisterHandler_Conflict(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
 
 	reqBody := application.RegisterRequest{
 		Email: "existing@example.com",
@@ -130,7 +130,7 @@ func TestRegisterHandler_Conflict(t *testing.T) {
 func TestRegisterHandler_BadRequest(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
 
 	reqBody := application.RegisterRequest{Email: ""}
 	body, _ := json.Marshal(reqBody)

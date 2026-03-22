@@ -20,11 +20,11 @@ type Module struct {
 }
 
 // NewModule creates and initializes the Auth module
-func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration, fileService *fileApp.FileService, googleClientID string) (*Module, error) {
+func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration, fileService *fileApp.FileService, googleClientID string, secureCookie bool) (*Module, error) {
 	userRepo := postgres.NewUserRepository(db)
 	sessionRepo := postgres.NewSessionRepository(db)
 	service := application.NewAuthService(userRepo, sessionRepo, jwtSecret, jwtExpiry, jwtRefreshExpiry)
-	handler := auth_http.NewAuthHandler(service, fileService, googleClientID, jwtRefreshExpiry)
+	handler := auth_http.NewAuthHandler(service, fileService, googleClientID, jwtRefreshExpiry, secureCookie)
 
 	return &Module{
 		service:     service,

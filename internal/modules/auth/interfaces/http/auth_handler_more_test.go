@@ -23,7 +23,7 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
 	const refreshTTL = 12 * time.Hour
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", refreshTTL)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", refreshTTL, true)
 	t.Cleanup(func() {
 		mockService.AssertExpectations(t)
 		mockFileService.AssertExpectations(t)
@@ -93,7 +93,7 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/register", nil)
@@ -110,7 +110,7 @@ func TestAuthHandler_GoogleLoginBranches(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
 	const refreshTTL = 12 * time.Hour
-	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", refreshTTL)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", refreshTTL, true)
 	t.Cleanup(func() {
 		mockService.AssertExpectations(t)
 		mockFileService.AssertExpectations(t)
@@ -149,6 +149,32 @@ func TestAuthHandler_GoogleLoginBranches(t *testing.T) {
 		assert.Equal(t, "refresh-google", cookies[0].Value)
 		assert.True(t, cookies[0].HttpOnly)
 		assert.True(t, cookies[0].Secure)
+		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
+	}
+}
+
+func TestAuthHandler_LoginUsesDevCookieSettings(t *testing.T) {
+	mockService := new(MockAuthService)
+	mockFileService := new(MockFileService)
+	const refreshTTL = 12 * time.Hour
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", refreshTTL, false)
+	t.Cleanup(func() {
+		mockService.AssertExpectations(t)
+		mockFileService.AssertExpectations(t)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"x","password":"y"}`))
+	mockService.On("Login", mock.Anything, application.LoginRequest{Email: "x", Password: "y"}).Return(&application.TokenPair{AccessToken: "token", RefreshToken: "refresh-1"}, nil).Once()
+	h.Login(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	cookies := w.Result().Cookies()
+	if assert.Len(t, cookies, 1) {
+		assert.Equal(t, "refresh_token", cookies[0].Name)
+		assert.Equal(t, "refresh-1", cookies[0].Value)
+		assert.True(t, cookies[0].HttpOnly)
+		assert.False(t, cookies[0].Secure)
 		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
 	}
 }
