@@ -1,0 +1,45 @@
+{{ define "content" }}
+<div style="font-size:16px; line-height:26px; color:#f4f4f5;">
+  <p style="margin:0 0 16px;">{{ .Greeting }}</p>
+  {{ range .Intro }}
+  <p style="margin:0 0 16px; color:#d6d6dc;">{{ . }}</p>
+  {{ end }}
+
+  <div style="margin:24px 0; padding:20px; border:1px solid rgba(255,102,0,0.24); border-radius:20px; background:linear-gradient(180deg, rgba(255,102,0,0.14), rgba(255,102,0,0.04));">
+    <div style="margin-bottom:10px; font-size:12px; line-height:16px; letter-spacing:0.18em; text-transform:uppercase; color:#ffb36b; font-weight:700;">
+      {{ .CodeLabel }}
+    </div>
+    <div style="font-size:34px; line-height:38px; font-weight:800; letter-spacing:0.3em; color:#ffffff; font-family:'Courier New', Courier, monospace;">
+      {{ .Code }}
+    </div>
+  </div>
+
+  {{ if .PrimaryCTA }}
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px;">
+    <tr>
+      <td style="border-radius:14px; background:linear-gradient(135deg, #ff6600, #ff8a33);">
+        <a href="{{ .PrimaryCTA.URL }}" style="display:inline-block; padding:14px 22px; font-size:14px; line-height:20px; font-weight:700; color:#ffffff; text-decoration:none;">
+          {{ .PrimaryCTA.Label }}
+        </a>
+      </td>
+    </tr>
+  </table>
+  {{ end }}
+
+  {{ if .SecondaryCTA }}
+  <p style="margin:0 0 18px; font-size:14px; line-height:22px; color:#bdbdc7;">
+    Or use this link:
+    <a href="{{ .SecondaryCTA.URL }}" style="color:#ff9b45; text-decoration:none;">{{ .SecondaryCTA.Label }}</a>
+  </p>
+  {{ end }}
+
+  <div style="padding:16px 18px; border:1px solid #2f2f37; border-radius:18px; background:rgba(255,255,255,0.02);">
+    <div style="margin-bottom:6px; font-size:13px; line-height:18px; font-weight:700; color:#ffffff;">
+      {{ .NoticeTitle }}
+    </div>
+    <div style="font-size:14px; line-height:22px; color:#b4b4be;">
+      {{ .NoticeBody }}
+    </div>
+  </div>
+</div>
+{{ end }}

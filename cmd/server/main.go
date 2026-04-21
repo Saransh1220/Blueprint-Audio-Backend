@@ -17,6 +17,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/user"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 )
 
 func main() {
@@ -43,6 +44,12 @@ func main() {
 	defer redisClient.Close()
 
 	// 4. Initialize Modules
+	emailSender := sharedemail.NewSender(sharedemail.Config{
+		APIKey:  cfg.Email.ResendAPIKey,
+		From:    cfg.Email.From,
+		ReplyTo: cfg.Email.ReplyTo,
+		Enabled: cfg.Email.Enabled,
+	})
 
 	// Filestorage Module
 	fsModule, err := filestorage.NewModule(ctx, cfg.FileStorage)
@@ -51,7 +58,7 @@ func main() {
 	}
 
 	// Auth Module
-	authModule, err := auth.NewModule(db, cfg.JWT.Secret, cfg.JWT.Expiry, cfg.JWT.RefreshExpiry, fsModule.Service(), cfg.Google.ClientID, cfg.Server.SecureCookies)
+	authModule, err := auth.NewModule(db, cfg.JWT.Secret, cfg.JWT.Expiry, cfg.JWT.RefreshExpiry, fsModule.Service(), cfg.Google.ClientID, cfg.Server.SecureCookies, emailSender, cfg.AppBaseURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth module: %v", err)
 	}
@@ -73,7 +80,7 @@ func main() {
 	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, notificationModule.Service(), redisClient)
 
 	// Payment Module
-	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), fsModule.Service())
+	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL)
 
 	// 5. Middleware
 	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret)

@@ -17,11 +17,20 @@ type Config struct {
 	Razorpay    RazorpayConfig
 	FileStorage FileStorageConfig
 	Google      GoogleConfig
+	Email       EmailConfig
+	AppBaseURL  string
 }
 
 // GoogleConfig holds Google OAuth configuration
 type GoogleConfig struct {
 	ClientID string
+}
+
+type EmailConfig struct {
+	ResendAPIKey string
+	From         string
+	ReplyTo      string
+	Enabled      bool
 }
 
 // ServerConfig holds server configuration
@@ -106,6 +115,13 @@ func Load() Config {
 		Google: GoogleConfig{
 			ClientID: getEnv("GOOGLE_CLIENT_ID", ""),
 		},
+		Email: EmailConfig{
+			ResendAPIKey: getEnv("RESEND_API_KEY", ""),
+			From:         getEnv("EMAIL_FROM", ""),
+			ReplyTo:      getEnv("EMAIL_REPLY_TO", ""),
+			Enabled:      getEnv("EMAIL_ENABLED", "true") == "true",
+		},
+		AppBaseURL: getEnv("APP_BASE_URL", "http://localhost:4200"),
 	}
 }
 

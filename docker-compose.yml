@@ -82,6 +82,12 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
 
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:4200}                                                                     
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}                                                                                    
+      RESEND_API_KEY: ${RESEND_API_KEY}                                                                                        
+      EMAIL_FROM: ${EMAIL_FROM}                                                                                                
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+
       # CORS
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:

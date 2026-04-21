@@ -43,6 +43,10 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /auth/google", config.AuthHandler.GoogleLogin)
 	mux.HandleFunc("POST /auth/refresh", config.AuthHandler.Refresh)
 	mux.HandleFunc("POST /auth/logout", config.AuthHandler.Logout)
+	mux.HandleFunc("POST /auth/verify-email", config.AuthHandler.VerifyEmail)
+	mux.HandleFunc("POST /auth/resend-verification", config.AuthHandler.ResendVerification)
+	mux.HandleFunc("POST /auth/forgot-password", config.AuthHandler.ForgotPassword)
+	mux.HandleFunc("POST /auth/reset-password", config.AuthHandler.ResetPassword)
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
 	// Catalog/Spec Routes

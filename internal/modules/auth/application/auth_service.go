@@ -2,25 +2,28 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
-	"hash"
 	"fmt"
+	"hash"
 	"log"
+	"math/big"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/infrastructure/jwt"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 	"github.com/saransh1220/blueprint-audio/internal/shared/utils"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
 )
 
 var (
-	ErrGoogleAuthFailed             = errors.New("google authentication failed")
-	ErrGoogleClientIDNotConfigured  = errors.New("google oauth client id is not configured")
+	ErrGoogleAuthFailed            = errors.New("google authentication failed")
+	ErrGoogleClientIDNotConfigured = errors.New("google oauth client id is not configured")
 )
 
 type googleAuthError struct {
@@ -61,7 +64,6 @@ func authLogKey(value string) string {
 	return fmt.Sprintf("%x", sum[:6])
 }
 
-// DTOs for registration and login
 type RegisterRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
@@ -75,67 +77,87 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// AuthService provides authentication operations
+type VerifyEmailRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type ResendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordRequest struct {
+	Email       string `json:"email"`
+	Code        string `json:"code"`
+	NewPassword string `json:"new_password"`
+}
+
 type AuthService struct {
 	userRepo             domain.UserRepository
 	sessionRepo          domain.SessionRepository
+	tokenRepo            domain.EmailActionTokenRepository
 	jwtSecret            string
 	jwtExpiry            time.Duration
 	jwtRefreshExpiry     time.Duration
 	googleTokenValidator func(ctx context.Context, token string, audience string) (*idtoken.Payload, error)
+	emailSender          sharedemail.Sender
+	appBaseURL           string
 }
+
 type GoogleLoginRequest struct {
 	Token string `json:"token"`
 }
+
 type TokenPair struct {
 	AccessToken  string
 	RefreshToken string
 }
 
-// NewAuthService creates a new auth service
-func NewAuthService(userRepo domain.UserRepository, sessionRepo domain.SessionRepository, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration) *AuthService {
+func NewAuthService(userRepo domain.UserRepository, sessionRepo domain.SessionRepository, tokenRepo domain.EmailActionTokenRepository, emailSender sharedemail.Sender, appBaseURL string, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration) *AuthService {
+	if emailSender == nil {
+		emailSender = sharedemail.NewSender(sharedemail.Config{})
+	}
 	return &AuthService{
 		userRepo:             userRepo,
 		sessionRepo:          sessionRepo,
+		tokenRepo:            tokenRepo,
 		jwtSecret:            jwtSecret,
 		jwtExpiry:            jwtExpiry,
 		jwtRefreshExpiry:     jwtRefreshExpiry,
 		googleTokenValidator: idtoken.Validate,
+		emailSender:          emailSender,
+		appBaseURL:           appBaseURL,
 	}
 }
 
-// Register creates a new user account
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domain.User, error) {
-	// Validation
 	if req.Email == "" {
 		return nil, errors.New("email is required")
 	}
-
 	if req.DisplayName == "" {
 		return nil, errors.New("display name is required")
 	}
-
 	if len(req.Password) < 8 {
 		return nil, errors.New("password must be at least 8 characters")
 	}
-
 	if !utils.IsValidEmail(req.Email) {
 		return nil, errors.New("invalid email format")
 	}
 
-	// Hash password
 	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate role
 	role := domain.UserRole(req.Role)
 	if role != domain.RoleArtist && role != domain.RoleProducer {
 		return nil, errors.New("invalid role")
 	}
 
-	// Create user
 	var displayName *string
 	if req.DisplayName != "" {
 		displayName = &req.DisplayName
@@ -147,24 +169,28 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 	}
 
 	user := &domain.User{
-		ID:           userID,
-		Email:        req.Email,
-		PasswordHash: string(hashedPass),
-		Name:         req.Name,
-		DisplayName:  displayName,
-		Role:         role,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		ID:            userID,
+		Email:         req.Email,
+		PasswordHash:  string(hashedPass),
+		Name:          req.Name,
+		DisplayName:   displayName,
+		Role:          role,
+		EmailVerified: false,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
 	}
 
+	if err := s.sendVerificationCode(ctx, user); err != nil {
+		log.Printf("AuthService.Register failed to send verification code. user_id=%s err=%v", user.ID, err)
+	}
+
 	return user, nil
 }
 
-// Login authenticates a user and returns a JWT token
 func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, error) {
 	if req.Email == "" || req.Password == "" {
 		return nil, errors.New("missing email or password")
@@ -173,31 +199,25 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, 
 	user, err := s.userRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
-			return nil, domain.ErrInvalidCredentials // Don't reveal user existence
+			return nil, domain.ErrInvalidCredentials
 		}
 		return nil, err
 	}
 
-	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
-
-	// Generate session (NEW)
-	tokens, err := s.generateSession(ctx, user)
-	if err != nil {
-		return nil, err
+	if !user.EmailVerified {
+		return nil, domain.ErrEmailNotVerified
 	}
 
-	return tokens, nil
+	return s.generateSession(ctx, user)
 }
 
-// GetUser retrieves a user by ID
 func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	return s.userRepo.GetByID(ctx, id)
 }
 
-// ValidateToken validates a JWT token and returns the claims
 func (s *AuthService) ValidateToken(tokenStr string) (*jwt.CustomClaims, error) {
 	return jwt.ValidateToken(tokenStr, s.jwtSecret)
 }
@@ -249,17 +269,18 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 				return nil, fmt.Errorf("failed to generate uuid: %w", uuidErr)
 			}
 
-			// 4. Create new user if they don't exist
 			user = &domain.User{
-				ID:           userID,
-				Email:        email,
-				PasswordHash: "", // No password for OAuth users
-				Name:         name,
-				DisplayName:  &name,
-				Role:         domain.RoleArtist, // Default role
-				AvatarUrl:    &picture,
-				CreatedAt:    time.Now(),
-				UpdatedAt:    time.Now(),
+				ID:              userID,
+				Email:           email,
+				PasswordHash:    "",
+				Name:            name,
+				DisplayName:     &name,
+				Role:            domain.RoleArtist,
+				EmailVerified:   true,
+				EmailVerifiedAt: timePtr(time.Now()),
+				AvatarUrl:       &picture,
+				CreatedAt:       time.Now(),
+				UpdatedAt:       time.Now(),
 			}
 			if createErr := s.userRepo.Create(ctx, user); createErr != nil {
 				log.Printf("AuthService.GoogleLogin failed to create user. account=%s err=%v", accountKey, createErr)
@@ -273,7 +294,6 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 		log.Printf("AuthService.GoogleLogin user found. account=%s user_id=%s", accountKey, user.ID)
 	}
 
-	// 5. Generate Session
 	tokens, err := s.generateSession(ctx, user)
 	if err != nil {
 		log.Printf("AuthService.GoogleLogin failed to generate session. user_id=%s err=%v", user.ID, err)
@@ -284,20 +304,101 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 	return tokens, nil
 }
 
+func (s *AuthService) VerifyEmail(ctx context.Context, req VerifyEmailRequest) error {
+	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Code) == "" {
+		return errors.New("email and code are required")
+	}
+
+	token, err := s.tokenRepo.Consume(ctx, req.Email, domain.TokenPurposeVerifyEmail, strings.TrimSpace(req.Code))
+	if err != nil {
+		return err
+	}
+
+	return s.userRepo.MarkEmailVerified(ctx, token.UserID)
+}
+
+func (s *AuthService) ResendVerification(ctx context.Context, req ResendVerificationRequest) error {
+	if strings.TrimSpace(req.Email) == "" {
+		return errors.New("email is required")
+	}
+	log.Printf("AuthService.ResendVerification requested. email=%s", authLogKey(req.Email))
+
+	user, err := s.userRepo.GetByEmail(ctx, strings.TrimSpace(req.Email))
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			log.Printf("AuthService.ResendVerification user not found. email=%s", authLogKey(req.Email))
+			return nil
+		}
+		return err
+	}
+	if user.EmailVerified {
+		log.Printf("AuthService.ResendVerification skipped verified user. user_id=%s", user.ID)
+		return nil
+	}
+	return s.sendVerificationCode(ctx, user)
+}
+
+func (s *AuthService) ForgotPassword(ctx context.Context, req ForgotPasswordRequest) error {
+	if strings.TrimSpace(req.Email) == "" {
+		return errors.New("email is required")
+	}
+	log.Printf("AuthService.ForgotPassword requested. email=%s", authLogKey(req.Email))
+
+	user, err := s.userRepo.GetByEmail(ctx, strings.TrimSpace(req.Email))
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			log.Printf("AuthService.ForgotPassword user not found. email=%s", authLogKey(req.Email))
+			return nil
+		}
+		return err
+	}
+
+	code, err := s.createEmailActionToken(ctx, user, domain.TokenPurposeResetPassword, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+
+	name := user.Name
+	if user.DisplayName != nil && strings.TrimSpace(*user.DisplayName) != "" {
+		name = *user.DisplayName
+	}
+	return s.emailSender.Send(ctx, sharedemail.BuildPasswordResetEmail(user.Email, name, code, s.appBaseURL))
+}
+
+func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
+	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.NewPassword) == "" {
+		return errors.New("email, code and new password are required")
+	}
+	if len(req.NewPassword) < 8 {
+		return errors.New("password must be at least 8 characters")
+	}
+
+	token, err := s.tokenRepo.Consume(ctx, req.Email, domain.TokenPurposeResetPassword, strings.TrimSpace(req.Code))
+	if err != nil {
+		return err
+	}
+
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err := s.userRepo.UpdatePassword(ctx, token.UserID, string(hashedPass)); err != nil {
+		return err
+	}
+	return s.sessionRepo.RevokeAllForUser(ctx, token.UserID)
+}
+
 func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*TokenPair, error) {
-	// 1. Generate Access Token (JWT)
 	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Generate Refresh Token
 	refreshTokenString, err := jwt.GenerateRefreshToken()
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Save session in DB
 	expiresAt := time.Now().Add(s.jwtRefreshExpiry)
 	sessionID, err := uuid.NewV7()
 	if err != nil {
@@ -324,13 +425,11 @@ func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*
 	}, nil
 }
 
-// RefreshSession validates a refresh token and issues a new access token
 func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (string, error) {
 	if refreshToken == "" {
 		return "", errors.New("refresh token is required")
 	}
 
-	// 1. Get session from DB
 	session, err := s.sessionRepo.GetByToken(ctx, refreshToken)
 	if err != nil {
 		return "", err
@@ -338,8 +437,6 @@ func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (
 	if session == nil {
 		return "", errors.New("invalid refresh token")
 	}
-
-	// 2. Validate session
 	if session.IsRevoked {
 		return "", errors.New("session has been revoked")
 	}
@@ -347,31 +444,77 @@ func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (
 		return "", errors.New("refresh token expired")
 	}
 
-	// 3. Get user to encode into the new JWT
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
 	if err != nil {
 		return "", err
 	}
 
-	// 4. Generate NEW Access Token
 	newAccessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
 	if err != nil {
 		return "", err
 	}
 
-	// Note: We are currently keeping the same refresh token until it expires.
-	// You could implement "Refresh Token Rotation" here by generating a new one
-	// and invalidating the old one if desired for extra security!
-
 	return newAccessToken, nil
 }
 
-// Logout revokes a specific session
 func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	if refreshToken == "" {
-		return nil // Nothing to revoke
+		return nil
 	}
-
-	// Mark the session as revoked in the database
 	return s.sessionRepo.Revoke(ctx, refreshToken)
+}
+
+func (s *AuthService) sendVerificationCode(ctx context.Context, user *domain.User) error {
+	code, err := s.createEmailActionToken(ctx, user, domain.TokenPurposeVerifyEmail, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+	log.Printf("AuthService.sendVerificationCode token created. user_id=%s email=%s expires_in=%s", user.ID, authLogKey(user.Email), 15*time.Minute)
+
+	name := user.Name
+	if user.DisplayName != nil && strings.TrimSpace(*user.DisplayName) != "" {
+		name = *user.DisplayName
+	}
+	return s.emailSender.Send(ctx, sharedemail.BuildVerificationEmail(user.Email, name, code, s.appBaseURL))
+}
+
+func (s *AuthService) createEmailActionToken(ctx context.Context, user *domain.User, purpose domain.TokenPurpose, ttl time.Duration) (string, error) {
+	code, err := generateEmailCode()
+	if err != nil {
+		return "", err
+	}
+	if err := s.tokenRepo.InvalidateActive(ctx, user.ID, purpose); err != nil {
+		return "", err
+	}
+	tokenID, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate uuid: %w", err)
+	}
+	token := &domain.EmailActionToken{
+		ID:        tokenID,
+		UserID:    user.ID,
+		Email:     user.Email,
+		Purpose:   purpose,
+		Code:      code,
+		ExpiresAt: time.Now().Add(ttl),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.tokenRepo.Create(ctx, token); err != nil {
+		return "", err
+	}
+	log.Printf("AuthService.createEmailActionToken stored token. user_id=%s email=%s purpose=%s expires_at=%s", user.ID, authLogKey(user.Email), purpose, token.ExpiresAt.UTC().Format(time.RFC3339))
+	return code, nil
+}
+
+func generateEmailCode() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
 }
