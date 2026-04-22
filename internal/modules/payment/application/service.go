@@ -211,9 +211,13 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		return nil, fmt.Errorf("payment ok but license failed: %w", err)
 	}
 
-	if err := s.sendReceiptEmail(ctx, order, payment, license); err != nil {
-		log.Printf("PaymentService.VerifyPayment receipt email failed. order_id=%s err=%v", order.ID, err)
-	}
+	go func() {
+		emailCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.sendReceiptEmail(emailCtx, order, payment, license); err != nil {
+			log.Printf("PaymentService.VerifyPayment receipt email failed. order_id=%s err=%v", order.ID, err)
+		}
+	}()
 
 	return license, nil
 }

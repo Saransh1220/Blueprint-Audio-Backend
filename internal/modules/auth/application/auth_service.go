@@ -382,10 +382,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 	if err != nil {
 		return err
 	}
-	if err := s.userRepo.UpdatePassword(ctx, token.UserID, string(hashedPass)); err != nil {
-		return err
+	if err := s.sessionRepo.RevokeAllForUser(ctx, token.UserID); err != nil {
+		return fmt.Errorf("failed to revoke old sessions: %w", err)
 	}
-	return s.sessionRepo.RevokeAllForUser(ctx, token.UserID)
+	if err := s.userRepo.UpdatePassword(ctx, token.UserID, string(hashedPass)); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	return nil
 }
 
 func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*TokenPair, error) {

@@ -100,6 +100,10 @@ func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
 	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
+	t.Cleanup(func() {
+		mockService.AssertExpectations(t)
+		mockFileService.AssertExpectations(t)
+	})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/register", nil)
@@ -189,6 +193,10 @@ func TestAuthHandler_EmailActionEndpoints(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
 	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", 12*time.Hour, false)
+	t.Cleanup(func() {
+		mockService.AssertExpectations(t)
+		mockFileService.AssertExpectations(t)
+	})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", bytes.NewBufferString(`{"email":"user@example.com","code":"123456"}`))

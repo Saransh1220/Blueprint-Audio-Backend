@@ -67,7 +67,7 @@ func NewSender(cfg Config) Sender {
 }
 
 func (s *resendSender) Send(ctx context.Context, msg Message) error {
-	log.Printf("Resend send start. from=%q to=%q subject=%q api_root=%q", s.from, strings.Join(msg.To, ","), msg.Subject, s.apiRoot)
+	log.Printf("Resend send start. from=%q to_count=%d subject=%q api_root=%q", s.from, len(msg.To), msg.Subject, s.apiRoot)
 	payload := map[string]any{
 		"from":    s.from,
 		"to":      msg.To,
@@ -97,16 +97,16 @@ func (s *resendSender) Send(ctx context.Context, msg Message) error {
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Printf("Resend send network error. from=%q to=%q subject=%q err=%v", s.from, strings.Join(msg.To, ","), msg.Subject, err)
+		log.Printf("Resend send network error. from=%q to_count=%d subject=%q err=%v", s.from, len(msg.To), msg.Subject, err)
 		return fmt.Errorf("send resend request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		log.Printf("Resend send failed. status=%d from=%q to=%q subject=%q body=%s", resp.StatusCode, s.from, strings.Join(msg.To, ","), msg.Subject, strings.TrimSpace(string(respBody)))
+		log.Printf("Resend send failed. status=%d from=%q to_count=%d subject=%q body=%s", resp.StatusCode, s.from, len(msg.To), msg.Subject, strings.TrimSpace(string(respBody)))
 		return fmt.Errorf("resend returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
-	log.Printf("Resend send success. from=%q to=%q subject=%q", s.from, strings.Join(msg.To, ","), msg.Subject)
+	log.Printf("Resend send success. from=%q to_count=%d subject=%q", s.from, len(msg.To), msg.Subject)
 	return nil
 }

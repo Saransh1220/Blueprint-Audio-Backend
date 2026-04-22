@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/gateway"
@@ -44,6 +45,10 @@ func main() {
 	defer redisClient.Close()
 
 	// 4. Initialize Modules
+	if cfg.Email.Enabled && (strings.TrimSpace(cfg.Email.ResendAPIKey) == "" || strings.TrimSpace(cfg.Email.From) == "") {
+		log.Fatal("Email is enabled but RESEND_API_KEY or EMAIL_FROM is missing")
+	}
+
 	emailSender := sharedemail.NewSender(sharedemail.Config{
 		APIKey:  cfg.Email.ResendAPIKey,
 		From:    cfg.Email.From,

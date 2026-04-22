@@ -58,42 +58,42 @@ The system now has:
 
 ### Bootstrap / Composition Root
 
-- [cmd/server/main.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/cmd/server/main.go)
+- [cmd/server/main.go](../cmd/server/main.go)
 
 ### Shared Infrastructure
 
-- [internal/shared/infrastructure/config/config.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/config/config.go)
-- [internal/shared/infrastructure/email/email.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/email/email.go)
-- [internal/shared/infrastructure/email/templates.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/email/templates.go)
+- [internal/shared/infrastructure/config/config.go](../internal/shared/infrastructure/config/config.go)
+- [internal/shared/infrastructure/email/email.go](../internal/shared/infrastructure/email/email.go)
+- [internal/shared/infrastructure/email/templates.go](../internal/shared/infrastructure/email/templates.go)
 
 ### Auth Module
 
-- [internal/modules/auth/module.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/module.go)
-- [internal/modules/auth/domain/user.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/domain/user.go)
-- [internal/modules/auth/domain/email_token.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/domain/email_token.go)
-- [internal/modules/auth/application/auth_service.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/application/auth_service.go)
-- [internal/modules/auth/interfaces/http/auth_handler.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/interfaces/http/auth_handler.go)
-- [internal/modules/auth/infrastructure/persistence/postgres/user_repo.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/infrastructure/persistence/postgres/user_repo.go)
-- [internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go)
+- [internal/modules/auth/module.go](../internal/modules/auth/module.go)
+- [internal/modules/auth/domain/user.go](../internal/modules/auth/domain/user.go)
+- [internal/modules/auth/domain/email_token.go](../internal/modules/auth/domain/email_token.go)
+- [internal/modules/auth/application/auth_service.go](../internal/modules/auth/application/auth_service.go)
+- [internal/modules/auth/interfaces/http/auth_handler.go](../internal/modules/auth/interfaces/http/auth_handler.go)
+- [internal/modules/auth/infrastructure/persistence/postgres/user_repo.go](../internal/modules/auth/infrastructure/persistence/postgres/user_repo.go)
+- [internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](../internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go)
 
 ### Payment Module
 
-- [internal/modules/payment/module.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/payment/module.go)
-- [internal/modules/payment/application/service.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/payment/application/service.go)
+- [internal/modules/payment/module.go](../internal/modules/payment/module.go)
+- [internal/modules/payment/application/service.go](../internal/modules/payment/application/service.go)
 
 ### Gateway / Routing
 
-- [internal/gateway/routes.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/gateway/routes.go)
+- [internal/gateway/routes.go](../internal/gateway/routes.go)
 
 ### Migrations
 
-- [db/migrations/000025_add_email_verification_to_users.up.sql](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/db/migrations/000025_add_email_verification_to_users.up.sql)
-- [db/migrations/000026_create_email_action_tokens.up.sql](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/db/migrations/000026_create_email_action_tokens.up.sql)
+- [db/migrations/000025_add_email_verification_to_users.up.sql](../db/migrations/000025_add_email_verification_to_users.up.sql)
+- [db/migrations/000026_create_email_action_tokens.up.sql](../db/migrations/000026_create_email_action_tokens.up.sql)
 
 ### Runtime / Deployment Support
 
-- [docker-compose.yml](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/docker-compose.yml)
-- [.env.example](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/.env.example)
+- [docker-compose.yml](../docker-compose.yml)
+- [.env.example](../.env.example)
 
 ---
 
@@ -126,7 +126,7 @@ This is the central design decision: `main.go` became the place where email capa
 
 ## Composition Root And DI
 
-The email feature starts in [cmd/server/main.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/cmd/server/main.go).
+The email feature starts in [cmd/server/main.go](../cmd/server/main.go).
 
 ### What changed in bootstrap
 
@@ -200,7 +200,7 @@ This is good DI because payment depends on a capability, not on auth’s databas
 
 ## Config Additions
 
-Email config was added in [internal/shared/infrastructure/config/config.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/config/config.go).
+Email config was added in [internal/shared/infrastructure/config/config.go](../internal/shared/infrastructure/config/config.go).
 
 New env-backed settings:
 
@@ -222,7 +222,7 @@ This project keeps environment loading in shared infrastructure. Email config be
 
 ## Email Sender Abstraction
 
-The provider integration lives in [internal/shared/infrastructure/email/email.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/email/email.go).
+The provider integration lives in [internal/shared/infrastructure/email/email.go](../internal/shared/infrastructure/email/email.go).
 
 ### Main types
 
@@ -289,7 +289,7 @@ This design is intentionally resilient.
 
 ## Email Templates
 
-Template builders live in [internal/shared/infrastructure/email/templates.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/email/templates.go).
+Template builders live in [internal/shared/infrastructure/email/templates.go](../internal/shared/infrastructure/email/templates.go).
 
 Current builders:
 
@@ -372,7 +372,7 @@ That module spans several layers:
 
 ### User verification state
 
-[internal/modules/auth/domain/user.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/domain/user.go) was extended with:
+[internal/modules/auth/domain/user.go](../internal/modules/auth/domain/user.go) was extended with:
 
 - `EmailVerified bool`
 - `EmailVerifiedAt *time.Time`
@@ -416,7 +416,7 @@ This is a clean dependency boundary.
 
 ## Email Action Token Domain
 
-The new token model lives in [internal/modules/auth/domain/email_token.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/domain/email_token.go).
+The new token model lives in [internal/modules/auth/domain/email_token.go](../internal/modules/auth/domain/email_token.go).
 
 ### What it models
 
@@ -459,7 +459,7 @@ This keeps the architecture smaller while still being explicit.
 
 ### User repo updates
 
-In [internal/modules/auth/infrastructure/persistence/postgres/user_repo.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/infrastructure/persistence/postgres/user_repo.go), persistence was updated so the database can:
+In [internal/modules/auth/infrastructure/persistence/postgres/user_repo.go](../internal/modules/auth/infrastructure/persistence/postgres/user_repo.go), persistence was updated so the database can:
 
 - store `email_verified`
 - store `email_verified_at`
@@ -468,7 +468,7 @@ In [internal/modules/auth/infrastructure/persistence/postgres/user_repo.go](C:/U
 
 ### Email token repo
 
-[internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go) is the persistence implementation for one-time email codes.
+[internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](../internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go) is the persistence implementation for one-time email codes.
 
 ### Important behavior in the repo
 
@@ -507,7 +507,7 @@ This is the core single-use guarantee.
 
 ## Auth Application Layer
 
-The orchestration lives in [internal/modules/auth/application/auth_service.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/application/auth_service.go).
+The orchestration lives in [internal/modules/auth/application/auth_service.go](../internal/modules/auth/application/auth_service.go).
 
 This file is the heart of the feature.
 
@@ -739,7 +739,7 @@ That makes reset-password a security boundary, not just a field update.
 
 ## Auth HTTP Layer
 
-HTTP mapping lives in [internal/modules/auth/interfaces/http/auth_handler.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/interfaces/http/auth_handler.go).
+HTTP mapping lives in [internal/modules/auth/interfaces/http/auth_handler.go](../internal/modules/auth/interfaces/http/auth_handler.go).
 
 ### What handlers are responsible for
 
@@ -760,7 +760,7 @@ That is why verification and reset orchestration is absent from handlers and con
 
 ### New auth endpoints
 
-Registered in [internal/gateway/routes.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/gateway/routes.go):
+Registered in [internal/gateway/routes.go](../internal/gateway/routes.go):
 
 - `POST /auth/verify-email`
 - `POST /auth/resend-verification`
@@ -783,7 +783,7 @@ Two migrations were added.
 ## `000025_add_email_verification_to_users`
 
 File:
-[db/migrations/000025_add_email_verification_to_users.up.sql](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/db/migrations/000025_add_email_verification_to_users.up.sql)
+[db/migrations/000025_add_email_verification_to_users.up.sql](../db/migrations/000025_add_email_verification_to_users.up.sql)
 
 ### Intent
 
@@ -804,7 +804,7 @@ This is a very practical migration choice.
 ## `000026_create_email_action_tokens`
 
 File:
-[db/migrations/000026_create_email_action_tokens.up.sql](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/db/migrations/000026_create_email_action_tokens.up.sql)
+[db/migrations/000026_create_email_action_tokens.up.sql](../db/migrations/000026_create_email_action_tokens.up.sql)
 
 ### Intent
 
@@ -866,7 +866,7 @@ This is why the payment integration is intentionally best-effort.
 
 ### Module-level DI
 
-In [internal/modules/payment/module.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/payment/module.go), the payment module now receives:
+In [internal/modules/payment/module.go](../internal/modules/payment/module.go), the payment module now receives:
 
 - `userFinder`
 - `fileService`
@@ -921,7 +921,7 @@ sequenceDiagram
 
 ### Why receipt send failure does not fail payment verification
 
-In [internal/modules/payment/application/service.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/payment/application/service.go), receipt sending is best-effort.
+In [internal/modules/payment/application/service.go](../internal/modules/payment/application/service.go), receipt sending is best-effort.
 
 The source of truth for a successful purchase is:
 
@@ -1066,7 +1066,7 @@ One important operational lesson from this integration:
 
 Having values in `.env` is not enough by itself for containerized runtime.
 
-[docker-compose.yml](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/docker-compose.yml) must explicitly pass these variables into the `api` service:
+[docker-compose.yml](../docker-compose.yml) must explicitly pass these variables into the `api` service:
 
 - `APP_BASE_URL`
 - `EMAIL_ENABLED`
@@ -1109,11 +1109,11 @@ If the token row exists but no email arrives, the auth logic is usually fine and
 
 ## Trace `POST /auth/resend-verification`
 
-1. Route in [internal/gateway/routes.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/gateway/routes.go)
-2. Handler in [internal/modules/auth/interfaces/http/auth_handler.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/interfaces/http/auth_handler.go)
-3. Service method `ResendVerification` in [internal/modules/auth/application/auth_service.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/application/auth_service.go)
-4. Token storage in [internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go)
-5. Delivery in [internal/shared/infrastructure/email/email.go](C:/Users/saran/OneDrive/Desktop/projects/blueprint-backend/internal/shared/infrastructure/email/email.go)
+1. Route in [internal/gateway/routes.go](../internal/gateway/routes.go)
+2. Handler in [internal/modules/auth/interfaces/http/auth_handler.go](../internal/modules/auth/interfaces/http/auth_handler.go)
+3. Service method `ResendVerification` in [internal/modules/auth/application/auth_service.go](../internal/modules/auth/application/auth_service.go)
+4. Token storage in [internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go](../internal/modules/auth/infrastructure/persistence/postgres/email_token_repo.go)
+5. Delivery in [internal/shared/infrastructure/email/email.go](../internal/shared/infrastructure/email/email.go)
 
 ## Trace `POST /auth/forgot-password`
 

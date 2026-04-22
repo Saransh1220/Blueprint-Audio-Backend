@@ -280,7 +280,8 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.service.ForgotPassword(r.Context(), req); err != nil {
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+		log.Printf("ForgotPassword error: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -296,11 +297,16 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.service.ResetPassword(r.Context(), req); err != nil {
-		status := http.StatusBadRequest
 		if errors.Is(err, domain.ErrInvalidOrExpiredCode) {
-			status = http.StatusUnauthorized
+			http.Error(w, `{"error":"invalid or expired code"}`, http.StatusUnauthorized)
+			return
 		}
-		http.Error(w, `{"error":"`+err.Error()+`"}`, status)
+		if err.Error() == "email, code and new password are required" || err.Error() == "password must be at least 8 characters" {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		log.Printf("ResetPassword error: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 

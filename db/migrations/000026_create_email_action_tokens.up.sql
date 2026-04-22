@@ -15,3 +15,7 @@ CREATE INDEX IF NOT EXISTS idx_email_action_tokens_lookup
 
 CREATE INDEX IF NOT EXISTS idx_email_action_tokens_user_purpose
     ON email_action_tokens (user_id, purpose);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_email_action_tokens_active_user_purpose
+    ON email_action_tokens (user_id, purpose)
+    WHERE consumed_at IS NULL;
