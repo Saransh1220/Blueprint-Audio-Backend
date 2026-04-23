@@ -561,12 +561,14 @@ func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
 	pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
 	lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(nil).Once()
-	uf.On("FindByID", ctx, order.UserID).Return(&authDomain.User{ID: order.UserID, Email: "buyer@example.com", Name: "Buyer"}, nil).Once()
-	es.On("Send", ctx, mock.AnythingOfType("email.Message")).Return(nil).Once()
+	uf.On("FindByID", mock.Anything, order.UserID).Return(&authDomain.User{ID: order.UserID, Email: "buyer@example.com", Name: "Buyer"}, nil).Once()
+	es.On("Send", mock.Anything, mock.AnythingOfType("email.Message")).Return(nil).Once()
 
 	license, err := s.VerifyPayment(ctx, orderID, paymentID, signature)
 	assert.NoError(t, err)
 	assert.NotNil(t, license)
+
+	time.Sleep(50 * time.Millisecond)
 
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
 	_, err = s.VerifyPayment(ctx, orderID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
