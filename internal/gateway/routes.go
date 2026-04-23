@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
@@ -38,11 +39,17 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Auth Routes
+	emailActionLimiter := middleware.RateLimitMiddleware(3, 15*time.Minute)
+
 	mux.HandleFunc("POST /register", config.AuthHandler.Register)
 	mux.HandleFunc("POST /login", config.AuthHandler.Login)
 	mux.HandleFunc("POST /auth/google", config.AuthHandler.GoogleLogin)
 	mux.HandleFunc("POST /auth/refresh", config.AuthHandler.Refresh)
 	mux.HandleFunc("POST /auth/logout", config.AuthHandler.Logout)
+	mux.HandleFunc("POST /auth/verify-email", emailActionLimiter(config.AuthHandler.VerifyEmail))
+	mux.HandleFunc("POST /auth/resend-verification", emailActionLimiter(config.AuthHandler.ResendVerification))
+	mux.HandleFunc("POST /auth/forgot-password", emailActionLimiter(config.AuthHandler.ForgotPassword))
+	mux.HandleFunc("POST /auth/reset-password", emailActionLimiter(config.AuthHandler.ResetPassword))
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
 	// Catalog/Spec Routes

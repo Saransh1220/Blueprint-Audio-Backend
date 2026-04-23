@@ -7,20 +7,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/razorpay/razorpay-go"
+	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
-
-	// catalogApp "github.com/saransh1220/blueprint-audio/internal/modules/catalog/application" // Not needed if using domain.SpecFinder?
-	// SpecFinder is in catalogDomain
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 )
-
-// Interfaces
 
 func formatRazorpayReceipt(id uuid.UUID) string {
 	return "order_" + strings.ReplaceAll(id.String(), "-", "")
@@ -46,9 +44,12 @@ type paymentService struct {
 	paymentRepo    domain.PaymentRepository
 	licenseRepo    domain.LicenseRepository
 	specFinder     catalogDomain.SpecFinder
+	userFinder     authDomain.UserFinder
 	fileService    FileService
 	razorpayClient *razorpay.Client
 	razorpaySecret string
+	emailSender    sharedemail.Sender
+	appBaseURL     string
 }
 
 func NewPaymentService(
@@ -56,7 +57,10 @@ func NewPaymentService(
 	paymentRepo domain.PaymentRepository,
 	licenseRepo domain.LicenseRepository,
 	specFinder catalogDomain.SpecFinder,
+	userFinder authDomain.UserFinder,
 	fileService FileService,
+	emailSender sharedemail.Sender,
+	appBaseURL string,
 ) PaymentService {
 	client := razorpay.NewClient(
 		os.Getenv("RAZORPAY_KEY_ID"),
@@ -67,15 +71,17 @@ func NewPaymentService(
 		paymentRepo:    paymentRepo,
 		licenseRepo:    licenseRepo,
 		specFinder:     specFinder,
+		userFinder:     userFinder,
 		fileService:    fileService,
 		razorpayClient: client,
 		razorpaySecret: os.Getenv("RAZORPAY_KEY_SECRET"),
+		emailSender:    emailSender,
+		appBaseURL:     appBaseURL,
 	}
 }
 
 func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID) (*domain.Order, error) {
-	// Use SpecFinder
-	spec, err := s.specFinder.FindWithLicenses(ctx, specID) // Use FindWithLicenses to ensure licenses are loaded
+	spec, err := s.specFinder.FindWithLicenses(ctx, specID)
 	if err != nil {
 		return nil, errors.New("Beat/Sample not found")
 	}
@@ -136,13 +142,11 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 }
 
 func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error) {
-	// 1. Get order
 	order, err := s.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		return nil, errors.New("order not found")
 	}
 
-	// 2. Validate order state
 	if order.Status != domain.OrderStatusPending {
 		return nil, errors.New("order already processed")
 	}
@@ -153,7 +157,6 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		return nil, errors.New("order expired")
 	}
 
-	// 3. CRITICAL: Verify signature
 	if order.RazorpayOrderID == nil || *order.RazorpayOrderID == "" {
 		return nil, errors.New("invalid order state")
 	}
@@ -165,7 +168,6 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		return nil, errors.New("invalid signature")
 	}
 
-	// 4. Fetch payment details from Razorpay
 	razorpayPayment, err := s.razorpayClient.Payment.Fetch(razorpayPaymentID, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch payment: %w", err)
@@ -178,7 +180,6 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		return nil, errors.New("payment not captured")
 	}
 
-	// 5. Save payment record
 	now := time.Now()
 	payment := &domain.Payment{
 		OrderID:           orderID,
@@ -190,7 +191,6 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		CapturedAt:        &now,
 	}
 
-	// Extract optional fields
 	if method, ok := razorpayPayment["method"].(string); ok {
 		payment.Method = &method
 	}
@@ -202,16 +202,22 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 		return nil, err
 	}
 
-	// 6. Update order status
 	if err := s.orderRepo.UpdateStatus(ctx, orderID, domain.OrderStatusPaid); err != nil {
 		return nil, err
 	}
 
-	// 7. Issue license
 	license, err := s.issueLicense(ctx, order)
 	if err != nil {
 		return nil, fmt.Errorf("payment ok but license failed: %w", err)
 	}
+
+	go func() {
+		emailCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.sendReceiptEmail(emailCtx, order, payment, license); err != nil {
+			log.Printf("PaymentService.VerifyPayment receipt email failed. order_id=%s err=%v", order.ID, err)
+		}
+	}()
 
 	return license, nil
 }
@@ -230,7 +236,7 @@ func (s *paymentService) GetUserOrders(ctx context.Context, userID uuid.UUID, pa
 }
 
 func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error) {
-	limit := 5 // Per user request for testing
+	limit := 5
 	offset := (page - 1) * limit
 	if offset < 0 {
 		offset = 0
@@ -240,7 +246,6 @@ func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, 
 		return nil, 0, err
 	}
 
-	// Sign SpecImage URLs
 	for i := range licenses {
 		if licenses[i].SpecImage != nil && *licenses[i].SpecImage != "" {
 			key, err := s.fileService.GetKeyFromUrl(*licenses[i].SpecImage)
@@ -256,7 +261,6 @@ func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, 
 	return licenses, total, nil
 }
 
-// generateSignature - HMAC SHA256 for Razorpay verification
 func (s *paymentService) generateSignature(orderID, paymentID string) string {
 	message := orderID + "|" + paymentID
 	h := hmac.New(sha256.New, []byte(s.razorpaySecret))
@@ -264,7 +268,6 @@ func (s *paymentService) generateSignature(orderID, paymentID string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// issueLicense creates license after successful payment
 func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) (*domain.License, error) {
 	licenseOptionIDStr, ok := order.Notes["license_option_id"].(string)
 	if !ok {
@@ -280,7 +283,6 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
-	// We might check if LICENSE KEY already exists? UUID generation is random enough.
 	license := &domain.License{
 		OrderID:         order.ID,
 		UserID:          order.UserID,
@@ -292,25 +294,21 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		IsActive:        true,
 		IsRevoked:       false,
 		DownloadsCount:  0,
-		IssuedAt:        time.Now(), // Important
+		IssuedAt:        time.Now(),
 	}
 
 	return license, s.licenseRepo.Create(ctx, license)
 }
 
 func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error) {
-	// 1. Fetch the license
 	license, err := s.licenseRepo.GetByID(ctx, licenseID)
 	if err != nil {
 		return nil, errors.New("license not found")
 	}
 
-	// 2. SECURITY: Verify ownership
 	if license.UserID != userID {
 		return nil, errors.New("unauthorized: you do not own this license")
 	}
-
-	// 3. Check if license is active
 	if !license.IsActive {
 		return nil, errors.New("license is not active")
 	}
@@ -318,29 +316,25 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 		return nil, errors.New("license has been revoked")
 	}
 
-	// 4. Fetch the spec to get file URLs (including soft-deleted specs)
-	// Users who purchased a license should retain access even if the producer deletes the spec
 	spec, err := s.specFinder.FindByIDIncludingDeleted(ctx, license.SpecID)
 	if err != nil {
 		return nil, errors.New("spec not found")
 	}
 
-	// 5. Build response parameters
 	response := &LicenseDownloadsResponse{
 		LicenseID:   license.ID.String(),
 		LicenseType: license.LicenseType,
 		SpecTitle:   spec.Title,
-		ExpiresIn:   3600, // 1 hour
+		ExpiresIn:   3600,
 	}
 
-	// Helper to get presigned URL from stored URL
 	getSignedURL := func(fileURL string) *string {
 		if fileURL == "" {
 			return nil
 		}
 		key, err := s.fileService.GetKeyFromUrl(fileURL)
 		if err != nil {
-			return &fileURL // Fallback
+			return &fileURL
 		}
 		signedURL, err := s.fileService.GetPresignedURL(ctx, key, 1*time.Hour)
 		if err != nil {
@@ -349,13 +343,11 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 		return &signedURL
 	}
 
-	// 6. Generate URLs based on license type
 	switch license.LicenseType {
 	case "Basic":
 		if spec.PreviewUrl != "" {
 			response.MP3URL = getSignedURL(spec.PreviewUrl)
 		}
-
 	case "Premium":
 		if spec.PreviewUrl != "" {
 			response.MP3URL = getSignedURL(spec.PreviewUrl)
@@ -363,7 +355,6 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 		if spec.WavUrl != nil && *spec.WavUrl != "" {
 			response.WAVURL = getSignedURL(*spec.WavUrl)
 		}
-
 	case "Trackout", "Unlimited":
 		if spec.PreviewUrl != "" {
 			response.MP3URL = getSignedURL(spec.PreviewUrl)
@@ -376,9 +367,7 @@ func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, use
 		}
 	}
 
-	// 7. Track download analytics
 	_ = s.licenseRepo.IncrementDownloads(ctx, licenseID)
-
 	return response, nil
 }
 
@@ -397,7 +386,7 @@ func (s *paymentService) GetProducerOrders(ctx context.Context, producerID uuid.
 	for i, o := range orders {
 		orderDtos[i] = ProducerOrderDto{
 			ID:              o.ID,
-			Amount:          float64(o.Amount) / 100.0, // Convert paise to rupees
+			Amount:          float64(o.Amount) / 100.0,
 			Currency:        o.Currency,
 			Status:          o.Status,
 			CreatedAt:       o.CreatedAt,
@@ -415,4 +404,43 @@ func (s *paymentService) GetProducerOrders(ctx context.Context, producerID uuid.
 		Limit:  limit,
 		Offset: offset,
 	}, nil
+}
+
+func (s *paymentService) sendReceiptEmail(ctx context.Context, order *domain.Order, payment *domain.Payment, license *domain.License) error {
+	if s.emailSender == nil || s.userFinder == nil {
+		return nil
+	}
+	user, err := s.userFinder.FindByID(ctx, order.UserID)
+	if err != nil {
+		return err
+	}
+
+	buyerEmail := user.Email
+	if payment.Email != nil && strings.TrimSpace(*payment.Email) != "" {
+		buyerEmail = *payment.Email
+	}
+	specTitle, _ := order.Notes["spec_title"].(string)
+	if specTitle == "" {
+		specTitle = "Blueprint purchase"
+	}
+
+	return s.emailSender.Send(ctx, sharedemail.BuildPaymentReceiptEmail(sharedemail.ReceiptData{
+		BuyerName:     user.Name,
+		BuyerEmail:    buyerEmail,
+		SpecTitle:     specTitle,
+		LicenseType:   order.LicenseType,
+		AmountDisplay: formatMoney(order.Amount, order.Currency),
+		OrderID:       order.ID.String(),
+		PaymentID:     payment.RazorpayPaymentID,
+		LicenseID:     license.ID.String(),
+	}, s.appBaseURL))
+}
+
+func formatMoney(amount int, currency string) string {
+	switch strings.ToUpper(currency) {
+	case "INR":
+		return fmt.Sprintf("INR %.2f", float64(amount)/100.0)
+	default:
+		return fmt.Sprintf("%s %.2f", strings.ToUpper(currency), float64(amount)/100.0)
+	}
 }

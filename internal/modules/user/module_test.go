@@ -20,6 +20,10 @@ func (r *repoStub) GetByEmail(ctx context.Context, email string) (*authDomain.Us
 func (r *repoStub) GetByID(ctx context.Context, id uuid.UUID) (*authDomain.User, error) {
 	return &authDomain.User{ID: id}, nil
 }
+func (r *repoStub) MarkEmailVerified(ctx context.Context, id uuid.UUID) error { return nil }
+func (r *repoStub) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	return nil
+}
 func (r *repoStub) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
 	return nil
 }
@@ -31,4 +35,3 @@ func TestNewModule(t *testing.T) {
 	assert.NotNil(t, m.Service())
 	assert.NotNil(t, m.HTTPHandler())
 }
-

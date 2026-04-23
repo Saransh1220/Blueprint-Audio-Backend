@@ -18,6 +18,7 @@ import (
 	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
 	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +40,7 @@ var _ filedomain.FileStorage = noopStorage{}
 
 func TestCoverageSmoke_AuthModuleAndRoutes(t *testing.T) {
 	fs := fileapp.NewFileService(noopStorage{})
-	m, err := auth.NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "google-client-id", false)
+	m, err := auth.NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "google-client-id", false, sharedemail.NewSender(sharedemail.Config{}), "http://localhost:4200")
 	require.NoError(t, err)
 	require.NotNil(t, m.Service())
 	require.NotNil(t, m.UserFinder())

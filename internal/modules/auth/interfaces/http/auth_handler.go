@@ -22,6 +22,10 @@ type AuthService interface {
 	GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (*application.TokenPair, error)
 	RefreshSession(ctx context.Context, refreshToken string) (string, error)
 	Logout(ctx context.Context, refreshToken string) error
+	VerifyEmail(ctx context.Context, req application.VerifyEmailRequest) error
+	ResendVerification(ctx context.Context, req application.ResendVerificationRequest) error
+	ForgotPassword(ctx context.Context, req application.ForgotPasswordRequest) error
+	ResetPassword(ctx context.Context, req application.ResetPasswordRequest) error
 }
 
 // FileService defines the interface for file operations
@@ -102,6 +106,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == domain.ErrInvalidCredentials {
 			http.Error(w, `{"error": "invalid credentials"}`, http.StatusUnauthorized)
+			return
+		}
+		if err == domain.ErrEmailNotVerified {
+			http.Error(w, `{"error": "email not verified"}`, http.StatusForbidden)
 			return
 		}
 		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
@@ -227,4 +235,82 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "logged out successfully"})
+}
+
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req application.VerifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.service.VerifyEmail(r.Context(), req); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, domain.ErrInvalidOrExpiredCode) {
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, `{"error":"`+err.Error()+`"}`, status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "email verified"})
+}
+
+func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req application.ResendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.service.ResendVerification(r.Context(), req); err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "if the account exists, a verification email has been sent"})
+}
+
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req application.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.service.ForgotPassword(r.Context(), req); err != nil {
+		log.Printf("ForgotPassword error: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "if the account exists, a reset email has been sent"})
+}
+
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req application.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.service.ResetPassword(r.Context(), req); err != nil {
+		if errors.Is(err, domain.ErrInvalidOrExpiredCode) {
+			http.Error(w, `{"error":"invalid or expired code"}`, http.StatusUnauthorized)
+			return
+		}
+		if err.Error() == "email, code and new password are required" || err.Error() == "password must be at least 8 characters" {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		log.Printf("ResetPassword error: %v", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "password reset successful"})
 }

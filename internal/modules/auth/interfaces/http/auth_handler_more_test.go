@@ -48,6 +48,12 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"x","password":"y"}`))
+	mockService.On("Login", mock.Anything, application.LoginRequest{Email: "x", Password: "y"}).Return((*application.TokenPair)(nil), domain.ErrEmailNotVerified).Once()
+	h.Login(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"email":"x","password":"y"}`))
 	mockService.On("Login", mock.Anything, application.LoginRequest{Email: "x", Password: "y"}).Return(&application.TokenPair{AccessToken: "token", RefreshToken: "refresh-1"}, nil).Once()
 	h.Login(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -94,6 +100,10 @@ func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)
 	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", time.Hour*720, true)
+	t.Cleanup(func() {
+		mockService.AssertExpectations(t)
+		mockFileService.AssertExpectations(t)
+	})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/register", nil)
@@ -177,4 +187,38 @@ func TestAuthHandler_LoginUsesDevCookieSettings(t *testing.T) {
 		assert.False(t, cookies[0].Secure)
 		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
 	}
+}
+
+func TestAuthHandler_EmailActionEndpoints(t *testing.T) {
+	mockService := new(MockAuthService)
+	mockFileService := new(MockFileService)
+	h := auth_http.NewAuthHandler(mockService, mockFileService, "test-client-id", 12*time.Hour, false)
+	t.Cleanup(func() {
+		mockService.AssertExpectations(t)
+		mockFileService.AssertExpectations(t)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", bytes.NewBufferString(`{"email":"user@example.com","code":"123456"}`))
+	mockService.On("VerifyEmail", mock.Anything, application.VerifyEmailRequest{Email: "user@example.com", Code: "123456"}).Return(nil).Once()
+	h.VerifyEmail(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/auth/resend-verification", bytes.NewBufferString(`{"email":"user@example.com"}`))
+	mockService.On("ResendVerification", mock.Anything, application.ResendVerificationRequest{Email: "user@example.com"}).Return(nil).Once()
+	h.ResendVerification(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/auth/forgot-password", bytes.NewBufferString(`{"email":"user@example.com"}`))
+	mockService.On("ForgotPassword", mock.Anything, application.ForgotPasswordRequest{Email: "user@example.com"}).Return(nil).Once()
+	h.ForgotPassword(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/auth/reset-password", bytes.NewBufferString(`{"email":"user@example.com","code":"123456","new_password":"newpassword123"}`))
+	mockService.On("ResetPassword", mock.Anything, application.ResetPasswordRequest{Email: "user@example.com", Code: "123456", NewPassword: "newpassword123"}).Return(nil).Once()
+	h.ResetPassword(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }

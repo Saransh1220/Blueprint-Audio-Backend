@@ -65,6 +65,26 @@ func (m *MockAuthService) Logout(ctx context.Context, refreshToken string) error
 	return args.Error(0)
 }
 
+func (m *MockAuthService) VerifyEmail(ctx context.Context, req application.VerifyEmailRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) ResendVerification(ctx context.Context, req application.ResendVerificationRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) ForgotPassword(ctx context.Context, req application.ForgotPasswordRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockAuthService) ResetPassword(ctx context.Context, req application.ResetPasswordRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
 // Mock FileService
 type MockFileService struct {
 	mock.Mock

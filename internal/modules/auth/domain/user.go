@@ -16,20 +16,22 @@ const (
 
 // User represents a user in the system
 type User struct {
-	ID           uuid.UUID `json:"id" db:"id"`
-	Email        string    `json:"email" db:"email"`
-	PasswordHash string    `json:"-" db:"password_hash"`
-	Name         string    `json:"name" db:"name"`
-	DisplayName  *string   `json:"display_name" db:"display_name"`
-	Role         UserRole  `json:"role" db:"role"`
-	Bio          *string   `json:"bio" db:"bio"`
-	AvatarUrl    *string   `json:"avatar_url" db:"avatar_url"`
-	InstagramURL *string   `json:"instagram_url" db:"instagram_url"`
-	TwitterURL   *string   `json:"twitter_url" db:"twitter_url"`
-	YoutubeURL   *string   `json:"youtube_url" db:"youtube_url"`
-	SpotifyURL   *string   `json:"spotify_url" db:"spotify_url"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID              uuid.UUID  `json:"id" db:"id"`
+	Email           string     `json:"email" db:"email"`
+	PasswordHash    string     `json:"-" db:"password_hash"`
+	Name            string     `json:"name" db:"name"`
+	DisplayName     *string    `json:"display_name" db:"display_name"`
+	Role            UserRole   `json:"role" db:"role"`
+	EmailVerified   bool       `json:"email_verified" db:"email_verified"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" db:"email_verified_at"`
+	Bio             *string    `json:"bio" db:"bio"`
+	AvatarUrl       *string    `json:"avatar_url" db:"avatar_url"`
+	InstagramURL    *string    `json:"instagram_url" db:"instagram_url"`
+	TwitterURL      *string    `json:"twitter_url" db:"twitter_url"`
+	YoutubeURL      *string    `json:"youtube_url" db:"youtube_url"`
+	SpotifyURL      *string    `json:"spotify_url" db:"spotify_url"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // UserRepository defines the contract for user data access
@@ -37,6 +39,8 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
+	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error
 }
 

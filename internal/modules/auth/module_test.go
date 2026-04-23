@@ -10,6 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	fileapp "github.com/saransh1220/blueprint-audio/internal/modules/filestorage/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage/domain"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +32,7 @@ var _ domain.FileStorage = noopStorage{}
 
 func TestNewModuleAndAccessors(t *testing.T) {
 	fs := fileapp.NewFileService(noopStorage{})
-	m, err := NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "test-client-id", false)
+	m, err := NewModule(&sqlx.DB{}, "secret", time.Hour, time.Hour*720, fs, "test-client-id", false, sharedemail.NewSender(sharedemail.Config{}), "http://localhost:4200")
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	require.NotNil(t, m.Service())

@@ -31,7 +31,7 @@ func NewUserRepository(db *sqlx.DB) *PgUserRepository {
 // Returns an error if the database operation fails.
 // Create implements domain.UserRepository
 func (r *PgUserRepository) Create(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :created_at, :updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, email_verified, email_verified_at, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :email_verified, :email_verified_at, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()
@@ -88,6 +88,38 @@ func (r *PgUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.U
 		return nil, err
 	}
 	return user, nil
+}
+
+func (r *PgUserRepository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE users SET email_verified = true, email_verified_at = NOW(), updated_at = NOW() WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *PgUserRepository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	query := `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, passwordHash, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
 }
 
 // FindByID implements domain.UserFinder for exposing to other modules

@@ -102,6 +102,13 @@ Recommended:
 - `REDIS_PORT`
 - `REDIS_PASSWORD`
 
+### Email
+- `APP_BASE_URL`
+- `EMAIL_ENABLED`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `EMAIL_REPLY_TO`
+
 ## Common Commands
 ```bash
 make help             # list commands

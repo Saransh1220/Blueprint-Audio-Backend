@@ -9,6 +9,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/infrastructure/persistence/postgres"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	fileApp "github.com/saransh1220/blueprint-audio/internal/modules/filestorage/application"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 )
 
 // Module represents the Auth module
@@ -16,20 +17,23 @@ type Module struct {
 	service     *application.AuthService
 	userRepo    *postgres.PgUserRepository
 	sessionRepo *postgres.PgSessionRepository
+	tokenRepo   *postgres.PgEmailActionTokenRepository
 	handler     *auth_http.AuthHandler
 }
 
 // NewModule creates and initializes the Auth module
-func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration, fileService *fileApp.FileService, googleClientID string, secureCookie bool) (*Module, error) {
+func NewModule(db *sqlx.DB, jwtSecret string, jwtExpiry time.Duration, jwtRefreshExpiry time.Duration, fileService *fileApp.FileService, googleClientID string, secureCookie bool, emailSender sharedemail.Sender, appBaseURL string) (*Module, error) {
 	userRepo := postgres.NewUserRepository(db)
 	sessionRepo := postgres.NewSessionRepository(db)
-	service := application.NewAuthService(userRepo, sessionRepo, jwtSecret, jwtExpiry, jwtRefreshExpiry)
+	tokenRepo := postgres.NewEmailActionTokenRepository(db)
+	service := application.NewAuthService(userRepo, sessionRepo, tokenRepo, emailSender, appBaseURL, jwtSecret, jwtExpiry, jwtRefreshExpiry)
 	handler := auth_http.NewAuthHandler(service, fileService, googleClientID, jwtRefreshExpiry, secureCookie)
 
 	return &Module{
 		service:     service,
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,
+		tokenRepo:   tokenRepo,
 		handler:     handler,
 	}, nil
 }

@@ -11,8 +11,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/razorpay/razorpay-go"
+	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
+	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -167,24 +169,50 @@ func (m *fileSvcMock) GetPresignedURL(ctx context.Context, key string, expiratio
 	return args.String(0), args.Error(1)
 }
 
-func newPaymentSvc() (*paymentService, *orderRepoMock, *paymentRepoMock, *licenseRepoMock, *specFinderMock, *fileSvcMock) {
+type userFinderMock struct{ mock.Mock }
+
+func (m *userFinderMock) FindByID(ctx context.Context, id uuid.UUID) (*authDomain.User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*authDomain.User), args.Error(1)
+}
+func (m *userFinderMock) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	args := m.Called(ctx, id)
+	return args.Bool(0), args.Error(1)
+}
+
+type emailSenderMock struct{ mock.Mock }
+
+func (m *emailSenderMock) Send(ctx context.Context, msg sharedemail.Message) error {
+	args := m.Called(ctx, msg)
+	return args.Error(0)
+}
+
+func newPaymentSvc() (*paymentService, *orderRepoMock, *paymentRepoMock, *licenseRepoMock, *specFinderMock, *fileSvcMock, *userFinderMock, *emailSenderMock) {
 	or := new(orderRepoMock)
 	pr := new(paymentRepoMock)
 	lr := new(licenseRepoMock)
 	sf := new(specFinderMock)
 	fs := new(fileSvcMock)
+	uf := new(userFinderMock)
+	es := new(emailSenderMock)
 	return &paymentService{
 		orderRepo:      or,
 		paymentRepo:    pr,
 		licenseRepo:    lr,
 		specFinder:     sf,
+		userFinder:     uf,
 		fileService:    fs,
 		razorpaySecret: "key-secret",
-	}, or, pr, lr, sf, fs
+		emailSender:    es,
+		appBaseURL:     "http://localhost:4200",
+	}, or, pr, lr, sf, fs, uf, es
 }
 
 func TestPaymentService_GenerateSignature(t *testing.T) {
-	s, _, _, _, _, _ := newPaymentSvc()
+	s, _, _, _, _, _, _, _ := newPaymentSvc()
 	sig := s.generateSignature("order_1", "pay_1")
 	assert.NotEmpty(t, sig)
 	assert.Equal(t, sig, s.generateSignature("order_1", "pay_1"))
@@ -201,7 +229,7 @@ func TestFormatRazorpayReceipt(t *testing.T) {
 }
 
 func TestPaymentService_CreateOrder_Errors(t *testing.T) {
-	s, _, _, _, sf, _ := newPaymentSvc()
+	s, _, _, _, sf, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	userID := uuid.New()
 	specID := uuid.New()
@@ -218,7 +246,7 @@ func TestPaymentService_CreateOrder_Errors(t *testing.T) {
 }
 
 func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
-	s, or, _, _, _, _ := newPaymentSvc()
+	s, or, _, _, _, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	orderID := uuid.New()
 
@@ -255,7 +283,7 @@ func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
 }
 
 func TestPaymentService_GetUserOrdersAndProducerOrders(t *testing.T) {
-	s, or, _, _, _, _ := newPaymentSvc()
+	s, or, _, _, _, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	userID := uuid.New()
 	producerID := uuid.New()
@@ -273,7 +301,7 @@ func TestPaymentService_GetUserOrdersAndProducerOrders(t *testing.T) {
 }
 
 func TestPaymentService_GetUserLicensesAndDownloads(t *testing.T) {
-	s, _, _, lr, sf, fs := newPaymentSvc()
+	s, _, _, lr, sf, fs, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	userID := uuid.New()
 	specID := uuid.New()
@@ -312,7 +340,7 @@ func TestPaymentService_GetUserLicensesAndDownloads(t *testing.T) {
 }
 
 func TestPaymentService_GetLicenseDownloads_Errors(t *testing.T) {
-	s, _, _, lr, sf, _ := newPaymentSvc()
+	s, _, _, lr, sf, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	licenseID := uuid.New()
 	userID := uuid.New()
@@ -341,7 +369,7 @@ func TestPaymentService_GetLicenseDownloads_Errors(t *testing.T) {
 }
 
 func TestPaymentService_IssueLicense(t *testing.T) {
-	s, _, _, lr, sf, _ := newPaymentSvc()
+	s, _, _, lr, sf, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	specID := uuid.New()
 	loID := uuid.New()
@@ -369,7 +397,7 @@ func TestPaymentService_IssueLicense(t *testing.T) {
 }
 
 func TestPaymentService_IssueLicense_InvalidLicenseOptionID(t *testing.T) {
-	s, _, _, _, _, _ := newPaymentSvc()
+	s, _, _, _, _, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	order := &domain.Order{
 		ID:          uuid.New(),
@@ -386,7 +414,7 @@ func TestPaymentService_IssueLicense_InvalidLicenseOptionID(t *testing.T) {
 func ptr(s string) *string { return &s }
 
 func TestPaymentService_VerifyPayment_StatusUpdateFailureBranches(t *testing.T) {
-	s, or, _, _, _, _ := newPaymentSvc()
+	s, or, _, _, _, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	orderID := uuid.New()
 
@@ -409,7 +437,7 @@ func TestPaymentService_VerifyPayment_StatusUpdateFailureBranches(t *testing.T) 
 }
 
 func TestPaymentService_GetUserLicensesAndProducerOrders_ErrorsAndFallbacks(t *testing.T) {
-	s, or, _, lr, _, fs := newPaymentSvc()
+	s, or, _, lr, _, fs, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	userID := uuid.New()
 	producerID := uuid.New()
@@ -433,13 +461,13 @@ func TestPaymentService_GetUserLicensesAndProducerOrders_ErrorsAndFallbacks(t *t
 }
 
 func TestPaymentService_IssueLicense_MissingOptionID(t *testing.T) {
-	s, _, _, _, _, _ := newPaymentSvc()
+	s, _, _, _, _, _, _, _ := newPaymentSvc()
 	_, err := s.issueLicense(context.Background(), &domain.Order{Notes: map[string]any{}})
 	assert.EqualError(t, err, "license_option_id missing")
 }
 
 func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
-	s, or, _, _, sf, _ := newPaymentSvc()
+	s, or, _, _, sf, _, _, _ := newPaymentSvc()
 	ctx := context.Background()
 	userID := uuid.New()
 	specID := uuid.New()
@@ -484,7 +512,7 @@ func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
 }
 
 func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
-	s, or, pr, lr, _, _ := newPaymentSvc()
+	s, or, pr, lr, _, _, uf, es := newPaymentSvc()
 	ctx := context.Background()
 	orderID := uuid.New()
 	loID := uuid.New()
@@ -525,7 +553,7 @@ func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
 		LicenseType:     "Basic",
 		Amount:          1000,
 		Currency:        "INR",
-		Notes:           map[string]any{"license_option_id": loID.String()},
+		Notes:           map[string]any{"license_option_id": loID.String(), "spec_title": "Track"},
 	}
 
 	signature := s.generateSignature(rzpOrderID, paymentID)
@@ -533,10 +561,14 @@ func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
 	pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
 	lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(nil).Once()
+	uf.On("FindByID", mock.Anything, order.UserID).Return(&authDomain.User{ID: order.UserID, Email: "buyer@example.com", Name: "Buyer"}, nil).Once()
+	es.On("Send", mock.Anything, mock.AnythingOfType("email.Message")).Return(nil).Once()
 
 	license, err := s.VerifyPayment(ctx, orderID, paymentID, signature)
 	assert.NoError(t, err)
 	assert.NotNil(t, license)
+
+	time.Sleep(50 * time.Millisecond)
 
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
 	_, err = s.VerifyPayment(ctx, orderID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
