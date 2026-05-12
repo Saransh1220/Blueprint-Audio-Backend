@@ -39,6 +39,33 @@ func NewSpecHandler(service application.SpecService, fileService FileService, an
 	}
 }
 
+func (h *SpecHandler) cacheGet(ctx context.Context, key string) (string, bool) {
+	if h.redisClient == nil {
+		return "", false
+	}
+
+	val, err := h.redisClient.Get(ctx, key).Result()
+	return val, err == nil
+}
+
+func (h *SpecHandler) cacheSet(ctx context.Context, key string, value []byte, expiration time.Duration) {
+	if h.redisClient == nil {
+		return
+	}
+	if err := h.redisClient.Set(ctx, key, value, expiration).Err(); err != nil {
+		log.Printf("[CACHE SET FAILED] %s: %v", key, err)
+	}
+}
+
+func (h *SpecHandler) cacheDel(ctx context.Context, key string) {
+	if h.redisClient == nil {
+		return
+	}
+	if err := h.redisClient.Del(ctx, key).Err(); err != nil {
+		log.Printf("[CACHE INVALIDATE FAILED] %s: %v", key, err)
+	}
+}
+
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[SpecHandler.Create] Started")
 
@@ -190,7 +217,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
 
 				// Invalidate Cache
-				h.redisClient.Del(asyncCtx, "spec:"+specID.String())
+				h.cacheDel(asyncCtx, "spec:"+specID.String())
 
 				// Notify Failure
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
@@ -211,7 +238,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 					// Invalidate Cache (to reflect failed status)
 					cacheKey := "spec:" + specID.String()
-					h.redisClient.Del(asyncCtx, cacheKey)
+					h.cacheDel(asyncCtx, cacheKey)
 
 					// Notify Failure
 					_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
@@ -220,7 +247,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 				// Invalidate Cache (to reflect new status and files)
 				cacheKey := "spec:" + specID.String()
-				h.redisClient.Del(asyncCtx, cacheKey)
+				h.cacheDel(asyncCtx, cacheKey)
 
 				// Notify Success
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Complete", fmt.Sprintf("Your beat '%s' is now live!", spec.Title), "success")
@@ -345,8 +372,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Try Cache
 	cacheKey := "spec:" + idStr
-	val, err := h.redisClient.Get(r.Context(), cacheKey).Result()
-	if err == nil {
+	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
 		// Cache Hit!
 		log.Printf("[CACHE HIT] Spec ID: %s", idStr)
 		w.Header().Set("Content-Type", "application/json")
@@ -392,7 +418,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// 3. Save to Cache (Async)
 	go func() {
 		jsonBytes, _ := json.Marshal(response)
-		h.redisClient.Set(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
+		h.cacheSet(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -536,7 +562,7 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 			// Invalidate Cache
 			cacheKey := "spec:" + idStr
-			h.redisClient.Del(context.Background(), cacheKey)
+			h.cacheDel(context.Background(), cacheKey)
 			log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
 
 			w.WriteHeader(http.StatusNoContent)
@@ -573,7 +599,7 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate Cache
 	cacheKey := "spec:" + idStr
-	h.redisClient.Del(context.Background(), cacheKey)
+	h.cacheDel(context.Background(), cacheKey)
 	log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
 
 	w.WriteHeader(http.StatusNoContent)
@@ -733,7 +759,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate Cache
 	cacheKey := "spec:" + idStr
-	h.redisClient.Del(context.Background(), cacheKey)
+	h.cacheDel(context.Background(), cacheKey)
 	log.Printf("[CACHE INVALIDATE] Updated Spec ID: %s", idStr)
 
 	w.Header().Set("Content-Type", "application/json")

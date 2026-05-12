@@ -32,17 +32,25 @@ func main() {
 	}
 	defer db.Close()
 
-	// 3. Redis Connection
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Host + ":" + cfg.Redis.Port,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
 	ctx := context.Background()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Printf("Warning: Failed to connect to Redis: %v", err)
+	var redisClient *redis.Client
+	if cfg.Redis.Enabled {
+		// 3. Redis Connection
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Host + ":" + cfg.Redis.Port,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("Warning: Failed to connect to Redis; cache disabled: %v", err)
+			redisClient.Close()
+			redisClient = nil
+		} else {
+			defer redisClient.Close()
+		}
+	} else {
+		log.Printf("Redis disabled; running without cache")
 	}
-	defer redisClient.Close()
 
 	// 4. Initialize Modules
 	if cfg.Email.Enabled && (strings.TrimSpace(cfg.Email.ResendAPIKey) == "" || strings.TrimSpace(cfg.Email.From) == "") {

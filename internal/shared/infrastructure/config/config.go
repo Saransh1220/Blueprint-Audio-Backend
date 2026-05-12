@@ -87,6 +87,7 @@ func Load() Config {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		Redis: database.RedisConfig{
+			Enabled:  getEnv("REDIS_ENABLED", "true") == "true",
 			Host:     getEnv("REDIS_HOST", "localhost"),
 			Port:     getEnv("REDIS_PORT", "6379"),
 			Password: getEnv("REDIS_PASSWORD", ""),

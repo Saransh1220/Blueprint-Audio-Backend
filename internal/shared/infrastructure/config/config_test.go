@@ -30,6 +30,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, 24*time.Hour, cfg.JWT.Expiry)
 	assert.Equal(t, "localhost", cfg.Database.Host)
 	assert.Equal(t, "5432", cfg.Database.Port)
+	assert.True(t, cfg.Redis.Enabled)
 }
 
 func TestLoad_CustomValues(t *testing.T) {
@@ -47,6 +48,7 @@ func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("DB_PASSWORD", "secret")
 	os.Setenv("DB_NAME", "production")
 	os.Setenv("DB_SSLMODE", "require")
+	os.Setenv("REDIS_ENABLED", "false")
 	os.Setenv("REDIS_HOST", "redis-server")
 	os.Setenv("REDIS_PORT", "6380")
 
@@ -65,6 +67,7 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.Equal(t, "secret", cfg.Database.Password)
 	assert.Equal(t, "production", cfg.Database.DBName)
 	assert.Equal(t, "require", cfg.Database.SSLMode)
+	assert.False(t, cfg.Redis.Enabled)
 	assert.Equal(t, "redis-server", cfg.Redis.Host)
 	assert.Equal(t, "6380", cfg.Redis.Port)
 }

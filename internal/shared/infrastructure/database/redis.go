@@ -10,6 +10,7 @@ import (
 
 // RedisConfig holds Redis connection configuration
 type RedisConfig struct {
+	Enabled  bool
 	Host     string
 	Port     string
 	Password string

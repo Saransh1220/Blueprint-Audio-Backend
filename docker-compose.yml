@@ -78,6 +78,7 @@ services:
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
 
       # Redis
+      REDIS_ENABLED: ${REDIS_ENABLED:-true}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
