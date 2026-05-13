@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
+	"net"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -19,11 +23,19 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
 	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
+	"github.com/saransh1220/blueprint-audio/pkg/migration"
 )
 
 func main() {
 	// 1. Load Configuration
 	cfg := config.Load()
+
+	if cfg.Migration.AutoRun {
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+		if err := migration.AutoMigrate(postgresURL(cfg.Database), cfg.Migration.Path, logger); err != nil {
+			log.Fatalf("Failed to run database migrations: %v", err)
+		}
+	}
 
 	// 2. Database Connection
 	db, err := database.NewPostgresDB(cfg.Database)
@@ -118,4 +130,19 @@ func main() {
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func postgresURL(cfg database.PostgresConfig) string {
+	u := &url.URL{
+		Scheme: "postgresql",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   net.JoinHostPort(cfg.Host, cfg.Port),
+		Path:   "/" + cfg.DBName,
+	}
+
+	q := u.Query()
+	q.Set("sslmode", cfg.SSLMode)
+	u.RawQuery = q.Encode()
+
+	return u.String()
 }

@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Server      ServerConfig
 	Database    database.PostgresConfig
+	Migration   MigrationConfig
 	Redis       database.RedisConfig
 	JWT         JWTConfig
 	Razorpay    RazorpayConfig
@@ -67,6 +68,11 @@ type FileStorageConfig struct {
 	LocalPath        string
 }
 
+type MigrationConfig struct {
+	AutoRun bool
+	Path    string
+}
+
 // Load reads configuration from environment variables
 func Load() Config {
 	environment := strings.ToLower(getEnv("ENV", "development"))
@@ -85,6 +91,10 @@ func Load() Config {
 			Password: getEnv("DB_PASSWORD", ""),
 			DBName:   getEnv("DB_NAME", "blueprint"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+		},
+		Migration: MigrationConfig{
+			AutoRun: getEnv("AUTO_MIGRATE", "false") == "true",
+			Path:    getEnv("MIGRATIONS_PATH", "db/migrations"),
 		},
 		Redis: database.RedisConfig{
 			Enabled:  getEnv("REDIS_ENABLED", "true") == "true",

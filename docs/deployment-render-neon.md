@@ -99,11 +99,20 @@ DB_SSLMODE=require
 
 Use the non-pooled Neon host first. It is simpler for a normal long-running Render backend.
 
-## 3. Run Database Migrations On Neon
+## 3. Database Migrations On Neon
 
-The app does not automatically run migrations on startup. Run them once against Neon before using the deployed backend.
+The deployed Render backend can run migrations automatically before the server starts. Set this on Render:
 
-On your local machine, in `blueprint-backend`, temporarily set your local `.env` DB values to the Neon values:
+```env
+AUTO_MIGRATE=true
+MIGRATIONS_PATH=db/migrations
+```
+
+With this enabled, every new Render deploy runs all pending migrations first. Already-run migrations are skipped by `golang-migrate`, so this is safe for normal deploys.
+
+For the first production deploy, you can either let Render run migrations automatically, or run them manually once from your local machine before deploying.
+
+To run them manually, temporarily set your local `.env` DB values to the Neon values:
 
 ```env
 DB_HOST=your-neon-host.neon.tech
@@ -129,6 +138,8 @@ make migrate-version
 After migrations finish, restore your local `.env` back to local Docker Postgres values if you still want local dev to use Docker.
 
 Important: do not run `make migrate-drop` against Neon production. It drops data.
+
+If Render logs show a "dirty" migration state, stop and fix the database manually before deploying again. A dirty state means one migration partially failed and `golang-migrate` is protecting your data from guessing.
 
 ## 4. Create Render Backend Service
 
@@ -180,6 +191,8 @@ Use `PORT=8080` because this repo's `Dockerfile` exposes `8080` and the local co
 ```env
 PORT=8080
 ENV=production
+AUTO_MIGRATE=true
+MIGRATIONS_PATH=db/migrations
 REDIS_ENABLED=false
 ```
 
@@ -294,6 +307,8 @@ The backend intentionally fails startup when `EMAIL_ENABLED=true` but required e
 4. Successful logs should include:
 
 ```text
+Running database migrations...
+Migrations completed successfully
 Redis disabled; running without cache
 Server starting on port 8080
 ```
@@ -327,6 +342,17 @@ For Neon, `DB_SSLMODE` must be:
 ```env
 DB_SSLMODE=require
 ```
+
+If the database connection fails during startup, the automatic migration step may fail before the server starts. Fix the Neon DB env vars and redeploy.
+
+### Migration Fails
+
+If a migration fails:
+
+1. Open Render logs and identify the migration number.
+2. Open Neon and inspect the database state.
+3. Fix the SQL or data issue.
+4. If the database is dirty, use `make migrate-force version=N` only after you know the correct version. Be careful: force changes the migration bookkeeping without running SQL.
 
 ### Email Startup Fails
 
@@ -449,6 +475,8 @@ Render backend:
 ```env
 PORT=8080
 ENV=production
+AUTO_MIGRATE=true
+MIGRATIONS_PATH=db/migrations
 
 DB_HOST=
 DB_PORT=5432
