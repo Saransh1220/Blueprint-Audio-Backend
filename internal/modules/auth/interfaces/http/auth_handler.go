@@ -53,6 +53,11 @@ func NewAuthHandler(service AuthService, fileService FileService, googleClientID
 }
 
 func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time, maxAge int) {
+	sameSite := http.SameSiteStrictMode
+	if h.secureCookie {
+		sameSite = http.SameSiteNoneMode
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    value,
@@ -61,7 +66,7 @@ func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, value string, expi
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   h.secureCookie,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sameSite,
 	})
 }
 

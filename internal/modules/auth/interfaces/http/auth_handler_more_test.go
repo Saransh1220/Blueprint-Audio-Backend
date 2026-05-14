@@ -63,6 +63,7 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 		assert.Equal(t, "refresh-1", cookies[0].Value)
 		assert.True(t, cookies[0].HttpOnly)
 		assert.True(t, cookies[0].Secure)
+		assert.Equal(t, http.SameSiteNoneMode, cookies[0].SameSite)
 		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
 	}
 
@@ -159,6 +160,7 @@ func TestAuthHandler_GoogleLoginBranches(t *testing.T) {
 		assert.Equal(t, "refresh-google", cookies[0].Value)
 		assert.True(t, cookies[0].HttpOnly)
 		assert.True(t, cookies[0].Secure)
+		assert.Equal(t, http.SameSiteNoneMode, cookies[0].SameSite)
 		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
 	}
 }
@@ -185,6 +187,7 @@ func TestAuthHandler_LoginUsesDevCookieSettings(t *testing.T) {
 		assert.Equal(t, "refresh-1", cookies[0].Value)
 		assert.True(t, cookies[0].HttpOnly)
 		assert.False(t, cookies[0].Secure)
+		assert.Equal(t, http.SameSiteStrictMode, cookies[0].SameSite)
 		assert.WithinDuration(t, time.Now().Add(refreshTTL), cookies[0].Expires, time.Minute)
 	}
 }

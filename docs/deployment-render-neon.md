@@ -220,24 +220,44 @@ GOOGLE_CLIENT_ID=your-google-client-id
 
 ### Frontend Links And CORS
 
-At first, Cloudflare Pages will give you a URL like:
+For QA, use your Porkbun domain as the frontend URL:
 
 ```text
-https://red-wave-app.pages.dev
+https://qa.waveyard.studio
 ```
 
 Set:
 
 ```env
-APP_BASE_URL=https://your-cloudflare-pages-url.pages.dev
-ALLOWED_ORIGINS=https://your-cloudflare-pages-url.pages.dev
+APP_BASE_URL=https://qa.waveyard.studio
+ALLOWED_ORIGINS=https://qa.waveyard.studio
 ```
 
-If you later add a custom domain, update both:
+At first, Cloudflare Pages will also give you a temporary URL like:
+
+```text
+https://red-wave-app.pages.dev
+```
+
+If you want both the custom QA domain and the temporary Pages URL to work, set both origins as a comma-separated list:
 
 ```env
-APP_BASE_URL=https://yourdomain.com
-ALLOWED_ORIGINS=https://yourdomain.com,https://your-cloudflare-pages-url.pages.dev
+APP_BASE_URL=https://qa.waveyard.studio
+ALLOWED_ORIGINS=https://qa.waveyard.studio,https://your-cloudflare-pages-url.pages.dev
+```
+
+CORS origins must be exact browser origins:
+
+- Include `https://`.
+- Do not include a trailing slash.
+- Do not include paths like `/api`.
+- Separate multiple origins with commas only.
+
+If you later add the production root domain, update both:
+
+```env
+APP_BASE_URL=https://waveyard.studio
+ALLOWED_ORIGINS=https://waveyard.studio,https://qa.waveyard.studio
 ```
 
 ### Cloudflare R2
@@ -320,6 +340,36 @@ https://blueprint-audio-api.onrender.com
 ```
 
 That is your backend API URL.
+
+### Recommended QA Backend Domain
+
+For QA, add a custom Render domain such as:
+
+```text
+https://api-qa.waveyard.studio
+```
+
+This is better than using the raw `onrender.com` URL from the browser because the backend sets the refresh token cookie with `SameSite=Strict`. A frontend on `qa.waveyard.studio` and an API on `api-qa.waveyard.studio` are same-site. A frontend on `qa.waveyard.studio` and an API on `blueprint-audio-api.onrender.com` are cross-site, which can break refresh-token cookies.
+
+In Render:
+
+1. Open the backend Web Service.
+2. Go to **Settings** or **Custom Domains**.
+3. Add:
+
+```text
+api-qa.waveyard.studio
+```
+
+4. Add the DNS record Render asks for at Cloudflare or Porkbun.
+
+The DNS record will usually be a CNAME similar to:
+
+```text
+api-qa -> your-render-service.onrender.com
+```
+
+After SSL is ready, use `https://api-qa.waveyard.studio` as the frontend API URL.
 
 ## 7. If The Render Deploy Fails
 
@@ -414,6 +464,34 @@ Build output directory: dist/blueprint-audio/browser
 
 If your build output path differs, check `angular.json` and the generated `dist` folder after a local build.
 
+### Add `qa.waveyard.studio` To Cloudflare Pages
+
+After the Pages project is created:
+
+1. Open the Cloudflare Pages project.
+2. Go to **Custom domains**.
+3. Click **Set up a custom domain**.
+4. Enter:
+
+```text
+qa.waveyard.studio
+```
+
+5. Follow Cloudflare's DNS instructions.
+
+Because your domain is registered at Porkbun, you have two common choices:
+
+- Recommended: move/manage DNS in Cloudflare by changing Porkbun nameservers to Cloudflare's nameservers.
+- Alternative: keep Porkbun DNS and add the CNAME record Cloudflare Pages asks for.
+
+The DNS record will usually be a CNAME similar to:
+
+```text
+qa -> your-cloudflare-pages-project.pages.dev
+```
+
+Wait for DNS and SSL certificate provisioning to finish before testing login/cookies.
+
 ## 9. Update Frontend Production API URL
 
 In `red-wave-app`, update:
@@ -427,7 +505,7 @@ Set:
 ```ts
 export const environment = {
   production: true,
-  apiUrl: 'https://blueprint-audio-api.onrender.com',
+  apiUrl: 'https://api-qa.waveyard.studio',
   razorpayKeyId: 'rzp_live_your_key_id',
   googleClientId: 'your-google-client-id',
 };
@@ -440,8 +518,8 @@ Commit and push. Cloudflare Pages will rebuild the frontend.
 After Cloudflare Pages deploys, copy the frontend URL and update Render:
 
 ```env
-APP_BASE_URL=https://your-cloudflare-pages-url.pages.dev
-ALLOWED_ORIGINS=https://your-cloudflare-pages-url.pages.dev
+APP_BASE_URL=https://qa.waveyard.studio
+ALLOWED_ORIGINS=https://qa.waveyard.studio,https://your-cloudflare-pages-url.pages.dev
 ```
 
 Then in Render choose:
