@@ -54,12 +54,12 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
             id, producer_id, title, category, type, bpm, key, 
             base_price, image_url, preview_url, wav_url, stems_url,
             tags, duration, free_mp3_enabled,
-            created_at, updated_at, processing_status
+            created_at, updated_at, processing_status,moods,instruments,slug,short_code
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
             :base_price, :image_url, :preview_url, :wav_url, :stems_url,
             :tags, :duration, :free_mp3_enabled,
-            :created_at, :updated_at, :processing_status
+            :created_at, :updated_at, :processing_status, :moods, :instruments, :slug, :short_code
         )`
 
 	_, err = tx.NamedExecContext(ctx, query, spec)
@@ -139,7 +139,7 @@ func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1 AND s.is_deleted = FALSE
@@ -149,8 +149,7 @@ func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 		return nil, err
 	}
 
-	//fetct licences
-	//fetct licences
+	//fetch licences
 	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
 	if err != nil {
@@ -167,6 +166,68 @@ func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	return spec, nil
 }
 
+func (r *PgSpecRepository) GetBySlug(ctx context.Context, slug string) (*domain.Spec, error) {
+	spec := &domain.Spec{}
+
+	query := `
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.slug = $1 AND s.is_deleted = FALSE
+	`
+	err := r.db.GetContext(ctx, spec, query, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	//fetch licences
+	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
+	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, spec.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	//fetch genres
+	genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+
+	err = r.db.SelectContext(ctx, &spec.Genres, genreQuery, spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
+
+}
+
+func (r *PgSpecRepository) GetByShortCode(ctx context.Context, shortCode string) (*domain.Spec, error) {
+	spec := &domain.Spec{}
+
+	query := `SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		FROM specs s 
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.short_code = $1 AND s.is_deleted = FALSE`
+	err := r.db.GetContext(ctx, spec, query, shortCode)
+	if err != nil {
+		return nil, err
+	}
+
+	//fetch licences
+	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
+	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, spec.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	//fetch genres
+	genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+
+	err = r.db.SelectContext(ctx, &spec.Genres, genreQuery, spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
+
+}
+
 func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) ([]domain.Spec, int, error) {
 	// Use a struct to hold the result including the window function count
 	var results []struct {
@@ -175,7 +236,7 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle, COUNT(*) OVER() as total_count 
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.is_deleted = FALSE
@@ -184,7 +245,7 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	argId := 1
 
 	if filter.Category != "" {
-		query += fmt.Sprintf(" AND category = $%d", argId)
+		query += fmt.Sprintf(" AND s.category = $%d", argId)
 		args = append(args, filter.Category)
 		argId++
 	}
@@ -200,63 +261,93 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	if len(filter.Tags) > 0 {
-		query += fmt.Sprintf(" AND tags @> $%d", argId)
+		query += fmt.Sprintf(" AND s.tags @> $%d", argId)
 		args = append(args, pq.Array(filter.Tags))
 		argId++
 	}
 
 	if filter.Search != "" {
 		searchTerm := "%" + filter.Search + "%"
-		query += fmt.Sprintf(" AND (title ILIKE $%d OR array_to_string(tags, ',') ILIKE $%d)", argId, argId)
+		query += fmt.Sprintf(` AND (
+			s.title ILIKE $%d OR
+			array_to_string(s.tags, ',') ILIKE $%d OR
+			array_to_string(s.moods, ',') ILIKE $%d OR
+			u.display_name ILIKE $%d OR
+			s.description ILIKE $%d
+		)`, argId, argId, argId, argId, argId)
 		args = append(args, searchTerm)
 		argId++
 	}
 
 	if filter.MinBPM > 0 {
-		query += fmt.Sprintf(" AND bpm >= $%d", argId)
+		query += fmt.Sprintf(" AND s.bpm >= $%d", argId)
 		args = append(args, filter.MinBPM)
 		argId++
 	}
 
 	if filter.MaxBPM > 0 {
-		query += fmt.Sprintf(" AND bpm <= $%d", argId)
+		query += fmt.Sprintf(" AND s.bpm <= $%d", argId)
 		args = append(args, filter.MaxBPM)
 		argId++
 	}
 
 	if filter.MinPrice >= 0 {
-		query += fmt.Sprintf(" AND base_price >= $%d", argId)
+		query += fmt.Sprintf(" AND s.base_price >= $%d", argId)
 		args = append(args, filter.MinPrice)
 		argId++
 	}
 
 	if filter.MaxPrice > 0 {
-		query += fmt.Sprintf(" AND base_price <= $%d", argId)
+		query += fmt.Sprintf(" AND s.base_price <= $%d", argId)
 		args = append(args, filter.MaxPrice)
 		argId++
 	}
 
 	if filter.Key != "" {
-		query += fmt.Sprintf(" AND key = $%d", argId)
+		query += fmt.Sprintf(" AND s.key = $%d", argId)
 		args = append(args, filter.Key)
 		argId++
 	}
 
+	if len(filter.Moods) > 0 {
+		query += fmt.Sprintf(" AND s.moods && $%d", argId)
+		args = append(args, pq.Array(filter.Moods))
+		argId++
+	}
+
+	if len(filter.Instruments) > 0 {
+		query += fmt.Sprintf(" AND s.instruments && $%d", argId)
+		args = append(args, pq.Array(filter.Instruments))
+		argId++
+	}
+
+	if filter.MinDuration > 0 {
+		query += fmt.Sprintf(" AND s.duration >= $%d", argId)
+		args = append(args, filter.MinDuration)
+		argId++
+	}
+
+	if filter.MaxDuration > 0 {
+		query += fmt.Sprintf(" AND s.duration <= $%d", argId)
+		args = append(args, filter.MaxDuration)
+		argId++
+	}
+
 	// Dynamic Sorting
-	orderBy := "created_at DESC" // Default
+	orderBy := "s.created_at DESC" // Default
 	switch filter.Sort {
 	case "newest":
-		orderBy = "created_at DESC"
+		orderBy = "s.created_at DESC"
 	case "oldest":
-		orderBy = "created_at ASC"
+		orderBy = "s.created_at ASC"
 	case "price_asc":
-		orderBy = "base_price ASC"
+		orderBy = "s.base_price ASC"
 	case "price_desc":
-		orderBy = "base_price DESC"
+		orderBy = "s.base_price DESC"
 	case "bpm_asc":
-		orderBy = "bpm ASC"
+		orderBy = "s.bpm ASC"
 	case "bpm_desc":
-		orderBy = "bpm DESC"
+		orderBy = "s.bpm DESC"
 	}
 
 	query += fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d", orderBy, argId, argId+1)
@@ -414,6 +505,9 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		    image_url = :image_url,
 		    description = :description,
 		    tags = :tags,
+		    moods = :moods,
+		    instruments = :instruments,
+		    slug = :slug,
 		    duration = :duration,
 		    free_mp3_enabled = :free_mp3_enabled,
 		    updated_at = :updated_at
@@ -582,7 +676,7 @@ func (r *PgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 	}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle, COUNT(*) OVER() as total_count 
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.producer_id = $1 AND s.is_deleted = FALSE
@@ -667,7 +761,7 @@ func (r *PgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*do
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1

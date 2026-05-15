@@ -294,7 +294,7 @@ func TestSpecHandler_List_Get_Update_Delete_GetUserSpecs_Branches(t *testing.T) 
 		req.SetPathValue("id", userID.String())
 		w := httptest.NewRecorder()
 
-		specSvc.On("GetUserSpecs", mock.Anything, userID, 2).Return(nil, 0, errors.New("db")).Once()
+		specSvc.On("GetUserSpecs", mock.Anything, userID, 2, 20).Return(nil, 0, errors.New("db")).Once()
 		h.GetUserSpecs(w, req)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})

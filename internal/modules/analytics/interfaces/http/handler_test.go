@@ -87,6 +87,13 @@ func (m *mockSpecRepo) ListByUserID(ctx context.Context, producerID uuid.UUID, l
 func (m *mockSpecRepo) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
 	return nil
 }
+func (m *mockSpecRepo) GetByShortCode(ctx context.Context, shortCode string) (*catalogDomain.Spec, error) {
+	return nil, nil
+}
+func (m *mockSpecRepo) GetBySlug(ctx context.Context, slug string) (*catalogDomain.Spec, error) {
+	return nil, nil
+}
+
 
 type mockFileService struct{ mock.Mock }
 

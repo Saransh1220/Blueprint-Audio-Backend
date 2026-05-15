@@ -146,6 +146,20 @@ func (m *mockSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.U
 	args := m.Called(ctx, id, files, status)
 	return args.Error(0)
 }
+func (m *mockSpecRepository) GetByShortCode(ctx context.Context, shortCode string) (*catalogDomain.Spec, error) {
+	args := m.Called(ctx, shortCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*catalogDomain.Spec), args.Error(1)
+}
+func (m *mockSpecRepository) GetBySlug(ctx context.Context, slug string) (*catalogDomain.Spec, error) {
+	args := m.Called(ctx, slug)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*catalogDomain.Spec), args.Error(1)
+}
 
 func TestAnalyticsService_ToggleFavorite(t *testing.T) {
 	ctx := context.Background()

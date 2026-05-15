@@ -28,6 +28,10 @@ type SpecResponse struct {
 	Genres           []GenreResponse   `json:"genres,omitempty"`
 	Tags             []string          `json:"tags,omitempty"`
 	Analytics        *SpecAnalytics    `json:"analytics,omitempty"`
+	ShortCode        *string           `json:"short_code,omitempty"`
+	Slug             *string           `json:"slug,omitempty"`
+	Moods            []string          `json:"moods,omitempty"`
+	Instruments      []string          `json:"instruments,omitempty"`
 	ProcessingStatus string            `json:"processing_status"`
 }
 
@@ -78,6 +82,10 @@ func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 		CreatedAt:        spec.CreatedAt,
 		UpdatedAt:        spec.UpdatedAt,
 		Tags:             spec.Tags,
+		ShortCode:        spec.ShortCode,
+		Slug:             spec.Slug,
+		Moods:            spec.Moods,
+		Instruments:      spec.Instruments,
 		ProcessingStatus: string(spec.ProcessingStatus),
 	}
 

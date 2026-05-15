@@ -39,8 +39,9 @@ func TestSpecHandler_BasicValidationBranches(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/specs/bad-id", nil)
 	req.SetPathValue("id", "bad-id")
 	w = httptest.NewRecorder()
+	specSvc.On("GetSpecBySlug", mock.Anything, "bad-id").Return((*catalogDomain.Spec)(nil), nil).Once()
 	h.Get(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 
 	req = httptest.NewRequest(http.MethodGet, "/specs", nil)
 	specSvc.On("ListSpecs", mock.Anything, mock.Anything).Return(nil, 0, assert.AnError).Once()
@@ -95,7 +96,7 @@ func TestSpecHandler_ListAndGetUserSpecs_Success(t *testing.T) {
 	h.List(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	specSvc.On("GetUserSpecs", mock.Anything, userID, 1).Return(specs, 1, nil).Once()
+	specSvc.On("GetUserSpecs", mock.Anything, userID, 1, 20).Return(specs, 1, nil).Once()
 	fileSvc.On("GetKeyFromUrl", "signed-preview").Return("", assert.AnError).Once()
 	fileSvc.On("GetKeyFromUrl", "signed-img").Return("", assert.AnError).Once()
 	analyticsSvc.On("GetPublicAnalytics", mock.Anything, specID, (*uuid.UUID)(nil)).

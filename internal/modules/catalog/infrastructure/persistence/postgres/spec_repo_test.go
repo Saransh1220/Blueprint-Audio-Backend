@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
@@ -74,6 +75,8 @@ func TestPgSpecRepository_List_Genres(t *testing.T) {
 		PreviewUrl:   "http://example.com/preview.mp3",
 		BPM:          120,
 		Key:          "C Minor",
+		Moods:        pq.StringArray{},
+		Instruments:  pq.StringArray{},
 		Genres: []domain.Genre{
 			{ID: uuid.Nil, Name: genreName, Slug: genreName},
 		},

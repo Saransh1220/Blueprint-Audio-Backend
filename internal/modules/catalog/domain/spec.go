@@ -45,6 +45,11 @@ type Spec struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 	IsDeleted      bool       `json:"is_deleted" db:"is_deleted"`
+	Moods          pq.StringArray   `json:"moods" db:"moods"`
+	Instruments    pq.StringArray   `json:"instruments" db:"instruments"`
+	Slug           *string    `json:"slug" db:"slug"`
+	ShortCode      *string    `json:"short_code" db:"short_code"`
+	ProducerHandle string     `json:"producer_handle" db:"producer_handle"`
 
 	// Processing Status
 	ProcessingStatus ProcessingStatus `json:"processing_status" db:"processing_status"`
@@ -88,18 +93,23 @@ type Genre struct {
 
 // SpecFilter contains all possible filters for listing specs
 type SpecFilter struct {
-	Category Category
-	Genres   []string
-	Tags     []string
-	Search   string
-	MinBPM   int
-	MaxBPM   int
-	MinPrice float64
-	MaxPrice float64
-	Key      string
-	Limit    int
-	Offset   int
-	Sort     string
+	Category    Category
+	Genres      []string
+	Tags        []string
+	Search      string
+	MinBPM      int
+	MaxBPM      int
+	MinPrice    float64
+	MaxPrice    float64
+	Key         string
+	Limit       int
+	Offset      int
+	Sort        string
+	Page        int
+	Moods       []string
+	Instruments []string
+	MinDuration int
+	MaxDuration int
 }
 
 // SpecRepository defines the contract for spec data access
@@ -112,6 +122,8 @@ type SpecRepository interface {
 	UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status ProcessingStatus) error
 	Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID) error
 	ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]Spec, int, error)
+	GetBySlug(ctx context.Context, slug string) (*Spec, error)
+	GetByShortCode(ctx context.Context, shortCode string) (*Spec, error)
 }
 
 // SpecFinder provides spec lookup capabilities for other modules (Payment, Analytics)

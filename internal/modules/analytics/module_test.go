@@ -36,6 +36,13 @@ func (s *specRepoStub) ListByUserID(ctx context.Context, producerID uuid.UUID, l
 func (s *specRepoStub) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status catalogDomain.ProcessingStatus) error {
 	return nil
 }
+func (s *specRepoStub) GetByShortCode(ctx context.Context, shortCode string) (*catalogDomain.Spec, error) {
+	return nil, nil
+}
+func (s *specRepoStub) GetBySlug(ctx context.Context, slug string) (*catalogDomain.Spec, error) {
+	return nil, nil
+}
+
 
 type fileSvcStub struct{}
 

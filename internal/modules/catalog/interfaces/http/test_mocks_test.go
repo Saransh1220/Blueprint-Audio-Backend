@@ -46,8 +46,8 @@ func (m *mockSpecService) DeleteSpec(ctx context.Context, id uuid.UUID, producer
 	return args.Error(0)
 }
 
-func (m *mockSpecService) GetUserSpecs(ctx context.Context, producerID uuid.UUID, page int) ([]domain.Spec, int, error) {
-	args := m.Called(ctx, producerID, page)
+func (m *mockSpecService) GetUserSpecs(ctx context.Context, producerID uuid.UUID, page int, limit int) ([]domain.Spec, int, error) {
+	args := m.Called(ctx, producerID, page, limit)
 	if args.Get(0) == nil {
 		return nil, args.Int(1), args.Error(2)
 	}
@@ -57,6 +57,22 @@ func (m *mockSpecService) GetUserSpecs(ctx context.Context, producerID uuid.UUID
 func (m *mockSpecService) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
 	args := m.Called(ctx, id, files, status)
 	return args.Error(0)
+}
+
+func (m *mockSpecService) GetSpecByShortCode(ctx context.Context, shortCode string) (*domain.Spec, error) {
+	args := m.Called(ctx, shortCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Spec), args.Error(1)
+}
+
+func (m *mockSpecService) GetSpecBySlug(ctx context.Context, slug string) (*domain.Spec, error) {
+	args := m.Called(ctx, slug)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Spec), args.Error(1)
 }
 
 type mockAnalyticsService struct{ mock.Mock }

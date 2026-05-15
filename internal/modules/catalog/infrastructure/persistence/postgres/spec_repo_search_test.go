@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
@@ -64,6 +65,8 @@ func TestPgSpecRepository_List_PartialSearch(t *testing.T) {
 		BPM:         140,
 		Key:         "C Minor",
 		Tags:        []string{"trap", "dark", "moody"},
+		Moods:       pq.StringArray{},
+		Instruments: pq.StringArray{},
 		Genres:      []domain.Genre{},
 		Licenses:    []domain.LicenseOption{},
 		CreatedAt:   time.Now(),

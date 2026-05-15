@@ -364,28 +364,23 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
+	
+	var spec *domain.Spec
+	var err error
+
+	id, uuidErr := uuid.Parse(idStr)
+	if uuidErr == nil {
+		spec, err = h.service.GetSpec(r.Context(), id)
+	} else {
+		// Not a UUID, try short code (length 8) or slug
+		if len(idStr) == 8 {
+			spec, err = h.service.GetSpecByShortCode(r.Context(), idStr)
+		} else {
+			spec, err = h.service.GetSpecBySlug(r.Context(), idStr)
+		}
 	}
 
-	// 1. Try Cache
-	cacheKey := "spec:" + idStr
-	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
-		// Cache Hit!
-		log.Printf("[CACHE HIT] Spec ID: %s", idStr)
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "HIT")
-		w.Write([]byte(val))
-		return
-	}
-
-	log.Printf("[CACHE MISS] Spec ID: %s", idStr)
-
-	spec, err := h.service.GetSpec(r.Context(), id)
 	if err != nil {
-		// Differentiate between 404 and 500 if possible, for now 500 or 404 based on error
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -393,6 +388,19 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "spec not found", http.StatusNotFound)
 		return
 	}
+
+	// 1. Try Cache
+	cacheKey := "spec:" + spec.ID.String() // Normalize cache key to always use UUID
+	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
+		// Cache Hit!
+		log.Printf("[CACHE HIT] Spec ID: %s", spec.ID.String())
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		w.Write([]byte(val))
+		return
+	}
+
+	log.Printf("[CACHE MISS] Spec ID: %s", spec.ID.String())
 
 	h.sanitizeSpec(spec)
 
@@ -439,6 +447,16 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		tags = strings.Split(t, ",")
 	}
 
+	var moods []string
+	if m := strings.TrimSpace(q.Get("moods")); m != "" {
+		moods = strings.Split(m, ",")
+	}
+
+	var instruments []string
+	if i := strings.TrimSpace(q.Get("instruments")); i != "" {
+		instruments = strings.Split(i, ",")
+	}
+
 	search := q.Get("search")
 	key := q.Get("key")
 	if key == "All" {
@@ -448,6 +466,9 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	minBPM, _ := strconv.Atoi(q.Get("min_bpm"))
 	maxBPM, _ := strconv.Atoi(q.Get("max_bpm"))
 
+	minDuration, _ := strconv.Atoi(q.Get("min_duration"))
+	maxDuration, _ := strconv.Atoi(q.Get("max_duration"))
+
 	minPrice, _ := strconv.ParseFloat(q.Get("min_price"), 64)
 	maxPrice, _ := strconv.ParseFloat(q.Get("max_price"), 64)
 
@@ -456,29 +477,36 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	limit := 20
-	offset := (page - 1) * limit
-	if offset < 0 {
-		offset = 0
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 {
+		limit, _ = strconv.Atoi(q.Get("per_page"))
+	}
+	if limit <= 0 {
+		limit = 20
 	}
 
 	filter := domain.SpecFilter{
-		Category: category,
-		Genres:   genres,
-		Tags:     tags,
-		Search:   search,
-		MinBPM:   minBPM,
-		MaxBPM:   maxBPM,
-		MinPrice: minPrice,
-		MaxPrice: maxPrice,
-		Key:      key,
-		Sort:     q.Get("sort"),
-		Limit:    limit,
-		Offset:   offset,
+		Category:    category,
+		Genres:      genres,
+		Tags:        tags,
+		Moods:       moods,
+		Instruments: instruments,
+		Search:      search,
+		MinBPM:      minBPM,
+		MaxBPM:      maxBPM,
+		MinPrice:    minPrice,
+		MaxPrice:    maxPrice,
+		MinDuration: minDuration,
+		MaxDuration: maxDuration,
+		Key:         key,
+		Sort:        q.Get("sort"),
+		Page:        page,
+		Limit:       limit,
 	}
 
 	specs, total, err := h.service.ListSpecs(r.Context(), filter)
 	if err != nil {
+		log.Printf("[SpecHandler.List] Error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -514,6 +542,16 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 			"total":    total,
 			"page":     page,
 			"per_page": limit,
+			"limit":    limit,
+			"total_pages": func() int {
+				if limit <= 0 {
+					return 1
+				}
+				if total == 0 {
+					return 1
+				}
+				return (total + limit - 1) / limit
+			}(),
 		},
 	})
 }
@@ -774,12 +812,22 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	q := r.URL.Query()
+
+	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
 		page = 1
 	}
 
-	specs, total, err := h.service.GetUserSpecs(r.Context(), userID, page)
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 {
+		limit, _ = strconv.Atoi(q.Get("per_page"))
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	specs, total, err := h.service.GetUserSpecs(r.Context(), userID, page, limit)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -815,7 +863,17 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 		"metadata": map[string]interface{}{
 			"total":    total,
 			"page":     page,
-			"per_page": 20,
+			"per_page": limit,
+			"limit":    limit,
+			"total_pages": func() int {
+				if limit <= 0 {
+					return 1
+				}
+				if total == 0 {
+					return 1
+				}
+				return (total + limit - 1) / limit
+			}(),
 		},
 	})
 }

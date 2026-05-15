@@ -16,8 +16,10 @@ type mockRepo struct {
 	getByIDFn      func(context.Context, uuid.UUID) (*domain.Spec, error)
 	listFn         func(context.Context, domain.SpecFilter) ([]domain.Spec, int, error)
 	updateFn       func(context.Context, *domain.Spec) error
-	deleteFn       func(context.Context, uuid.UUID, uuid.UUID) error
-	listByUserIDFn func(context.Context, uuid.UUID, int, int) ([]domain.Spec, int, error)
+	deleteFn         func(context.Context, uuid.UUID, uuid.UUID) error
+	listByUserIDFn   func(context.Context, uuid.UUID, int, int) ([]domain.Spec, int, error)
+	getByShortCodeFn func(context.Context, string) (*domain.Spec, error)
+	getBySlugFn      func(context.Context, string) (*domain.Spec, error)
 }
 
 func (m mockRepo) Create(ctx context.Context, s *domain.Spec) error { return m.createFn(ctx, s) }
@@ -34,6 +36,18 @@ func (m mockRepo) Delete(ctx context.Context, id uuid.UUID, producerID uuid.UUID
 }
 func (m mockRepo) ListByUserID(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.Spec, int, error) {
 	return m.listByUserIDFn(ctx, producerID, limit, offset)
+}
+func (m mockRepo) GetByShortCode(ctx context.Context, code string) (*domain.Spec, error) {
+	if m.getByShortCodeFn != nil {
+		return m.getByShortCodeFn(ctx, code)
+	}
+	return nil, nil
+}
+func (m mockRepo) GetBySlug(ctx context.Context, slug string) (*domain.Spec, error) {
+	if m.getBySlugFn != nil {
+		return m.getBySlugFn(ctx, slug)
+	}
+	return nil, nil
 }
 func (m mockRepo) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
 	return nil
@@ -93,8 +107,7 @@ func TestSpecService_DelegatesAndUpdate(t *testing.T) {
 	_, _, err := svc.ListSpecs(ctx, domain.SpecFilter{})
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteSpec(ctx, specID, owner))
-	_, _, err = svc.GetUserSpecs(ctx, owner, -1)
-	require.NoError(t, err)
+	_, _, err = svc.GetUserSpecs(ctx, owner, 1, -1)
 
 	upd := &domain.Spec{ID: specID, Title: "new", BasePrice: 10, Category: domain.CategoryBeat, BPM: 100}
 	require.NoError(t, svc.UpdateSpec(ctx, upd, owner))

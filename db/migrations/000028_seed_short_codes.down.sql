@@ -1,0 +1,2 @@
+-- Reverting short code generation is destructive and cannot distinguish between newly seeded codes vs organically created ones.
+-- Leaving this intentionally empty to prevent accidental data loss.
