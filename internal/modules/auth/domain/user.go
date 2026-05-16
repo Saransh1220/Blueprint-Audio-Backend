@@ -8,10 +8,22 @@ import (
 )
 
 type UserRole string
+type SystemRole string
+type UserStatus string
 
 const (
 	RoleArtist   UserRole = "artist"
 	RoleProducer UserRole = "producer"
+)
+
+const (
+	SystemRoleUser       SystemRole = "user"
+	SystemRoleSuperAdmin SystemRole = "super_admin"
+)
+
+const (
+	UserStatusActive    UserStatus = "active"
+	UserStatusSuspended UserStatus = "suspended"
 )
 
 // User represents a user in the system
@@ -22,6 +34,8 @@ type User struct {
 	Name            string     `json:"name" db:"name"`
 	DisplayName     *string    `json:"display_name" db:"display_name"`
 	Role            UserRole   `json:"role" db:"role"`
+	SystemRole      SystemRole `json:"system_role" db:"system_role"`
+	Status          UserStatus `json:"status" db:"status"`
 	EmailVerified   bool       `json:"email_verified" db:"email_verified"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" db:"email_verified_at"`
 	Bio             *string    `json:"bio" db:"bio"`
@@ -42,6 +56,10 @@ type UserRepository interface {
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error
+	UpdateSystemRole(ctx context.Context, id uuid.UUID, role SystemRole) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status UserStatus) error
+	CountBySystemRole(ctx context.Context, role SystemRole) (int, error)
+	BootstrapSuperAdmin(ctx context.Context, email string) error
 }
 
 // UserFinder provides user lookup capabilities for other modules

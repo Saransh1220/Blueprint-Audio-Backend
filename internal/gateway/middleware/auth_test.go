@@ -19,7 +19,7 @@ func TestRequireAuth_Success(t *testing.T) {
 
 	// Generate valid token
 	userID := uuid.New()
-	token, err := utils.GenerateToken(userID, "test@example.com", "user", testSecret, 1*time.Hour)
+	token, err := utils.GenerateToken(userID, "test@example.com", "user", "user", testSecret, 1*time.Hour)
 	require.NoError(t, err)
 
 	// Create request
@@ -118,7 +118,7 @@ func TestFlexibleAuth_WithValidToken(t *testing.T) {
 	middleware := NewAuthMiddleware(testSecret)
 
 	userID := uuid.New()
-	token, err := utils.GenerateToken(userID, "test@example.com", "admin", testSecret, 1*time.Hour)
+	token, err := utils.GenerateToken(userID, "test@example.com", "admin", "user", testSecret, 1*time.Hour)
 	require.NoError(t, err)
 
 	req := httptest.NewRequest("GET", "/test", nil)

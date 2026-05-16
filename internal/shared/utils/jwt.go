@@ -6,6 +6,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 )
 
 var (
@@ -14,18 +15,23 @@ var (
 )
 
 type Claims struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
-	Role   string    `json:"role"`
+	UserID     uuid.UUID `json:"user_id"`
+	Email      string    `json:"email"`
+	Role       string    `json:"role"`
+	SystemRole string    `json:"system_role"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a new JWT token for a user
-func GenerateToken(userID uuid.UUID, email string, role string, secret string, expiry time.Duration) (string, error) {
+func GenerateToken(userID uuid.UUID, email string, role string, systemRole string, secret string, expiry time.Duration) (string, error) {
+	if systemRole == "" {
+		systemRole = string(domain.SystemRoleUser)
+	}
 	claims := &Claims{
-		UserID: userID,
-		Email:  email,
-		Role:   role,
+		UserID:     userID,
+		Email:      email,
+		Role:       role,
+		SystemRole: systemRole,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

@@ -16,7 +16,7 @@ func TestGenerateAndValidateToken_Success(t *testing.T) {
 	secret := "test-secret"
 
 	// Generate token
-	token, err := GenerateToken(userID, email, role, secret, 1*time.Hour)
+	token, err := GenerateToken(userID, email, role, "user", secret, 1*time.Hour)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -30,7 +30,7 @@ func TestGenerateAndValidateToken_Success(t *testing.T) {
 
 func TestValidateToken_WrongSecret(t *testing.T) {
 	userID := uuid.New()
-	token, err := GenerateToken(userID, "test@example.com", "user", "secret1", 1*time.Hour)
+	token, err := GenerateToken(userID, "test@example.com", "user", "user", "secret1", 1*time.Hour)
 	require.NoError(t, err)
 
 	// Try to validate with wrong secret
@@ -57,7 +57,7 @@ func TestGenerateToken_DifferentRoles(t *testing.T) {
 	secret := "test-secret"
 
 	for _, role := range roles {
-		token, err := GenerateToken(userID, "test@example.com", role, secret, 1*time.Hour)
+		token, err := GenerateToken(userID, "test@example.com", role, "user", secret, 1*time.Hour)
 		require.NoError(t, err)
 
 		claims, err := ValidateToken(token, secret)

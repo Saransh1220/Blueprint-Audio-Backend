@@ -117,6 +117,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error": "email not verified"}`, http.StatusForbidden)
 			return
 		}
+		if errors.Is(err, application.ErrAccountSuspended) {
+			http.Error(w, `{"error": "account suspended"}`, http.StatusForbidden)
+			return
+		}
 		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}

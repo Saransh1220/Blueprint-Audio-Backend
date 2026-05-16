@@ -27,6 +27,16 @@ func (r *repoStub) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHas
 func (r *repoStub) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
 	return nil
 }
+func (r *repoStub) UpdateSystemRole(ctx context.Context, id uuid.UUID, role authDomain.SystemRole) error {
+	return nil
+}
+func (r *repoStub) UpdateStatus(ctx context.Context, id uuid.UUID, status authDomain.UserStatus) error {
+	return nil
+}
+func (r *repoStub) CountBySystemRole(ctx context.Context, role authDomain.SystemRole) (int, error) {
+	return 0, nil
+}
+func (r *repoStub) BootstrapSuperAdmin(ctx context.Context, email string) error { return nil }
 
 func TestNewModule(t *testing.T) {
 	var fs *fileApp.FileService

@@ -34,6 +34,16 @@ func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, bio *str
 	args := m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL)
 	return args.Error(0)
 }
+func (m *mockUserRepo) UpdateSystemRole(ctx context.Context, id uuid.UUID, role authDomain.SystemRole) error {
+	return nil
+}
+func (m *mockUserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status authDomain.UserStatus) error {
+	return nil
+}
+func (m *mockUserRepo) CountBySystemRole(ctx context.Context, role authDomain.SystemRole) (int, error) {
+	return 0, nil
+}
+func (m *mockUserRepo) BootstrapSuperAdmin(ctx context.Context, email string) error { return nil }
 
 func TestUserService_UpdateProfile(t *testing.T) {
 	ctx := context.Background()

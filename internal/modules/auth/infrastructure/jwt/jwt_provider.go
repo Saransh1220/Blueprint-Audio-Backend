@@ -7,11 +7,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 )
 
 type CustomClaims struct {
-	UserID uuid.UUID `json:"user_id"`
-	Role   string    `json:"role"`
+	UserID     uuid.UUID `json:"user_id"`
+	Role       string    `json:"role"`
+	SystemRole string    `json:"system_role"`
 	jwt.RegisteredClaims
 }
 
@@ -20,10 +22,15 @@ type CustomClaims struct {
 // registered claims for expiration, issued at, and not before times.
 // The duration parameter specifies how long the token is valid.
 // Returns the signed JWT token string or an error if signing fails.
-func GenerateToken(secret string, duration time.Duration, userID uuid.UUID, role string) (string, error) {
+func GenerateToken(secret string, duration time.Duration, userID uuid.UUID, role string, systemRole ...string) (string, error) {
+	roleClaim := string(domain.SystemRoleUser)
+	if len(systemRole) > 0 && systemRole[0] != "" {
+		roleClaim = systemRole[0]
+	}
 	claims := CustomClaims{
-		UserID: userID,
-		Role:   role,
+		UserID:     userID,
+		Role:       role,
+		SystemRole: roleClaim,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

@@ -88,6 +88,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}                                                                                        
       EMAIL_FROM: ${EMAIL_FROM}                                                                                                
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
 
       # CORS
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}

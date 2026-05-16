@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/gateway"
 	gatewayMiddleware "github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/modules/admin"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog"
@@ -87,9 +88,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize auth module: %v", err)
 	}
+	if strings.TrimSpace(cfg.Bootstrap.SuperAdminEmail) != "" {
+		if err := authModule.UserRepository().BootstrapSuperAdmin(ctx, cfg.Bootstrap.SuperAdminEmail); err != nil {
+			log.Fatalf("Failed to bootstrap super admin: %v", err)
+		}
+		log.Printf("Super admin bootstrap checked for configured email")
+	}
 
 	// User Module
 	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service())
+	adminModule := admin.NewModule(db, authModule.UserRepository())
 
 	// Notification Module
 	notificationModule := notification.NewModule(db)
@@ -119,6 +127,7 @@ func main() {
 		PaymentHandler:      paymentModule.HTTPHandler(),
 		AnalyticsHandler:    analyticsModule.AnalyticsHandler,
 		NotificationHandler: notificationModule.HTTPHandler(),
+		AdminHandler:        adminModule.HTTPHandler(),
 	})
 
 	// 7. Apply Middleware

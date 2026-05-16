@@ -31,13 +31,19 @@ func NewUserRepository(db *sqlx.DB) *PgUserRepository {
 // Returns an error if the database operation fails.
 // Create implements domain.UserRepository
 func (r *PgUserRepository) Create(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, email_verified, email_verified_at, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :email_verified, :email_verified_at, :created_at, :updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, system_role, status, email_verified, email_verified_at, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :system_role, :status, :email_verified, :email_verified_at, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()
 	}
 	if user.UpdatedAt.IsZero() {
 		user.UpdatedAt = time.Now()
+	}
+	if user.SystemRole == "" {
+		user.SystemRole = domain.SystemRoleUser
+	}
+	if user.Status == "" {
+		user.Status = domain.UserStatusActive
 	}
 
 	// NamedExecContext is a sqlx feature! It uses the structure fields directly.
@@ -118,6 +124,63 @@ func (r *PgUserRepository) UpdatePassword(ctx context.Context, id uuid.UUID, pas
 	}
 	if rows == 0 {
 		return domain.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *PgUserRepository) UpdateSystemRole(ctx context.Context, id uuid.UUID, role domain.SystemRole) error {
+	query := `UPDATE users SET system_role = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, role, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *PgUserRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
+	query := `UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *PgUserRepository) CountBySystemRole(ctx context.Context, role domain.SystemRole) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM users WHERE system_role = $1`, role)
+	return count, err
+}
+
+func (r *PgUserRepository) BootstrapSuperAdmin(ctx context.Context, email string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return nil
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE users SET system_role = $1, updated_at = NOW() WHERE LOWER(email) = $2`, domain.SystemRoleSuperAdmin, email)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("no user found for email %s", email)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
+	admin_http "github.com/saransh1220/blueprint-audio/internal/modules/admin/interfaces/http"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
@@ -23,6 +24,7 @@ type RouterConfig struct {
 	PaymentHandler      *payment_http.PaymentHandler
 	AnalyticsHandler    *analytics_http.AnalyticsHandler
 	NotificationHandler *notification_http.NotificationHandler
+	AdminHandler        *admin_http.AdminHandler
 }
 
 // SetupRoutes creates and configures all application routes
@@ -88,6 +90,21 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /specs/{id}/analytics", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
 	mux.Handle("GET /analytics/overview", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
 	mux.Handle("GET /analytics/top-specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetTopSpecs)))
+
+	if config.AdminHandler != nil {
+		// Super Admin Routes
+		mux.Handle("GET /admin/users", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListUsers)))
+		mux.Handle("GET /admin/users/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.GetUser)))
+		mux.Handle("PATCH /admin/users/{id}/system-role", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateUserSystemRole)))
+		mux.Handle("PATCH /admin/users/{id}/status", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateUserStatus)))
+		mux.Handle("GET /admin/specs", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListSpecs)))
+		mux.Handle("PATCH /admin/specs/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateSpec)))
+		mux.Handle("DELETE /admin/specs/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.DeleteSpec)))
+		mux.Handle("GET /admin/orders", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListOrders)))
+		mux.Handle("GET /admin/licenses", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListLicenses)))
+		mux.Handle("GET /admin/analytics/overview", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.AnalyticsOverview)))
+		mux.Handle("GET /admin/audit-log", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListAuditLog)))
+	}
 
 	return mux
 }

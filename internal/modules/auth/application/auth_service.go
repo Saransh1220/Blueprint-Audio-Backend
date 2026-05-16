@@ -24,6 +24,7 @@ import (
 var (
 	ErrGoogleAuthFailed            = errors.New("google authentication failed")
 	ErrGoogleClientIDNotConfigured = errors.New("google oauth client id is not configured")
+	ErrAccountSuspended            = errors.New("account suspended")
 )
 
 type googleAuthError struct {
@@ -175,6 +176,8 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 		Name:          req.Name,
 		DisplayName:   displayName,
 		Role:          role,
+		SystemRole:    domain.SystemRoleUser,
+		Status:        domain.UserStatusActive,
 		EmailVerified: false,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
@@ -209,6 +212,9 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*TokenPair, 
 	}
 	if !user.EmailVerified {
 		return nil, domain.ErrEmailNotVerified
+	}
+	if user.Status == domain.UserStatusSuspended {
+		return nil, ErrAccountSuspended
 	}
 
 	return s.generateSession(ctx, user)
@@ -276,6 +282,8 @@ func (s *AuthService) GoogleLogin(ctx context.Context, googleClientID string, re
 				Name:            name,
 				DisplayName:     &name,
 				Role:            domain.RoleArtist,
+				SystemRole:      domain.SystemRoleUser,
+				Status:          domain.UserStatusActive,
 				EmailVerified:   true,
 				EmailVerifiedAt: timePtr(time.Now()),
 				AvatarUrl:       &picture,
@@ -392,7 +400,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 }
 
 func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*TokenPair, error) {
-	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role), string(user.SystemRole))
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +460,7 @@ func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (
 		return "", err
 	}
 
-	newAccessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role))
+	newAccessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role), string(user.SystemRole))
 	if err != nil {
 		return "", err
 	}

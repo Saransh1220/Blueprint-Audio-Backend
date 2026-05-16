@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bufio"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ type Config struct {
 	Server      ServerConfig
 	Database    database.PostgresConfig
 	Migration   MigrationConfig
+	Bootstrap   BootstrapConfig
 	Redis       database.RedisConfig
 	JWT         JWTConfig
 	Razorpay    RazorpayConfig
@@ -73,8 +76,13 @@ type MigrationConfig struct {
 	Path    string
 }
 
+type BootstrapConfig struct {
+	SuperAdminEmail string
+}
+
 // Load reads configuration from environment variables
 func Load() Config {
+	loadDotEnvIfPresent(".env")
 	environment := strings.ToLower(getEnv("ENV", "development"))
 
 	return Config{
@@ -95,6 +103,9 @@ func Load() Config {
 		Migration: MigrationConfig{
 			AutoRun: getEnv("AUTO_MIGRATE", "false") == "true",
 			Path:    getEnv("MIGRATIONS_PATH", "db/migrations"),
+		},
+		Bootstrap: BootstrapConfig{
+			SuperAdminEmail: getEnv("SUPER_ADMIN_EMAIL", ""),
 		},
 		Redis: database.RedisConfig{
 			Enabled:  getEnv("REDIS_ENABLED", "true") == "true",
@@ -142,6 +153,36 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func loadDotEnvIfPresent(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, `"'`)
+		_ = os.Setenv(key, value)
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("failed to scan env file %s: %v", path, err)
+	}
 }
 
 // parseDuration parses a duration string or returns a default value

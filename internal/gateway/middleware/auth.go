@@ -11,8 +11,9 @@ import (
 type contextKey string
 
 const (
-	ContextKeyUserId contextKey = "user_id"
-	ContextKeyRole   contextKey = "role"
+	ContextKeyUserId     contextKey = "user_id"
+	ContextKeyRole       contextKey = "role"
+	ContextKeySystemRole contextKey = "system_role"
 )
 
 type AuthMiddleWare struct {
@@ -63,6 +64,7 @@ func (m *AuthMiddleWare) RequireAuth(next http.Handler) http.Handler {
 		//  Inject Identity & Role into Context
 		ctx := context.WithValue(r.Context(), ContextKeyUserId, claims.UserID)
 		ctx = context.WithValue(ctx, ContextKeyRole, claims.Role) // <--- Crucial for RBAC
+		ctx = context.WithValue(ctx, ContextKeySystemRole, claims.SystemRole)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 
@@ -97,6 +99,7 @@ func (m *AuthMiddleWare) FlexibleAuth(next http.Handler) http.Handler {
 		// Inject Identity & Role into Context
 		ctx := context.WithValue(r.Context(), ContextKeyUserId, claims.UserID)
 		ctx = context.WithValue(ctx, ContextKeyRole, claims.Role)
+		ctx = context.WithValue(ctx, ContextKeySystemRole, claims.SystemRole)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

@@ -43,6 +43,19 @@ func (m *mockUserRepository) UpdatePassword(ctx context.Context, id uuid.UUID, p
 func (m *mockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
 	return m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL).Error(0)
 }
+func (m *mockUserRepository) UpdateSystemRole(ctx context.Context, id uuid.UUID, role domain.SystemRole) error {
+	return m.Called(ctx, id, role).Error(0)
+}
+func (m *mockUserRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
+	return m.Called(ctx, id, status).Error(0)
+}
+func (m *mockUserRepository) CountBySystemRole(ctx context.Context, role domain.SystemRole) (int, error) {
+	args := m.Called(ctx, role)
+	return args.Int(0), args.Error(1)
+}
+func (m *mockUserRepository) BootstrapSuperAdmin(ctx context.Context, email string) error {
+	return m.Called(ctx, email).Error(0)
+}
 
 type mockSessionRepository struct{ mock.Mock }
 
