@@ -52,12 +52,12 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 	query := `
         INSERT INTO specs (
             id, producer_id, title, category, type, bpm, key, 
-            base_price, image_url, preview_url, wav_url, stems_url,
+            base_price, price_currency, image_url, preview_url, wav_url, stems_url,
             tags, duration, free_mp3_enabled,
             created_at, updated_at, processing_status,moods,instruments,slug,short_code
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
-            :base_price, :image_url, :preview_url, :wav_url, :stems_url,
+            :base_price, :price_currency, :image_url, :preview_url, :wav_url, :stems_url,
             :tags, :duration, :free_mp3_enabled,
             :created_at, :updated_at, :processing_status, :moods, :instruments, :slug, :short_code
         )`
@@ -121,9 +121,9 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 
 		licenseQuery := `
             INSERT INTO license_options (
-                id, spec_id, license_type, name, price, features, file_types
+                id, spec_id, license_type, name, price, price_currency, features, file_types
             ) VALUES (
-                :id, :spec_id, :license_type, :name, :price, :features, :file_types
+                :id, :spec_id, :license_type, :name, :price, :price_currency, :features, :file_types
             )`
 		_, err = tx.NamedExecContext(ctx, licenseQuery, license)
 		if err != nil {
@@ -550,9 +550,9 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 		// Define Queries
 		insertQuery := `
             INSERT INTO license_options (
-                id, spec_id, license_type, name, price, features, file_types
+                id, spec_id, license_type, name, price, price_currency, features, file_types
             ) VALUES (
-                :id, :spec_id, :license_type, :name, :price, :features, :file_types
+                :id, :spec_id, :license_type, :name, :price, :price_currency, :features, :file_types
             )`
 
 		updateQuery := `
@@ -560,6 +560,7 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 				license_type = :license_type,
 				name = :name,
 				price = :price,
+				price_currency = :price_currency,
 				features = :features,
 				file_types = :file_types,
 				is_deleted = FALSE,

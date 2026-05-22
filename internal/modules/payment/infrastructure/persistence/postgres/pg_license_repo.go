@@ -35,12 +35,12 @@ func (r *PgLicenseRepository) Create(ctx context.Context, license *domain.Licens
 	query := `
 		INSERT INTO licenses (
 			id, order_id, user_id, spec_id, license_option_id,
-			license_type, purchase_price, license_key,
+			license_type, purchase_price, currency, license_key,
 			is_active, is_revoked, downloads_count,
 			issued_at, created_at, updated_at
 		) VALUES (
 			:id, :order_id, :user_id, :spec_id, :license_option_id,
-			:license_type, :purchase_price, :license_key,
+			:license_type, :purchase_price, :currency, :license_key,
 			:is_active, :is_revoked, :downloads_count,
 			:issued_at, :created_at, :updated_at
 		)`

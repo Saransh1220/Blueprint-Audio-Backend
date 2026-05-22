@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -236,12 +239,12 @@ func TestPaymentService_CreateOrder_Errors(t *testing.T) {
 	licenseID := uuid.New()
 
 	sf.On("FindWithLicenses", ctx, specID).Return(nil, errors.New("not found")).Once()
-	_, err := s.CreateOrder(ctx, userID, specID, licenseID)
+	_, err := s.CreateOrder(ctx, userID, specID, licenseID, "INR")
 	assert.EqualError(t, err, "Beat/Sample not found")
 
 	spec := &catalogDomain.Spec{ID: specID, Title: "Track", Licenses: []catalogDomain.LicenseOption{}}
 	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
-	_, err = s.CreateOrder(ctx, userID, specID, licenseID)
+	_, err = s.CreateOrder(ctx, userID, specID, licenseID, "INR")
 	assert.EqualError(t, err, "license option not found")
 }
 
@@ -495,13 +498,13 @@ func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
 		ID:    specID,
 		Title: "Track",
 		Licenses: []catalogDomain.LicenseOption{
-			{ID: loID, LicenseType: catalogDomain.LicenseBasic, Name: "Basic", Price: 99},
+			{ID: loID, LicenseType: catalogDomain.LicenseBasic, Name: "Basic", Price: 99, PriceCurrency: "EUR"},
 		},
 	}
 	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
 	or.On("Create", ctx, mock.AnythingOfType("*domain.Order")).Return(nil).Once()
 
-	order, err := s.CreateOrder(ctx, userID, specID, loID)
+	order, err := s.CreateOrder(ctx, userID, specID, loID, "INR")
 	assert.NoError(t, err)
 	assert.NotNil(t, order)
 	assert.Equal(t, "Basic", order.LicenseType)
@@ -573,4 +576,64 @@ func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
 	_, err = s.VerifyPayment(ctx, orderID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
 	assert.EqualError(t, err, "payment not captured")
+}
+
+func TestPaymentService_HandleDodoWebhook_SucceedsWithStandardWebhookSignature(t *testing.T) {
+	s, or, pr, lr, _, _, _, _ := newPaymentSvc()
+	ctx := context.Background()
+	orderID := uuid.New()
+	loID := uuid.New()
+	secretBytes := []byte("dodo-test-webhook-secret")
+	secret := "whsec_" + base64.StdEncoding.EncodeToString(secretBytes)
+	s.dodoConfig = DodoConfig{WebhookKey: secret}
+
+	payloadMap := map[string]any{
+		"type": "payment.succeeded",
+		"data": map[string]any{
+			"payment_id":          "pay_dodo_1",
+			"checkout_session_id": "cks_dodo_1",
+			"metadata": map[string]any{
+				"order_id":          orderID.String(),
+				"license_option_id": loID.String(),
+			},
+		},
+	}
+	payload, err := json.Marshal(payloadMap)
+	require.NoError(t, err)
+
+	webhookID := "evt_dodo_1"
+	timestamp := "1779091529"
+	mac := hmac.New(sha256.New, secretBytes)
+	mac.Write([]byte(webhookID + "." + timestamp + "." + string(payload)))
+	signature := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	order := &domain.Order{
+		ID:          orderID,
+		UserID:      uuid.New(),
+		SpecID:      uuid.New(),
+		LicenseType: "Unlimited",
+		Amount:      1099,
+		Currency:    "USD",
+		Status:      domain.OrderStatusPending,
+		Notes:       map[string]any{"license_option_id": loID.String()},
+	}
+	or.On("GetByID", ctx, orderID).Return(order, nil).Once()
+	pr.On("Create", ctx, mock.MatchedBy(func(payment *domain.Payment) bool {
+		return payment.OrderID == orderID &&
+			payment.RazorpayPaymentID == "pay_dodo_1" &&
+			payment.Status == domain.PaymentStatusCaptured
+	})).Return(nil).Once()
+	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
+	lr.On("Create", ctx, mock.MatchedBy(func(license *domain.License) bool {
+		return license.OrderID == orderID &&
+			license.LicenseOptionID == loID &&
+			license.Currency == "USD"
+	})).Return(nil).Once()
+
+	err = s.HandleDodoWebhook(ctx, payload, map[string]string{
+		"webhook-id":        webhookID,
+		"webhook-timestamp": timestamp,
+		"webhook-signature": signature,
+	})
+	assert.NoError(t, err)
 }

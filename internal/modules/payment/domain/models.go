@@ -28,18 +28,22 @@ const (
 )
 
 type Order struct {
-	ID              uuid.UUID      `json:"id" db:"id"`
-	UserID          uuid.UUID      `json:"user_id" db:"user_id"`
-	SpecID          uuid.UUID      `json:"spec_id" db:"spec_id"`
-	LicenseType     string         `json:"license_type" db:"license_type"`
-	Amount          int            `json:"amount" db:"amount"`
-	Currency        string         `json:"currency" db:"currency"`
-	RazorpayOrderID *string        `json:"razorpay_order_id,omitempty" db:"razorpay_order_id"`
-	Status          OrderStatus    `json:"status" db:"status"`
-	Notes           map[string]any `json:"notes,omitempty" db:"notes"`
-	CreatedAt       time.Time      `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at" db:"updated_at"`
-	ExpiresAt       time.Time      `json:"expires_at" db:"expires_at"`
+	ID                 uuid.UUID      `json:"id" db:"id"`
+	UserID             uuid.UUID      `json:"user_id" db:"user_id"`
+	SpecID             uuid.UUID      `json:"spec_id" db:"spec_id"`
+	LicenseType        string         `json:"license_type" db:"license_type"`
+	Amount             int            `json:"amount" db:"amount"`
+	Currency           string         `json:"currency" db:"currency"`
+	RazorpayOrderID    *string        `json:"razorpay_order_id,omitempty" db:"razorpay_order_id"`
+	Provider           string         `json:"provider" db:"provider"`
+	ProviderCheckoutID *string        `json:"provider_checkout_id,omitempty" db:"provider_checkout_id"`
+	ProviderPaymentID  *string        `json:"provider_payment_id,omitempty" db:"provider_payment_id"`
+	CheckoutURL        *string        `json:"checkout_url,omitempty" db:"-"`
+	Status             OrderStatus    `json:"status" db:"status"`
+	Notes              map[string]any `json:"notes,omitempty" db:"notes"`
+	CreatedAt          time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at" db:"updated_at"`
+	ExpiresAt          time.Time      `json:"expires_at" db:"expires_at"`
 }
 
 type OrderWithBuyer struct {
@@ -80,6 +84,7 @@ type License struct {
 	LicenseOptionID  uuid.UUID  `json:"license_option_id" db:"license_option_id"`
 	LicenseType      string     `json:"license_type" db:"license_type"`
 	PurchasePrice    int        `json:"purchase_price" db:"purchase_price"`
+	Currency         string     `json:"currency" db:"currency"`
 	LicenseKey       string     `json:"license_key" db:"license_key"`
 	IsActive         bool       `json:"is_active" db:"is_active"`
 	IsRevoked        bool       `json:"is_revoked" db:"is_revoked"`

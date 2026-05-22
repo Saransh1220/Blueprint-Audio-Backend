@@ -31,7 +31,7 @@ func NewUserRepository(db *sqlx.DB) *PgUserRepository {
 // Returns an error if the database operation fails.
 // Create implements domain.UserRepository
 func (r *PgUserRepository) Create(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, system_role, status, email_verified, email_verified_at, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :system_role, :status, :email_verified, :email_verified_at, :created_at, :updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, system_role, status, email_verified, email_verified_at, store_currency, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :system_role, :status, :email_verified, :email_verified_at, :store_currency, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()
@@ -44,6 +44,12 @@ func (r *PgUserRepository) Create(ctx context.Context, user *domain.User) error 
 	}
 	if user.Status == "" {
 		user.Status = domain.UserStatusActive
+	}
+	if user.StoreCurrency == "" {
+		user.StoreCurrency = domain.CurrencyUSD
+	}
+	if !user.StoreCurrency.IsValid() {
+		return domain.ErrInvalidStoreCurrency
 	}
 
 	// NamedExecContext is a sqlx feature! It uses the structure fields directly.
@@ -201,7 +207,7 @@ func (r *PgUserRepository) Exists(ctx context.Context, id uuid.UUID) (bool, erro
 // UpdateProfile updates a user's profile fields (bio, avatar, and social media URLs).
 // Only the provided non-nil fields will be updated in the database.
 // Returns an error if the database operation fails.
-func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
 	// Build dynamic query to only update provided fields
 	setClauses := []string{}
 	args := []interface{}{}
@@ -220,6 +226,15 @@ func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio 
 	if avatarUrl != nil {
 		setClauses = append(setClauses, fmt.Sprintf("avatar_url = $%d", argIndex))
 		args = append(args, avatarUrl)
+		argIndex++
+	}
+	if storeCurrency != nil {
+		currency := domain.Currency(strings.ToUpper(strings.TrimSpace(*storeCurrency)))
+		if !currency.IsValid() {
+			return domain.ErrInvalidStoreCurrency
+		}
+		setClauses = append(setClauses, fmt.Sprintf("store_currency = $%d", argIndex))
+		args = append(args, string(currency))
 		argIndex++
 	}
 	if instagramURL != nil {

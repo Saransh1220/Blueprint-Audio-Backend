@@ -19,6 +19,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type SpecHandler struct {
@@ -183,7 +184,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Respond 202
 	h.sanitizeSpec(&spec)
-	response := ToSpecResponse(&spec)
+	response := ToSpecResponseForCurrency(&spec, money.ResolveCurrencyFromRequest(r))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -364,7 +365,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	
+
 	var spec *domain.Spec
 	var err error
 
@@ -390,7 +391,8 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Try Cache
-	cacheKey := "spec:" + spec.ID.String() // Normalize cache key to always use UUID
+	displayCurrency := money.ResolveCurrencyFromRequest(r)
+	cacheKey := "spec:" + spec.ID.String() + ":" + displayCurrency // Normalize cache key to always use UUID and currency
 	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
 		// Cache Hit!
 		log.Printf("[CACHE HIT] Spec ID: %s", spec.ID.String())
@@ -410,7 +412,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		userIDPtr = &userID
 	}
 
-	response := ToSpecResponse(spec)
+	response := ToSpecResponseForCurrency(spec, displayCurrency)
 
 	// Fetch analytics data
 	analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), spec.ID, userIDPtr)
@@ -521,7 +523,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
-		responses[i] = *ToSpecResponse(&specs[i])
+		responses[i] = *ToSpecResponseForCurrency(&specs[i], money.ResolveCurrencyFromRequest(r))
 
 		// Fetch analytics for each spec
 		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, userIDPtr)
@@ -793,7 +795,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Return Updated Spec
 	h.sanitizeSpec(existingSpec)
-	response := ToSpecResponse(existingSpec)
+	response := ToSpecResponseForCurrency(existingSpec, money.ResolveCurrencyFromRequest(r))
 
 	// Invalidate Cache
 	cacheKey := "spec:" + idStr
@@ -843,7 +845,7 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
-		responses[i] = *ToSpecResponse(&specs[i])
+		responses[i] = *ToSpecResponseForCurrency(&specs[i], money.ResolveCurrencyFromRequest(r))
 
 		// Fetch analytics for each spec
 		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, currentUserIDPtr)

@@ -2,16 +2,40 @@ package http
 
 import (
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type PaymentHandler struct {
 	service application.PaymentService
+}
+
+func (h *PaymentHandler) DodoWebhook(w http.ResponseWriter, r *http.Request) {
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "invalid webhook body", http.StatusBadRequest)
+		return
+	}
+
+	headers := map[string]string{
+		"webhook-id":        r.Header.Get("webhook-id"),
+		"webhook-timestamp": r.Header.Get("webhook-timestamp"),
+		"webhook-signature": r.Header.Get("webhook-signature"),
+	}
+	if err := h.service.HandleDodoWebhook(r.Context(), payload, headers); err != nil {
+		log.Printf("PaymentHandler.DodoWebhook failed: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"received": true})
 }
 
 func NewPaymentHandler(service application.PaymentService) *PaymentHandler {
@@ -45,9 +69,9 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Create order via service
-	order, err := h.service.CreateOrder(r.Context(), userID, specID, licenseOptionID)
+	order, err := h.service.CreateOrder(r.Context(), userID, specID, licenseOptionID, money.ResolveCurrencyFromRequest(r))
 	if err != nil {
-		http.Error(w, "failed to create order", http.StatusInternalServerError)
+		http.Error(w, "failed to create order: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Return order
@@ -258,7 +282,8 @@ func (h *PaymentHandler) GetProducerOrders(w http.ResponseWriter, r *http.Reques
 	// Fetch orders
 	response, err := h.service.GetProducerOrders(r.Context(), producerID, page, limit)
 	if err != nil {
-		http.Error(w, "failed to fetch producer orders", http.StatusInternalServerError)
+		log.Printf("PaymentHandler.GetProducerOrders failed: %v", err)
+		http.Error(w, "failed to fetch producer orders: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

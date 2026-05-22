@@ -24,7 +24,7 @@ func (r *repoStub) MarkEmailVerified(ctx context.Context, id uuid.UUID) error { 
 func (r *repoStub) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	return nil
 }
-func (r *repoStub) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
+func (r *repoStub) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
 	return nil
 }
 func (r *repoStub) UpdateSystemRole(ctx context.Context, id uuid.UUID, role authDomain.SystemRole) error {

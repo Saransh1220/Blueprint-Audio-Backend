@@ -78,6 +78,23 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.Equal(t, "6380", cfg.Redis.Port)
 }
 
+func TestLoad_DodoAndCurrencyConfig(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DODO_PAYMENTS_API_KEY", "dodo_key")
+	os.Setenv("DODO_PAYMENTS_PRODUCT_ID", "pdt_123")
+	os.Setenv("DODO_PAYMENTS_WEBHOOK_KEY", "whsec_123")
+	os.Setenv("DODO_PAYMENTS_API_URL", "https://test.dodopayments.com")
+	os.Setenv("INR_USD_RATE", "0.0119")
+
+	cfg := Load()
+
+	assert.Equal(t, "dodo_key", cfg.Dodo.APIKey)
+	assert.Equal(t, "pdt_123", cfg.Dodo.ProductID)
+	assert.Equal(t, "whsec_123", cfg.Dodo.WebhookKey)
+	assert.Equal(t, "https://test.dodopayments.com", cfg.Dodo.APIURL)
+	assert.Equal(t, "0.0119", cfg.Currency.INRUSDRate)
+}
+
 func TestLoad_JWTExpirationParsing(t *testing.T) {
 	tests := []struct {
 		name     string

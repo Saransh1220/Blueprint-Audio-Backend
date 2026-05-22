@@ -30,8 +30,8 @@ func (m *mockUserRepo) MarkEmailVerified(ctx context.Context, id uuid.UUID) erro
 func (m *mockUserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	return nil
 }
-func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error {
-	args := m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL)
+func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
+	args := m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL, storeCurrency)
 	return args.Error(0)
 }
 func (m *mockUserRepo) UpdateSystemRole(ctx context.Context, id uuid.UUID, role authDomain.SystemRole) error {
@@ -53,9 +53,22 @@ func TestUserService_UpdateProfile(t *testing.T) {
 	bio := "hello"
 	req := application.UpdateProfileRequest{Bio: &bio}
 
-	repo.On("UpdateProfile", ctx, id, req.Bio, req.AvatarURL, req.DisplayName, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL).Return(nil).Once()
+	repo.On("UpdateProfile", ctx, id, req.Bio, req.AvatarURL, req.DisplayName, req.InstagramURL, req.TwitterURL, req.YoutubeURL, req.SpotifyURL, req.StoreCurrency).Return(nil).Once()
 	err := svc.UpdateProfile(ctx, id, req)
 	assert.NoError(t, err)
+}
+
+func TestUserService_UpdateProfileRejectsInvalidStoreCurrency(t *testing.T) {
+	ctx := context.Background()
+	repo := new(mockUserRepo)
+	svc := application.NewUserService(repo)
+	id := uuid.New()
+	storeCurrency := "EUR"
+
+	err := svc.UpdateProfile(ctx, id, application.UpdateProfileRequest{StoreCurrency: &storeCurrency})
+
+	assert.ErrorIs(t, err, authDomain.ErrInvalidStoreCurrency)
+	repo.AssertNotCalled(t, "UpdateProfile", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserService_GetPublicProfile(t *testing.T) {

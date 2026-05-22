@@ -73,6 +73,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /orders", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserOrders)))
 	mux.Handle("GET /orders/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetOrder)))
 	mux.Handle("POST /payments/verify", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.VerifyPayment)))
+	mux.HandleFunc("POST /webhooks/dodo", config.PaymentHandler.DodoWebhook)
 	mux.Handle("GET /licenses", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetLicenseDownloads)))
 	mux.Handle("GET /orders/producer", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetProducerOrders)))

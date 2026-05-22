@@ -96,6 +96,13 @@ Recommended:
 ### Payments
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
+- `DODO_PAYMENTS_API_KEY`
+- `DODO_PAYMENTS_PRODUCT_ID`
+- `DODO_PAYMENTS_WEBHOOK_KEY`
+- `DODO_PAYMENTS_API_URL` (optional)
+- `INR_USD_RATE` (fallback USD suggestion rate, example `0.012`)
+
+Razorpay is used for INR checkout. Dodo Payments is used for USD checkout when request geo resolves outside India.
 
 ### Redis
 - `REDIS_HOST`

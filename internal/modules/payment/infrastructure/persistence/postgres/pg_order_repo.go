@@ -42,9 +42,10 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 	query := `
 		INSERT INTO orders (
 			id, user_id, spec_id, license_type, amount, currency,
-			razorpay_order_id, status, notes, created_at, updated_at, expires_at
+			razorpay_order_id, provider, provider_checkout_id, provider_payment_id,
+			status, notes, created_at, updated_at, expires_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 		)`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -55,6 +56,9 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 		order.Amount,
 		order.Currency,
 		order.RazorpayOrderID,
+		order.Provider,
+		order.ProviderCheckoutID,
+		order.ProviderPaymentID,
 		order.Status,
 		notesJSON, // Pass as JSON
 		order.CreatedAt,
@@ -69,8 +73,9 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	var notesJSON []byte
 
 	query := `
-		SELECT id, user_id, spec_id, license_type, amount, currency, 
-		       razorpay_order_id, status, notes, created_at, updated_at, expires_at
+		SELECT id, user_id, spec_id, license_type, amount, currency,
+		       razorpay_order_id, provider, provider_checkout_id, provider_payment_id,
+		       status, notes, created_at, updated_at, expires_at
 		FROM orders 
 		WHERE id = $1
 	`
@@ -83,6 +88,9 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 		&order.Amount,
 		&order.Currency,
 		&order.RazorpayOrderID,
+		&order.Provider,
+		&order.ProviderCheckoutID,
+		&order.ProviderPaymentID,
 		&order.Status,
 		&notesJSON,
 		&order.CreatedAt,
@@ -146,7 +154,21 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 	// Get orders with buyer details
 	query := `
 		SELECT 
-			o.*,
+			o.id,
+			o.user_id,
+			o.spec_id,
+			o.license_type,
+			o.amount,
+			o.currency,
+			o.razorpay_order_id,
+			o.provider,
+			o.provider_checkout_id,
+			o.provider_payment_id,
+			o.status,
+			o.notes,
+			o.created_at,
+			o.updated_at,
+			o.expires_at,
 			u.name as buyer_name,
 			u.email as buyer_email,
 			s.title as spec_title
@@ -171,7 +193,8 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 		// We need to scan manually because of the JSON field and embedded struct
 		err := rows.Scan(
 			&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
-			&order.RazorpayOrderID, &order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
+			&order.RazorpayOrderID, &order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
+			&order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
 			&order.BuyerName, &order.BuyerEmail, &order.SpecTitle,
 		)
 		if err != nil {

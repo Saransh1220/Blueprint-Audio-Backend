@@ -9,4 +9,5 @@ var (
 	ErrUnauthorized         = errors.New("unauthorized action")
 	ErrEmailNotVerified     = errors.New("email not verified")
 	ErrInvalidOrExpiredCode = errors.New("invalid or expired code")
+	ErrInvalidStoreCurrency = errors.New("invalid store currency")
 )

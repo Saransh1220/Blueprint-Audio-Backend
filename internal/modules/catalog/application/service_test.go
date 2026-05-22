@@ -12,10 +12,10 @@ import (
 )
 
 type mockRepo struct {
-	createFn       func(context.Context, *domain.Spec) error
-	getByIDFn      func(context.Context, uuid.UUID) (*domain.Spec, error)
-	listFn         func(context.Context, domain.SpecFilter) ([]domain.Spec, int, error)
-	updateFn       func(context.Context, *domain.Spec) error
+	createFn         func(context.Context, *domain.Spec) error
+	getByIDFn        func(context.Context, uuid.UUID) (*domain.Spec, error)
+	listFn           func(context.Context, domain.SpecFilter) ([]domain.Spec, int, error)
+	updateFn         func(context.Context, *domain.Spec) error
 	deleteFn         func(context.Context, uuid.UUID, uuid.UUID) error
 	listByUserIDFn   func(context.Context, uuid.UUID, int, int) ([]domain.Spec, int, error)
 	getByShortCodeFn func(context.Context, string) (*domain.Spec, error)
@@ -75,6 +75,48 @@ func TestSpecService_CreateSpecValidation(t *testing.T) {
 	require.EqualError(t, err, "stems file is mandatory for beats")
 
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "ok", BasePrice: 1, Category: domain.CategorySample})
+	require.NoError(t, err)
+}
+
+func TestSpecService_CreateSpecRejectsInvalidCurrency(t *testing.T) {
+	svc := NewSpecService(mockRepo{createFn: func(context.Context, *domain.Spec) error {
+		return errors.New("create should not be called")
+	}})
+	ctx := context.Background()
+
+	err := svc.CreateSpec(ctx, &domain.Spec{Title: "bad", BasePrice: 1, Category: domain.CategorySample, PriceCurrency: "eur"})
+	require.ErrorIs(t, err, domain.ErrInvalidCurrency)
+
+	err = svc.CreateSpec(ctx, &domain.Spec{
+		Title:         "bad license",
+		BasePrice:     1,
+		Category:      domain.CategorySample,
+		PriceCurrency: "USD",
+		Licenses:      []domain.LicenseOption{{PriceCurrency: "gbp"}},
+	})
+	require.ErrorIs(t, err, domain.ErrInvalidCurrency)
+}
+
+func TestSpecService_CreateSpecNormalizesCurrencies(t *testing.T) {
+	svc := NewSpecService(mockRepo{createFn: func(_ context.Context, spec *domain.Spec) error {
+		assert.Equal(t, "USD", spec.PriceCurrency)
+		require.Len(t, spec.Licenses, 2)
+		assert.Equal(t, "USD", spec.Licenses[0].PriceCurrency)
+		assert.Equal(t, "INR", spec.Licenses[1].PriceCurrency)
+		return nil
+	}})
+	ctx := context.Background()
+
+	err := svc.CreateSpec(ctx, &domain.Spec{
+		Title:         "ok",
+		BasePrice:     1,
+		Category:      domain.CategorySample,
+		PriceCurrency: " usd ",
+		Licenses: []domain.LicenseOption{
+			{},
+			{PriceCurrency: " inr "},
+		},
+	})
 	require.NoError(t, err)
 }
 
@@ -140,4 +182,21 @@ func TestSpecService_UpdateSpecGuards(t *testing.T) {
 	svc = NewSpecService(mockRepo{getByIDFn: func(context.Context, uuid.UUID) (*domain.Spec, error) { return nil, errors.New("db") }})
 	err = svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID, Title: "x", BasePrice: 1}, other)
 	require.EqualError(t, err, "db")
+}
+
+func TestSpecService_UpdateSpecRejectsInvalidCurrency(t *testing.T) {
+	specID := uuid.New()
+	owner := uuid.New()
+	repo := mockRepo{
+		getByIDFn: func(context.Context, uuid.UUID) (*domain.Spec, error) {
+			return &domain.Spec{ID: specID, ProducerID: owner}, nil
+		},
+		updateFn: func(context.Context, *domain.Spec) error {
+			return errors.New("update should not be called")
+		},
+	}
+	svc := NewSpecService(repo)
+
+	err := svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID, Title: "x", BasePrice: 1, PriceCurrency: "JPY"}, owner)
+	require.ErrorIs(t, err, domain.ErrInvalidCurrency)
 }

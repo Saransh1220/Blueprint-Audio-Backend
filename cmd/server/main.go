@@ -20,6 +20,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
+	paymentApplication "github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
@@ -113,7 +114,7 @@ func main() {
 	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, notificationModule.Service(), redisClient)
 
 	// Payment Module
-	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL)
+	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentAppDodoConfig(cfg))
 
 	// 5. Middleware
 	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret)
@@ -138,6 +139,15 @@ func main() {
 	srv := gateway.NewServer(cfg.Server.Port, handler)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func paymentAppDodoConfig(cfg config.Config) paymentApplication.DodoConfig {
+	return paymentApplication.DodoConfig{
+		APIKey:     cfg.Dodo.APIKey,
+		ProductID:  cfg.Dodo.ProductID,
+		WebhookKey: cfg.Dodo.WebhookKey,
+		APIURL:     cfg.Dodo.APIURL,
 	}
 }
 

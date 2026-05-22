@@ -24,12 +24,13 @@ func NewModule(
 	fileService application.FileService,
 	emailSender sharedemail.Sender,
 	appBaseURL string,
+	dodoConfig application.DodoConfig,
 ) *Module {
 	orderRepo := persistence.NewOrderRepository(db)
 	paymentRepo := persistence.NewPaymentRepository(db)
 	licenseRepo := persistence.NewLicenseRepository(db)
 
-	service := application.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specFinder, userFinder, fileService, emailSender, appBaseURL)
+	service := application.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specFinder, userFinder, fileService, emailSender, appBaseURL, dodoConfig)
 	handler := paymentHttp.NewPaymentHandler(service)
 
 	return &Module{

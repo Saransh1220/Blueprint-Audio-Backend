@@ -31,10 +31,14 @@ func TestPgUserRepository_CreateAndGets(t *testing.T) {
 	u := &domain.User{ID: uuid.New(), Email: "a@a.com", PasswordHash: "hash", Name: "A", Role: domain.RoleArtist}
 	mock.ExpectExec("INSERT INTO users").WillReturnResult(sqlmock.NewResult(1, 1))
 	require.NoError(t, repo.Create(ctx, u))
+	assert.Equal(t, domain.CurrencyUSD, u.StoreCurrency)
 
 	mock.ExpectExec("INSERT INTO users").WillReturnError(&pq.Error{Code: "23505"})
 	err := repo.Create(ctx, u)
 	assert.ErrorIs(t, err, domain.ErrUserAlreadyExists)
+
+	err = repo.Create(ctx, &domain.User{ID: uuid.New(), Email: "bad@a.com", PasswordHash: "hash", Name: "Bad", Role: domain.RoleArtist, StoreCurrency: domain.Currency("EUR")})
+	assert.ErrorIs(t, err, domain.ErrInvalidStoreCurrency)
 
 	rows := sqlmock.NewRows([]string{"id", "email", "password_hash", "name", "role"}).AddRow(u.ID, u.Email, u.PasswordHash, u.Name, u.Role)
 	mock.ExpectQuery(`SELECT \* FROM users WHERE email = \$1`).WithArgs(u.Email).WillReturnRows(rows)
@@ -77,7 +81,7 @@ func TestPgUserRepository_ExistsAndUpdateProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil)
+	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	bio := "bio"
@@ -87,12 +91,17 @@ func TestPgUserRepository_ExistsAndUpdateProfile(t *testing.T) {
 	twitter := "tw"
 	youtube := "yt"
 	spotify := "sp"
+	storeCurrency := "inr"
 
-	mock.ExpectExec("UPDATE users SET").WithArgs(&bio, &display, &avatar, &instagram, &twitter, &youtube, &spotify, sqlmock.AnyArg(), id).WillReturnResult(sqlmock.NewResult(0, 1))
-	err = repo.UpdateProfile(ctx, id, &bio, &avatar, &display, &instagram, &twitter, &youtube, &spotify)
+	mock.ExpectExec("UPDATE users SET").WithArgs(&bio, &display, &avatar, "INR", &instagram, &twitter, &youtube, &spotify, sqlmock.AnyArg(), id).WillReturnResult(sqlmock.NewResult(0, 1))
+	err = repo.UpdateProfile(ctx, id, &bio, &avatar, &display, &instagram, &twitter, &youtube, &spotify, &storeCurrency)
 	require.NoError(t, err)
 
 	mock.ExpectExec("UPDATE users SET").WillReturnError(assert.AnError)
-	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil)
+	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
+
+	invalidCurrency := "GBP"
+	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, &invalidCurrency)
+	require.ErrorIs(t, err, domain.ErrInvalidStoreCurrency)
 }

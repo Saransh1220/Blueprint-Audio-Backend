@@ -16,6 +16,8 @@ const (
 	defaultSpecLimit = 20
 	maxSpecLimit     = 50
 	shortCodeLength  = 8
+	currencyINR      = "INR"
+	currencyUSD      = "USD"
 )
 
 type SpecService interface {
@@ -83,6 +85,10 @@ func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
 		spec.ShortCode = &shortCode
 	}
 
+	if err := normalizeSpecCurrencies(spec); err != nil {
+		return err
+	}
+
 	return s.repo.Create(ctx, spec)
 }
 
@@ -144,6 +150,9 @@ func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, produce
 			return errors.New("BPM must be between 50 and 300")
 		}
 	}
+	if err := normalizeSpecCurrencies(spec); err != nil {
+		return err
+	}
 
 	// Set producer ID to ensure it doesn't change
 	spec.ProducerID = producerID
@@ -176,6 +185,34 @@ func normalizePageAndLimit(page, limit int) (int, int) {
 		limit = maxSpecLimit
 	}
 	return page, limit
+}
+
+func normalizeSpecCurrencies(spec *domain.Spec) error {
+	currency, err := normalizeCurrency(spec.PriceCurrency, currencyINR)
+	if err != nil {
+		return err
+	}
+	spec.PriceCurrency = currency
+
+	for i := range spec.Licenses {
+		currency, err := normalizeCurrency(spec.Licenses[i].PriceCurrency, spec.PriceCurrency)
+		if err != nil {
+			return err
+		}
+		spec.Licenses[i].PriceCurrency = currency
+	}
+	return nil
+}
+
+func normalizeCurrency(value, fallback string) (string, error) {
+	currency := strings.ToUpper(strings.TrimSpace(value))
+	if currency == "" {
+		currency = fallback
+	}
+	if currency != currencyINR && currency != currencyUSD {
+		return "", domain.ErrInvalidCurrency
+	}
+	return currency, nil
 }
 
 func (s *specService) generateUniqueSlug(ctx context.Context, title string) (string, error) {

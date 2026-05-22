@@ -10,6 +10,7 @@ import (
 type UserRole string
 type SystemRole string
 type UserStatus string
+type Currency string
 
 const (
 	RoleArtist   UserRole = "artist"
@@ -25,6 +26,15 @@ const (
 	UserStatusActive    UserStatus = "active"
 	UserStatusSuspended UserStatus = "suspended"
 )
+
+const (
+	CurrencyUSD Currency = "USD"
+	CurrencyINR Currency = "INR"
+)
+
+func (c Currency) IsValid() bool {
+	return c == CurrencyUSD || c == CurrencyINR
+}
 
 // User represents a user in the system
 type User struct {
@@ -44,6 +54,7 @@ type User struct {
 	TwitterURL      *string    `json:"twitter_url" db:"twitter_url"`
 	YoutubeURL      *string    `json:"youtube_url" db:"youtube_url"`
 	SpotifyURL      *string    `json:"spotify_url" db:"spotify_url"`
+	StoreCurrency   Currency   `json:"store_currency" db:"store_currency"`
 	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -55,7 +66,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
-	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string) error
+	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error
 	UpdateSystemRole(ctx context.Context, id uuid.UUID, role SystemRole) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status UserStatus) error
 	CountBySystemRole(ctx context.Context, role SystemRole) (int, error)

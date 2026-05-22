@@ -19,6 +19,8 @@ type Config struct {
 	Redis       database.RedisConfig
 	JWT         JWTConfig
 	Razorpay    RazorpayConfig
+	Dodo        DodoPaymentsConfig
+	Currency    CurrencyConfig
 	FileStorage FileStorageConfig
 	Google      GoogleConfig
 	Email       EmailConfig
@@ -56,6 +58,17 @@ type JWTConfig struct {
 type RazorpayConfig struct {
 	KeyID     string
 	KeySecret string
+}
+
+type DodoPaymentsConfig struct {
+	APIKey     string
+	ProductID  string
+	WebhookKey string
+	APIURL     string
+}
+
+type CurrencyConfig struct {
+	INRUSDRate string
 }
 
 // FileStorageConfig holds file storage configuration
@@ -122,6 +135,15 @@ func Load() Config {
 		Razorpay: RazorpayConfig{
 			KeyID:     getEnv("RAZORPAY_KEY_ID", ""),
 			KeySecret: getEnv("RAZORPAY_KEY_SECRET", ""),
+		},
+		Dodo: DodoPaymentsConfig{
+			APIKey:     getEnv("DODO_PAYMENTS_API_KEY", ""),
+			ProductID:  getEnv("DODO_PAYMENTS_PRODUCT_ID", ""),
+			WebhookKey: getEnv("DODO_PAYMENTS_WEBHOOK_KEY", ""),
+			APIURL:     getEnv("DODO_PAYMENTS_API_URL", ""),
+		},
+		Currency: CurrencyConfig{
+			INRUSDRate: getEnv("INR_USD_RATE", "0.012"),
 		},
 		FileStorage: FileStorageConfig{
 			UseS3:            getEnv("USE_S3", "true") == "true",

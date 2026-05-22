@@ -9,4 +9,5 @@ var (
 	ErrLicenseNotFound = errors.New("license not found")
 	ErrInvalidCategory = errors.New("invalid category")
 	ErrInvalidLicense  = errors.New("invalid license type")
+	ErrInvalidCurrency = errors.New("invalid currency")
 )

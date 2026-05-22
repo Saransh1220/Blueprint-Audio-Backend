@@ -38,6 +38,7 @@ type Spec struct {
 	WavUrl         *string    `json:"wav_url,omitempty" db:"wav_url"`
 	StemsUrl       *string    `json:"stems_url,omitempty" db:"stems_url"`
 	BasePrice      float64    `json:"price" db:"base_price"`
+	PriceCurrency  string     `json:"price_currency" db:"price_currency"`
 	Description    string     `json:"description" db:"description"`
 	Duration       int        `json:"duration" db:"duration"`
 	FreeMp3Enabled bool       `json:"free_mp3_enabled" db:"free_mp3_enabled"`
@@ -75,7 +76,8 @@ type LicenseOption struct {
 	SpecID      uuid.UUID      `json:"spec_id" db:"spec_id"`
 	LicenseType LicenseType    `json:"type" db:"license_type"`
 	Name        string         `json:"name" db:"name"`
-	Price       float64        `json:"price" db:"price"`
+	Price         float64        `json:"price" db:"price"`
+	PriceCurrency string         `json:"price_currency" db:"price_currency"`
 	Features    pq.StringArray `json:"features" db:"features"`
 	FileTypes   pq.StringArray `json:"file_types" db:"file_types"`
 	CreatedAt   time.Time      `json:"created_at" db:"created_at"`

@@ -5,34 +5,37 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 // SpecResponse is the PUBLIC response
 type SpecResponse struct {
-	ID               uuid.UUID         `json:"id"`
-	ProducerID       uuid.UUID         `json:"producer_id"`
-	ProducerName     string            `json:"producer_name"`
-	Title            string            `json:"title"`
-	Category         string            `json:"category"`
-	Type             string            `json:"type"`
-	BPM              int               `json:"bpm"`
-	Key              string            `json:"key"`
-	ImageURL         string            `json:"image_url"`
-	PreviewURL       string            `json:"preview_url"`
-	Price            float64           `json:"price"`
-	Duration         int               `json:"duration"`
-	FreeMp3Enabled   bool              `json:"free_mp3_enabled"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
-	Licenses         []LicenseResponse `json:"licenses,omitempty"`
-	Genres           []GenreResponse   `json:"genres,omitempty"`
-	Tags             []string          `json:"tags,omitempty"`
-	Analytics        *SpecAnalytics    `json:"analytics,omitempty"`
-	ShortCode        *string           `json:"short_code,omitempty"`
-	Slug             *string           `json:"slug,omitempty"`
-	Moods            []string          `json:"moods,omitempty"`
-	Instruments      []string          `json:"instruments,omitempty"`
-	ProcessingStatus string            `json:"processing_status"`
+	ID                uuid.UUID         `json:"id"`
+	ProducerID        uuid.UUID         `json:"producer_id"`
+	ProducerName      string            `json:"producer_name"`
+	Title             string            `json:"title"`
+	Category          string            `json:"category"`
+	Type              string            `json:"type"`
+	BPM               int               `json:"bpm"`
+	Key               string            `json:"key"`
+	ImageURL          string            `json:"image_url"`
+	PreviewURL        string            `json:"preview_url"`
+	Price             float64           `json:"price"`
+	PriceMoney        money.Money       `json:"price_money"`
+	DisplayPriceMoney money.Money       `json:"display_price_money"`
+	Duration          int               `json:"duration"`
+	FreeMp3Enabled    bool              `json:"free_mp3_enabled"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	Licenses          []LicenseResponse `json:"licenses,omitempty"`
+	Genres            []GenreResponse   `json:"genres,omitempty"`
+	Tags              []string          `json:"tags,omitempty"`
+	Analytics         *SpecAnalytics    `json:"analytics,omitempty"`
+	ShortCode         *string           `json:"short_code,omitempty"`
+	Slug              *string           `json:"slug,omitempty"`
+	Moods             []string          `json:"moods,omitempty"`
+	Instruments       []string          `json:"instruments,omitempty"`
+	ProcessingStatus  string            `json:"processing_status"`
 }
 
 // SpecAnalytics contains publicly visible analytics
@@ -45,15 +48,17 @@ type SpecAnalytics struct {
 
 // LicenseResponse for nested license data
 type LicenseResponse struct {
-	ID        uuid.UUID `json:"id"`
-	SpecID    uuid.UUID `json:"spec_id"`
-	Type      string    `json:"type"`
-	Name      string    `json:"name"`
-	Price     float64   `json:"price"`
-	Features  []string  `json:"features"`
-	FileTypes []string  `json:"file_types"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                uuid.UUID   `json:"id"`
+	SpecID            uuid.UUID   `json:"spec_id"`
+	Type              string      `json:"type"`
+	Name              string      `json:"name"`
+	Price             float64     `json:"price"`
+	PriceMoney        money.Money `json:"price_money"`
+	DisplayPriceMoney money.Money `json:"display_price_money"`
+	Features          []string    `json:"features"`
+	FileTypes         []string    `json:"file_types"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 // GenreResponse for nested genre data
@@ -65,28 +70,34 @@ type GenreResponse struct {
 }
 
 func ToSpecResponse(spec *domain.Spec) *SpecResponse {
+	return ToSpecResponseForCurrency(spec, money.CurrencyINR)
+}
+
+func ToSpecResponseForCurrency(spec *domain.Spec, displayCurrency string) *SpecResponse {
 	response := &SpecResponse{
-		ID:               spec.ID,
-		ProducerID:       spec.ProducerID,
-		ProducerName:     spec.ProducerName,
-		Title:            spec.Title,
-		Category:         string(spec.Category),
-		Type:             spec.Type,
-		BPM:              spec.BPM,
-		Key:              spec.Key,
-		ImageURL:         spec.ImageUrl,
-		PreviewURL:       spec.PreviewUrl,
-		Price:            spec.BasePrice,
-		Duration:         spec.Duration,
-		FreeMp3Enabled:   spec.FreeMp3Enabled,
-		CreatedAt:        spec.CreatedAt,
-		UpdatedAt:        spec.UpdatedAt,
-		Tags:             spec.Tags,
-		ShortCode:        spec.ShortCode,
-		Slug:             spec.Slug,
-		Moods:            spec.Moods,
-		Instruments:      spec.Instruments,
-		ProcessingStatus: string(spec.ProcessingStatus),
+		ID:                spec.ID,
+		ProducerID:        spec.ProducerID,
+		ProducerName:      spec.ProducerName,
+		Title:             spec.Title,
+		Category:          string(spec.Category),
+		Type:              spec.Type,
+		BPM:               spec.BPM,
+		Key:               spec.Key,
+		ImageURL:          spec.ImageUrl,
+		PreviewURL:        spec.PreviewUrl,
+		Price:             spec.BasePrice,
+		PriceMoney:        money.DisplayPrice(spec.BasePrice, spec.PriceCurrency, spec.PriceCurrency),
+		DisplayPriceMoney: money.DisplayPrice(spec.BasePrice, spec.PriceCurrency, displayCurrency),
+		Duration:          spec.Duration,
+		FreeMp3Enabled:    spec.FreeMp3Enabled,
+		CreatedAt:         spec.CreatedAt,
+		UpdatedAt:         spec.UpdatedAt,
+		Tags:              spec.Tags,
+		ShortCode:         spec.ShortCode,
+		Slug:              spec.Slug,
+		Moods:             spec.Moods,
+		Instruments:       spec.Instruments,
+		ProcessingStatus:  string(spec.ProcessingStatus),
 	}
 
 	// Convert licenses
@@ -94,15 +105,17 @@ func ToSpecResponse(spec *domain.Spec) *SpecResponse {
 		response.Licenses = make([]LicenseResponse, len(spec.Licenses))
 		for i, license := range spec.Licenses {
 			response.Licenses[i] = LicenseResponse{
-				ID:        license.ID,
-				SpecID:    license.SpecID,
-				Type:      string(license.LicenseType),
-				Name:      license.Name,
-				Price:     license.Price,
-				Features:  license.Features,
-				FileTypes: license.FileTypes,
-				CreatedAt: license.CreatedAt,
-				UpdatedAt: license.UpdatedAt,
+				ID:                license.ID,
+				SpecID:            license.SpecID,
+				Type:              string(license.LicenseType),
+				Name:              license.Name,
+				Price:             license.Price,
+				PriceMoney:        money.DisplayPrice(license.Price, license.PriceCurrency, license.PriceCurrency),
+				DisplayPriceMoney: money.DisplayPrice(license.Price, license.PriceCurrency, displayCurrency),
+				Features:          license.Features,
+				FileTypes:         license.FileTypes,
+				CreatedAt:         license.CreatedAt,
+				UpdatedAt:         license.UpdatedAt,
 			}
 		}
 	}

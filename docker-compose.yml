@@ -50,6 +50,10 @@ services:
       PORT: ${PORT:-8080}
       ENV: ${ENV:-development}
 
+      # Migrations
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-false}
+      MIGRATIONS_PATH: ${MIGRATIONS_PATH:-db/migrations}
+
       # Database
       DB_HOST: postgres
       DB_PORT: 5432
@@ -76,6 +80,15 @@ services:
       # Razorpay (use test credentials for dev)
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+
+      # Dodo Payments (USD/global checkout)
+      DODO_PAYMENTS_API_KEY: ${DODO_PAYMENTS_API_KEY:-}
+      DODO_PAYMENTS_PRODUCT_ID: ${DODO_PAYMENTS_PRODUCT_ID:-}
+      DODO_PAYMENTS_WEBHOOK_KEY: ${DODO_PAYMENTS_WEBHOOK_KEY:-}
+      DODO_PAYMENTS_API_URL: ${DODO_PAYMENTS_API_URL:-}
+
+      # Currency fallback for generated USD prices
+      INR_USD_RATE: ${INR_USD_RATE:-0.012}
 
       # Redis
       REDIS_ENABLED: ${REDIS_ENABLED:-true}

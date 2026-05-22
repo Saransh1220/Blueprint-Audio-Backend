@@ -1,13 +1,18 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -18,6 +23,7 @@ import (
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
+	sharedmoney "github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 func formatRazorpayReceipt(id uuid.UUID) string {
@@ -30,9 +36,10 @@ type FileService interface {
 }
 
 type PaymentService interface {
-	CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID) (*domain.Order, error)
+	CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error)
 	GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.Order, error)
 	VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error)
+	HandleDodoWebhook(ctx context.Context, payload []byte, headers map[string]string) error
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error)
@@ -50,6 +57,14 @@ type paymentService struct {
 	razorpaySecret string
 	emailSender    sharedemail.Sender
 	appBaseURL     string
+	dodoConfig     DodoConfig
+}
+
+type DodoConfig struct {
+	APIKey     string
+	ProductID  string
+	WebhookKey string
+	APIURL     string
 }
 
 func NewPaymentService(
@@ -61,6 +76,7 @@ func NewPaymentService(
 	fileService FileService,
 	emailSender sharedemail.Sender,
 	appBaseURL string,
+	dodoConfig DodoConfig,
 ) PaymentService {
 	client := razorpay.NewClient(
 		os.Getenv("RAZORPAY_KEY_ID"),
@@ -77,10 +93,11 @@ func NewPaymentService(
 		razorpaySecret: os.Getenv("RAZORPAY_KEY_SECRET"),
 		emailSender:    emailSender,
 		appBaseURL:     appBaseURL,
+		dodoConfig:     dodoConfig,
 	}
 }
 
-func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID) (*domain.Order, error) {
+func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error) {
 	spec, err := s.specFinder.FindWithLicenses(ctx, specID)
 	if err != nil {
 		return nil, errors.New("Beat/Sample not found")
@@ -98,47 +115,134 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 		return nil, errors.New("license option not found")
 	}
 
-	amountInPaise := int(licenseOption.Price * 100)
+	requestedCurrency := strings.ToUpper(strings.TrimSpace(currency))
+	if requestedCurrency != sharedmoney.CurrencyUSD {
+		requestedCurrency = sharedmoney.CurrencyINR
+	}
+
+	// Resolve the stored currency for this license — fall back to INR for legacy records
+	storedCurrency := strings.ToUpper(strings.TrimSpace(licenseOption.PriceCurrency))
+	if storedCurrency != sharedmoney.CurrencyINR && storedCurrency != sharedmoney.CurrencyUSD {
+		storedCurrency = sharedmoney.CurrencyINR
+	}
+
+	displayMoney := sharedmoney.DisplayPrice(licenseOption.Price, storedCurrency, requestedCurrency)
 
 	receiptID, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
-	razorpayOrderData := map[string]interface{}{
-		"amount":   amountInPaise,
-		"currency": "INR",
-		"receipt":  formatRazorpayReceipt(receiptID),
-	}
-
-	razorpayOrder, err := s.razorpayClient.Order.Create(razorpayOrderData, nil)
-	if err != nil {
-		return nil, fmt.Errorf("razorpay order creation failed: %w", err)
-	}
-
-	razorpayOrderID, ok := razorpayOrder["id"].(string)
-	if !ok || razorpayOrderID == "" {
-		return nil, errors.New("invalid razorpay order response")
-	}
 	order := &domain.Order{
-		UserID:          userID,
-		SpecID:          specID,
-		LicenseType:     string(licenseOption.LicenseType),
-		Amount:          amountInPaise,
-		Currency:        "INR",
-		RazorpayOrderID: &razorpayOrderID,
-		Status:          domain.OrderStatusPending,
+		ID:          receiptID,
+		UserID:      userID,
+		SpecID:      specID,
+		LicenseType: string(licenseOption.LicenseType),
+		Amount:      displayMoney.AmountMinor,
+		Currency:    requestedCurrency,
+		Status:      domain.OrderStatusPending,
 		Notes: map[string]any{
 			"license_option_id": licenseOptionID.String(),
 			"spec_title":        spec.Title,
 			"license_name":      licenseOption.Name,
+			"display_currency":  requestedCurrency,
 		},
 		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	if requestedCurrency == sharedmoney.CurrencyUSD {
+		order.Provider = "dodo"
+		checkoutURL, sessionID, err := s.createDodoCheckout(ctx, order, spec.Title, licenseOption.Name)
+		if err != nil {
+			return nil, err
+		}
+		order.CheckoutURL = &checkoutURL
+		order.ProviderCheckoutID = &sessionID
+		order.Notes["dodo_session_id"] = sessionID
+	} else {
+		order.Provider = "razorpay"
+		razorpayOrderData := map[string]interface{}{
+			"amount":   displayMoney.AmountMinor,
+			"currency": sharedmoney.CurrencyINR,
+			"receipt":  formatRazorpayReceipt(receiptID),
+		}
+
+		razorpayOrder, err := s.razorpayClient.Order.Create(razorpayOrderData, nil)
+		if err != nil {
+			return nil, fmt.Errorf("razorpay order creation failed: %w", err)
+		}
+
+		razorpayOrderID, ok := razorpayOrder["id"].(string)
+		if !ok || razorpayOrderID == "" {
+			return nil, errors.New("invalid razorpay order response")
+		}
+		order.RazorpayOrderID = &razorpayOrderID
 	}
 	if err := s.orderRepo.Create(ctx, order); err != nil {
 		return nil, err
 	}
 	return order, nil
+}
+
+func (s *paymentService) createDodoCheckout(ctx context.Context, order *domain.Order, specTitle, licenseName string) (string, string, error) {
+	apiKey := strings.TrimSpace(s.dodoConfig.APIKey)
+	productID := strings.TrimSpace(s.dodoConfig.ProductID)
+	if apiKey == "" || productID == "" {
+		return "", "", errors.New("dodo payments is not configured")
+	}
+	baseURL := strings.TrimRight(s.dodoConfig.APIURL, "/")
+	if baseURL == "" {
+		baseURL = "https://test.dodopayments.com"
+	}
+
+	body := map[string]any{
+		"product_cart": []map[string]any{{
+			"product_id": productID,
+			"quantity":   1,
+			"amount":     order.Amount,
+		}},
+		"return_url": s.appBaseURL + "/dashboard",
+		"metadata": map[string]any{
+			"order_id":     order.ID.String(),
+			"spec_id":      order.SpecID.String(),
+			"license_type": order.LicenseType,
+			"spec_title":   specTitle,
+			"license_name": licenseName,
+		},
+	}
+	body["custom_data"] = body["metadata"]
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/checkouts", bytes.NewReader(payload))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("dodo checkout creation failed: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return "", "", fmt.Errorf("dodo checkout creation failed with status %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var decoded struct {
+		SessionID   string  `json:"session_id"`
+		CheckoutURL *string `json:"checkout_url"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&decoded); err != nil {
+		return "", "", err
+	}
+	if decoded.SessionID == "" || decoded.CheckoutURL == nil || *decoded.CheckoutURL == "" {
+		return "", "", errors.New("invalid dodo checkout response")
+	}
+	return *decoded.CheckoutURL, decoded.SessionID, nil
 }
 
 func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error) {
@@ -222,6 +326,153 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, r
 	return license, nil
 }
 
+func (s *paymentService) HandleDodoWebhook(ctx context.Context, payload []byte, headers map[string]string) error {
+	if err := s.verifyDodoSignature(payload, headers); err != nil {
+		return err
+	}
+
+	var event struct {
+		Type string         `json:"type"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return err
+	}
+	if event.Type != "payment.succeeded" {
+		return nil
+	}
+
+	orderID, paymentID := extractDodoOrderMetadata(event.Data)
+	if orderID == uuid.Nil {
+		return errors.New("dodo webhook missing order_id")
+	}
+	if paymentID == "" {
+		paymentID = headers["webhook-id"]
+	}
+
+	order, err := s.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return errors.New("order not found")
+	}
+	if order.Status == domain.OrderStatusPaid {
+		return nil
+	}
+	if order.Status != domain.OrderStatusPending {
+		return errors.New("order is not payable")
+	}
+
+	payment := &domain.Payment{
+		OrderID:           order.ID,
+		RazorpayPaymentID: paymentID,
+		RazorpaySignature: headers["webhook-signature"],
+		Amount:            order.Amount,
+		Currency:          order.Currency,
+		Status:            domain.PaymentStatusCaptured,
+	}
+	now := time.Now()
+	payment.CapturedAt = &now
+	if err := s.paymentRepo.Create(ctx, payment); err != nil {
+		return err
+	}
+	if err := s.orderRepo.UpdateStatus(ctx, order.ID, domain.OrderStatusPaid); err != nil {
+		return err
+	}
+	_, err = s.issueLicense(ctx, order)
+	return err
+}
+
+func (s *paymentService) verifyDodoSignature(payload []byte, headers map[string]string) error {
+	secret := strings.TrimSpace(s.dodoConfig.WebhookKey)
+	if secret == "" {
+		return errors.New("dodo webhook secret is not configured")
+	}
+	if strings.HasPrefix(strings.ToLower(secret), "http://") || strings.HasPrefix(strings.ToLower(secret), "https://") {
+		return errors.New("DODO_PAYMENTS_WEBHOOK_KEY must be the Dodo webhook signing secret, not the endpoint URL")
+	}
+	webhookID := headers["webhook-id"]
+	timestamp := headers["webhook-timestamp"]
+	signature := headers["webhook-signature"]
+	if webhookID == "" || timestamp == "" || signature == "" {
+		return errors.New("missing dodo webhook signature headers")
+	}
+
+	message := webhookID + "." + timestamp + "." + string(payload)
+	secretKeys := [][]byte{[]byte(secret)}
+	if encoded, ok := strings.CutPrefix(secret, "whsec_"); ok {
+		secretKeys = append(secretKeys, []byte(encoded))
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			decoded, err = base64.RawStdEncoding.DecodeString(encoded)
+		}
+		if err == nil {
+			secretKeys = append(secretKeys, decoded)
+		}
+	}
+
+	for _, secretKey := range secretKeys {
+		mac := hmac.New(sha256.New, secretKey)
+		mac.Write([]byte(message))
+		sum := mac.Sum(nil)
+		if subtleCompareSignature(signature, base64.StdEncoding.EncodeToString(sum), hex.EncodeToString(sum)) {
+			return nil
+		}
+	}
+	return errors.New("invalid dodo webhook signature")
+}
+
+func subtleCompareSignature(received string, expected ...string) bool {
+	parts := strings.FieldsFunc(received, func(r rune) bool {
+		return r == ' ' || r == ','
+	})
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.TrimPrefix(part, "v1="))
+		if strings.EqualFold(part, "v1") || part == "" {
+			continue
+		}
+		for _, candidate := range expected {
+			if hmac.Equal([]byte(part), []byte(candidate)) {
+				return true
+			}
+		}
+	}
+	for _, candidate := range expected {
+		if hmac.Equal([]byte(strings.TrimSpace(received)), []byte(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractDodoOrderMetadata(data map[string]any) (uuid.UUID, string) {
+	paymentID := stringFromAny(data["payment_id"])
+	if paymentID == "" {
+		paymentID = stringFromAny(data["id"])
+	}
+
+	candidates := []any{data["metadata"], data["custom_data"], data["custom_fields"]}
+	for _, candidate := range candidates {
+		if meta, ok := candidate.(map[string]any); ok {
+			if id, err := uuid.Parse(stringFromAny(meta["order_id"])); err == nil {
+				return id, paymentID
+			}
+		}
+	}
+	if id, err := uuid.Parse(stringFromAny(data["order_id"])); err == nil {
+		return id, paymentID
+	}
+	return uuid.Nil, paymentID
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return fmt.Sprintf("%v", value)
+}
+
 func (s *paymentService) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.Order, error) {
 	return s.orderRepo.GetByID(ctx, orderID)
 }
@@ -290,6 +541,7 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		LicenseOptionID: licenseOptionID,
 		LicenseType:     order.LicenseType,
 		PurchasePrice:   order.Amount,
+		Currency:        order.Currency,
 		LicenseKey:      fmt.Sprintf("LIC-%s", licenseKeyID.String()),
 		IsActive:        true,
 		IsRevoked:       false,
