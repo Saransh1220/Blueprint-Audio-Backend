@@ -67,6 +67,13 @@ func (h *SpecHandler) cacheDel(ctx context.Context, key string) {
 	}
 }
 
+func (h *SpecHandler) cacheDelSpec(ctx context.Context, specID uuid.UUID) {
+	baseKey := "spec:" + specID.String()
+	h.cacheDel(ctx, baseKey)
+	h.cacheDel(ctx, baseKey+":"+money.CurrencyINR)
+	h.cacheDel(ctx, baseKey+":"+money.CurrencyUSD)
+}
+
 func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[SpecHandler.Create] Started")
 
@@ -218,7 +225,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
 
 				// Invalidate Cache
-				h.cacheDel(asyncCtx, "spec:"+specID.String())
+				h.cacheDelSpec(asyncCtx, specID)
 
 				// Notify Failure
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
@@ -238,8 +245,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 					_ = h.service.UpdateFilesAndStatus(asyncCtx, specID, nil, domain.ProcessingStatusFailed)
 
 					// Invalidate Cache (to reflect failed status)
-					cacheKey := "spec:" + specID.String()
-					h.cacheDel(asyncCtx, cacheKey)
+					h.cacheDelSpec(asyncCtx, specID)
 
 					// Notify Failure
 					_ = h.notificationService.Create(asyncCtx, producerID, "Upload Failed", fmt.Sprintf("Processing for '%s' failed. Please try again.", spec.Title), "error")
@@ -247,8 +253,7 @@ func (h *SpecHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// Invalidate Cache (to reflect new status and files)
-				cacheKey := "spec:" + specID.String()
-				h.cacheDel(asyncCtx, cacheKey)
+				h.cacheDelSpec(asyncCtx, specID)
 
 				// Notify Success
 				_ = h.notificationService.Create(asyncCtx, producerID, "Upload Complete", fmt.Sprintf("Your beat '%s' is now live!", spec.Title), "success")
@@ -394,12 +399,19 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	displayCurrency := money.ResolveCurrencyFromRequest(r)
 	cacheKey := "spec:" + spec.ID.String() + ":" + displayCurrency // Normalize cache key to always use UUID and currency
 	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
-		// Cache Hit!
-		log.Printf("[CACHE HIT] Spec ID: %s", spec.ID.String())
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "HIT")
-		w.Write([]byte(val))
-		return
+		var cached struct {
+			ProcessingStatus domain.ProcessingStatus `json:"processing_status"`
+		}
+		if err := json.Unmarshal([]byte(val), &cached); err == nil && cached.ProcessingStatus == domain.ProcessingStatusProcessing {
+			h.cacheDelSpec(r.Context(), spec.ID)
+		} else {
+			// Cache Hit!
+			log.Printf("[CACHE HIT] Spec ID: %s", spec.ID.String())
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write([]byte(val))
+			return
+		}
 	}
 
 	log.Printf("[CACHE MISS] Spec ID: %s", spec.ID.String())
@@ -425,11 +437,13 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Save to Cache (Async)
-	go func() {
-		jsonBytes, _ := json.Marshal(response)
-		h.cacheSet(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
-	}()
+	if spec.ProcessingStatus == domain.ProcessingStatusCompleted {
+		// 3. Save completed specs to cache. Processing specs can receive file URLs moments later.
+		go func() {
+			jsonBytes, _ := json.Marshal(response)
+			h.cacheSet(context.Background(), cacheKey, jsonBytes, 10*time.Minute)
+		}()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Cache", "MISS")
@@ -545,6 +559,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 			"page":     page,
 			"per_page": limit,
 			"limit":    limit,
+			"offset":   (page - 1) * limit,
 			"total_pages": func() int {
 				if limit <= 0 {
 					return 1
@@ -601,8 +616,7 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Spec %s was soft deleted (purchased). Skipping file deletion.", idStr)
 
 			// Invalidate Cache
-			cacheKey := "spec:" + idStr
-			h.cacheDel(context.Background(), cacheKey)
+			h.cacheDelSpec(context.Background(), id)
 			log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
 
 			w.WriteHeader(http.StatusNoContent)
@@ -638,8 +652,7 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Invalidate Cache
-	cacheKey := "spec:" + idStr
-	h.cacheDel(context.Background(), cacheKey)
+	h.cacheDelSpec(context.Background(), id)
 	log.Printf("[CACHE INVALIDATE] Deleted Spec ID: %s", idStr)
 
 	w.WriteHeader(http.StatusNoContent)
@@ -798,8 +811,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	response := ToSpecResponseForCurrency(existingSpec, money.ResolveCurrencyFromRequest(r))
 
 	// Invalidate Cache
-	cacheKey := "spec:" + idStr
-	h.cacheDel(context.Background(), cacheKey)
+	h.cacheDelSpec(context.Background(), id)
 	log.Printf("[CACHE INVALIDATE] Updated Spec ID: %s", idStr)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -867,6 +879,7 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 			"page":     page,
 			"per_page": limit,
 			"limit":    limit,
+			"offset":   (page - 1) * limit,
 			"total_pages": func() int {
 				if limit <= 0 {
 					return 1

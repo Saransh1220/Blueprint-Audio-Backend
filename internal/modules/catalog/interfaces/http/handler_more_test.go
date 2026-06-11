@@ -184,6 +184,28 @@ func TestSpecHandler_List_Get_Update_Delete_GetUserSpecs_Branches(t *testing.T) 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
+	t.Run("list honors per page size and returns offset metadata", func(t *testing.T) {
+		h, specSvc, _, _, _ := newHandler()
+
+		specSvc.On("ListSpecs", mock.Anything, mock.MatchedBy(func(filter domain.SpecFilter) bool {
+			return filter.Page == 3 && filter.Limit == 10
+		})).Return([]domain.Spec{}, 25, nil).Once()
+
+		req := httptest.NewRequest(http.MethodGet, "/specs?page=3&per_page=10", nil)
+		w := httptest.NewRecorder()
+		h.List(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body map[string]interface{}
+		assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		metadata := body["metadata"].(map[string]interface{})
+		assert.Equal(t, float64(3), metadata["page"])
+		assert.Equal(t, float64(10), metadata["per_page"])
+		assert.Equal(t, float64(20), metadata["offset"])
+		assert.Equal(t, float64(3), metadata["total_pages"])
+	})
+
 	t.Run("get returns 404 when spec does not exist", func(t *testing.T) {
 		h, specSvc, _, _, _ := newHandler()
 		specID := uuid.New()
