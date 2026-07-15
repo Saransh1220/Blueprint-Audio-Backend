@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/disintegration/imaging"
@@ -573,6 +574,79 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *SpecHandler) Home(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	sections := []string{}
+	if rawSections := strings.TrimSpace(q.Get("sections")); rawSections != "" {
+		for _, section := range strings.Split(rawSections, ",") {
+			sections = append(sections, strings.TrimSpace(section))
+		}
+	}
+	log.Printf("[SpecHandler.Home] request limit=%d period=%q sections=%v raw_query=%q", limit, q.Get("period"), sections, r.URL.RawQuery)
+
+	home, err := h.service.GetHome(r.Context(), domain.HomepageParams{
+		Limit:    limit,
+		Sections: sections,
+		Period:   q.Get("period"),
+	})
+	if err != nil {
+		log.Printf("[SpecHandler.Home] Error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var userIDPtr *uuid.UUID
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		userIDPtr = &userID
+	}
+
+	displayCurrency := money.ResolveCurrencyFromRequest(r)
+	response := HomepageResponse{
+		GeneratedAt:     home.GeneratedAt,
+		CacheTTLSeconds: home.CacheTTLSeconds,
+		Stats: HomepageStatsResponse{
+			TotalLiveBeats: home.Stats.TotalLiveBeats,
+			NewReleases7D:  home.Stats.NewReleases7D,
+			TotalProducers: home.Stats.TotalProducers,
+		},
+		Sections: make(map[string]HomepageSectionResponse, len(home.Sections)),
+	}
+
+	for key, section := range home.Sections {
+		items := make([]HomepageItemResponse, len(section.Items))
+		log.Printf("[SpecHandler.Home] serializing section=%s source=%s period=%s items=%d", key, section.Source, section.Period, len(section.Items))
+		var wg sync.WaitGroup
+		for i, item := range section.Items {
+			wg.Add(1)
+			go func(i int, item domain.RankedSpec) {
+				defer wg.Done()
+				spec := item.Spec
+				h.sanitizeSpec(&spec)
+				specResponse := *ToSpecResponseForCurrency(&spec, displayCurrency)
+
+				analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), spec.ID, userIDPtr)
+				if err == nil {
+					specResponse.Analytics = &SpecAnalytics{PlayCount: analytics.PlayCount, FavoriteCount: analytics.FavoriteCount, TotalDownloadCount: analytics.TotalDownloadCount, IsFavorited: analytics.IsFavorited}
+				}
+				items[i] = HomepageItemResponse{Rank: item.Rank, Score: item.Score, Movement: item.Movement, Metrics: item.Metrics, Spec: specResponse}
+			}(i, item)
+		}
+		wg.Wait()
+		response.Sections[key] = HomepageSectionResponse{
+			Title:  section.Title,
+			Source: section.Source,
+			Period: section.Period,
+			Items:  items,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	log.Printf("[SpecHandler.Home] success sections=%d currency=%s", len(response.Sections), displayCurrency)
+	json.NewEncoder(w).Encode(response)
+}
+
 func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := uuid.Parse(idStr)
@@ -688,11 +762,13 @@ func (h *SpecHandler) sanitizeSpec(spec *domain.Spec) {
 		spec.PreviewUrl = presignedURL
 	}
 
-	// Use regular presigned URL for image preview.
-	imageKey, err := h.fileService.GetKeyFromUrl(spec.ImageUrl)
-	if err == nil {
-		if presignedURL, err := h.fileService.GetPresignedURL(ctx, imageKey, expiration); err == nil {
-			spec.ImageUrl = presignedURL
+	if spec.ImageUrl != "" {
+		// Use regular presigned URL for image preview.
+		imageKey, err := h.fileService.GetKeyFromUrl(spec.ImageUrl)
+		if err == nil {
+			if presignedURL, err := h.fileService.GetPresignedURL(ctx, imageKey, expiration); err == nil {
+				spec.ImageUrl = presignedURL
+			}
 		}
 	}
 }

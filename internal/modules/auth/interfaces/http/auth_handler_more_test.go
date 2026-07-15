@@ -97,6 +97,37 @@ func TestAuthHandler_LoginAndMeBranches(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestAuthHandler_RefreshAndLogout(t *testing.T) {
+	service := new(MockAuthService)
+	files := new(MockFileService)
+	h := auth_http.NewAuthHandler(service, files, "client", time.Hour, true)
+	t.Cleanup(func() { service.AssertExpectations(t); files.AssertExpectations(t) })
+	w := httptest.NewRecorder()
+	h.Refresh(w, httptest.NewRequest(http.MethodGet, "/refresh", nil))
+	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	w = httptest.NewRecorder()
+	h.Refresh(w, httptest.NewRequest(http.MethodPost, "/refresh", nil))
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	service.On("RefreshSession", mock.Anything, "old").Return("new-access", nil).Once()
+	req := httptest.NewRequest(http.MethodPost, "/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "old"})
+	w = httptest.NewRecorder()
+	h.Refresh(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "new-access")
+	service.On("Logout", mock.Anything, "old").Return(nil).Once()
+	req = httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "old"})
+	w = httptest.NewRecorder()
+	h.Logout(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	cookies := w.Result().Cookies()
+	if assert.NotEmpty(t, cookies) {
+		assert.Equal(t, "refresh_token", cookies[0].Name)
+		assert.Equal(t, -1, cookies[0].MaxAge)
+	}
+}
+
 func TestAuthHandler_RegisterMethodAndDecode(t *testing.T) {
 	mockService := new(MockAuthService)
 	mockFileService := new(MockFileService)

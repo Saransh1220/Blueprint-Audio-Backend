@@ -160,6 +160,38 @@ func (m *mockSpecRepository) GetBySlug(ctx context.Context, slug string) (*catal
 	}
 	return args.Get(0).(*catalogDomain.Spec), args.Error(1)
 }
+func (m *mockSpecRepository) GetHomepageStats(ctx context.Context) (*catalogDomain.HomepageStats, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*catalogDomain.HomepageStats), args.Error(1)
+}
+func (m *mockSpecRepository) GetNewestBeats(ctx context.Context, limit int) ([]catalogDomain.Spec, error) {
+	args := m.Called(ctx, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]catalogDomain.Spec), args.Error(1)
+}
+func (m *mockSpecRepository) GetRankedSpecs(ctx context.Context, section, period string, limit int) ([]catalogDomain.RankingRow, error) {
+	args := m.Called(ctx, section, period, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]catalogDomain.RankingRow), args.Error(1)
+}
+func (m *mockSpecRepository) GetRankingFreshness(ctx context.Context, section, period string) (*catalogDomain.RankingFreshness, error) {
+	args := m.Called(ctx, section, period)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*catalogDomain.RankingFreshness), args.Error(1)
+}
+func (m *mockSpecRepository) RecalculateBeatRankings(ctx context.Context, section, period string) error {
+	args := m.Called(ctx, section, period)
+	return args.Error(0)
+}
 
 func TestAnalyticsService_ToggleFavorite(t *testing.T) {
 	ctx := context.Background()

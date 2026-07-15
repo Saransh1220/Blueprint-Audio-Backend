@@ -55,6 +55,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
 	// Catalog/Spec Routes
+	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Home)))
 	mux.Handle("GET /specs", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.List)))
 	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
 	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Create)))

@@ -2,7 +2,11 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -13,6 +17,8 @@ import (
 	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 )
+
+var errRankingRefreshSkipped = errors.New("ranking refresh skipped because another worker holds the lock")
 
 type PgSpecRepository struct {
 	db *sqlx.DB
@@ -425,6 +431,561 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	return specs, total, nil
+}
+
+func (r *PgSpecRepository) GetHomepageStats(ctx context.Context) (*domain.HomepageStats, error) {
+	stats := &domain.HomepageStats{}
+	log.Printf("[CatalogRepo.Home] querying homepage stats")
+	query := `
+		SELECT
+			COUNT(*) FILTER (
+				WHERE s.category = 'beat'
+				  AND s.processing_status = 'completed'
+				  AND s.is_deleted = FALSE
+			) AS total_live_beats,
+			COUNT(*) FILTER (
+				WHERE s.category = 'beat'
+				  AND s.processing_status = 'completed'
+				  AND s.is_deleted = FALSE
+				  AND s.created_at >= NOW() - INTERVAL '7 days'
+			) AS new_releases_7d,
+			COUNT(DISTINCT s.producer_id) FILTER (
+				WHERE s.category = 'beat'
+				  AND s.processing_status = 'completed'
+				  AND s.is_deleted = FALSE
+			) AS total_producers
+		FROM specs s`
+
+	if err := r.db.GetContext(ctx, stats, query); err != nil {
+		log.Printf("[CatalogRepo.Home] homepage stats query failed: %v", err)
+		return nil, err
+	}
+	log.Printf("[CatalogRepo.Home] homepage stats loaded total_live_beats=%d new_releases_7d=%d total_producers=%d", stats.TotalLiveBeats, stats.NewReleases7D, stats.TotalProducers)
+	return stats, nil
+}
+
+func (r *PgSpecRepository) GetNewestBeats(ctx context.Context, limit int) ([]domain.Spec, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+
+	specs := []domain.Spec{}
+	log.Printf("[CatalogRepo.Home] querying newest beats limit=%d", limit)
+	query := `
+		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		FROM specs s
+		JOIN users u ON s.producer_id = u.id
+		WHERE s.category = 'beat'
+		  AND s.processing_status = 'completed'
+		  AND s.is_deleted = FALSE
+		ORDER BY s.created_at DESC
+		LIMIT $1`
+
+	if err := r.db.SelectContext(ctx, &specs, query, limit); err != nil {
+		log.Printf("[CatalogRepo.Home] newest beats query failed: %v", err)
+		return nil, err
+	}
+	if err := r.hydrateSpecRelations(ctx, specs); err != nil {
+		log.Printf("[CatalogRepo.Home] newest beats relation hydration failed: %v", err)
+		return nil, err
+	}
+	log.Printf("[CatalogRepo.Home] newest beats loaded count=%d", len(specs))
+	return specs, nil
+}
+
+func (r *PgSpecRepository) GetRankedSpecs(ctx context.Context, section, period string, limit int) ([]domain.RankingRow, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	log.Printf("[CatalogRepo.Home] querying ranked specs section=%s period=%s limit=%d", section, period, limit)
+
+	var rows []struct {
+		domain.Spec
+		Rank         int             `db:"rank"`
+		Score        float64         `db:"score"`
+		PreviousRank sql.NullInt64   `db:"previous_rank"`
+		MetricsJSON  json.RawMessage `db:"metrics"`
+		CalculatedAt time.Time       `db:"calculated_at"`
+	}
+
+	query := `
+		SELECT
+			s.*, u.display_name as producer_name, '' as producer_handle,
+			br.rank, br.score, br.previous_rank, br.metrics, br.calculated_at
+		FROM beat_rankings br
+		JOIN specs s ON s.id = br.spec_id
+		JOIN users u ON s.producer_id = u.id
+		WHERE br.section = $1
+		  AND br.period = $2
+		  AND ($1 <> 'top_charts' OR br.metrics->>'algorithm_version' = '3')
+		  AND s.category = 'beat'
+		  AND s.processing_status = 'completed'
+		  AND s.is_deleted = FALSE
+		ORDER BY br.rank ASC
+		LIMIT $3`
+
+	if err := r.db.SelectContext(ctx, &rows, query, section, period, limit); err != nil {
+		log.Printf("[CatalogRepo.Home] ranked specs query failed section=%s period=%s err=%v", section, period, err)
+		return nil, err
+	}
+
+	specs := make([]domain.Spec, len(rows))
+	for i := range rows {
+		specs[i] = rows[i].Spec
+	}
+	if err := r.hydrateSpecRelations(ctx, specs); err != nil {
+		log.Printf("[CatalogRepo.Home] ranked specs relation hydration failed section=%s period=%s err=%v", section, period, err)
+		return nil, err
+	}
+
+	result := make([]domain.RankingRow, len(rows))
+	for i := range rows {
+		var previousRank *int
+		if rows[i].PreviousRank.Valid {
+			v := int(rows[i].PreviousRank.Int64)
+			previousRank = &v
+		}
+		result[i] = domain.RankingRow{
+			Spec:         specs[i],
+			Rank:         rows[i].Rank,
+			Score:        rows[i].Score,
+			PreviousRank: previousRank,
+			MetricsJSON:  rows[i].MetricsJSON,
+			CalculatedAt: rows[i].CalculatedAt,
+		}
+	}
+	log.Printf("[CatalogRepo.Home] ranked specs loaded section=%s period=%s count=%d", section, period, len(result))
+	return result, nil
+}
+
+func (r *PgSpecRepository) GetRankingFreshness(ctx context.Context, section, period string) (*domain.RankingFreshness, error) {
+	var row struct {
+		Count        int          `db:"count"`
+		CalculatedAt sql.NullTime `db:"calculated_at"`
+	}
+	query := `
+		SELECT COUNT(*) AS count, MAX(calculated_at) AS calculated_at
+		FROM beat_rankings
+		WHERE section = $1
+		  AND period = $2
+		  AND ($1 <> 'top_charts' OR metrics->>'algorithm_version' = '3')`
+	if err := r.db.GetContext(ctx, &row, query, section, period); err != nil {
+		log.Printf("[CatalogRepo.Home] ranking freshness query failed section=%s period=%s err=%v", section, period, err)
+		return nil, err
+	}
+	freshness := &domain.RankingFreshness{Count: row.Count}
+	if row.CalculatedAt.Valid {
+		freshness.CalculatedAt = row.CalculatedAt.Time
+	}
+	log.Printf("[CatalogRepo.Home] ranking freshness section=%s period=%s count=%d calculated_at=%s", section, period, freshness.Count, freshness.CalculatedAt.Format(time.RFC3339))
+	return freshness, nil
+}
+
+func (r *PgSpecRepository) RecalculateBeatRankings(ctx context.Context, section, period string) error {
+	interval, err := rankingInterval(period)
+	if err != nil {
+		return err
+	}
+	switch section {
+	case domain.HomeSectionTrending:
+		log.Printf("[CatalogRepo.Home] recalculating trending rankings period=%s interval=%s", period, interval)
+		return r.recalculateTrendingRankings(ctx, period, interval)
+	case domain.HomeSectionTopCharts:
+		log.Printf("[CatalogRepo.Home] recalculating top chart rankings period=%s interval=%s", period, interval)
+		return r.recalculateTopChartRankings(ctx, period, interval)
+	default:
+		return fmt.Errorf("unsupported ranking section: %s", section)
+	}
+}
+
+func (r *PgSpecRepository) recalculateTrendingRankings(ctx context.Context, period, interval string) error {
+	lockKey := fmt.Sprintf("beat_rankings:%s:%s", domain.HomeSectionTrending, period)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var locked bool
+	if err = tx.GetContext(ctx, &locked, "SELECT pg_try_advisory_xact_lock(hashtext($1))", lockKey); err != nil || !locked {
+		if err != nil {
+			log.Printf("[CatalogRepo.Home] advisory lock failed key=%s err=%v", lockKey, err)
+		} else {
+			log.Printf("[CatalogRepo.Home] advisory lock busy key=%s", lockKey)
+			err = errRankingRefreshSkipped
+		}
+		return err
+	}
+
+	query := `
+		WITH current_metrics AS (
+			SELECT
+				s.id AS spec_id,
+				COUNT(*) FILTER (WHERE ae.event_type = 'play') AS plays,
+				COUNT(DISTINCT ae.user_id) FILTER (WHERE ae.user_id IS NOT NULL) AS unique_listeners,
+				COUNT(*) FILTER (WHERE ae.event_type = 'favorite') AS favorites,
+				COUNT(*) FILTER (WHERE ae.event_type = 'download') AS downloads
+			FROM specs s
+			LEFT JOIN analytics_events ae
+				ON ae.spec_id = s.id
+			   AND ae.created_at >= NOW() - $1::interval
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+			GROUP BY s.id
+		),
+		previous_metrics AS (
+			SELECT
+				s.id AS spec_id,
+				COUNT(*) FILTER (WHERE ae.event_type = 'play') AS plays,
+				COUNT(DISTINCT ae.user_id) FILTER (WHERE ae.user_id IS NOT NULL) AS unique_listeners,
+				COUNT(*) FILTER (WHERE ae.event_type = 'favorite') AS favorites,
+				COUNT(*) FILTER (WHERE ae.event_type = 'download') AS downloads
+			FROM specs s
+			LEFT JOIN analytics_events ae
+				ON ae.spec_id = s.id
+			   AND ae.created_at < NOW() - $1::interval
+			   AND ae.created_at >= NOW() - ($1::interval * 2)
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+			GROUP BY s.id
+		),
+		current_orders AS (
+			SELECT
+				s.id AS spec_id,
+				COUNT(o.id) AS purchases,
+				COALESCE(SUM(o.amount), 0) / 100.0 AS revenue
+			FROM specs s
+			LEFT JOIN orders o
+				ON o.spec_id = s.id
+			   AND o.status = 'paid'
+			   AND o.created_at >= NOW() - $1::interval
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+			GROUP BY s.id
+		),
+		scored AS (
+			SELECT
+				s.id AS spec_id,
+				cm.plays,
+				cm.unique_listeners,
+				cm.favorites,
+				cm.downloads,
+				co.purchases,
+				co.revenue,
+				(
+					(cm.plays * 1.0)
+					+ (cm.unique_listeners * 1.5)
+					+ (cm.favorites * 4.0)
+					+ (cm.downloads * 6.0)
+					+ (co.purchases * 15.0)
+					+ (co.revenue * 0.15)
+					+ GREATEST(
+						(
+							(cm.plays * 1.0)
+							+ (cm.unique_listeners * 1.5)
+							+ (cm.favorites * 4.0)
+							+ (cm.downloads * 6.0)
+						) - (
+							(pm.plays * 1.0)
+							+ (pm.unique_listeners * 1.5)
+							+ (pm.favorites * 4.0)
+							+ (pm.downloads * 6.0)
+						),
+						0
+					) * 0.35
+					+ CASE
+						WHEN s.created_at >= NOW() - INTERVAL '7 days'
+						THEN 10 * GREATEST(0, 1 - (EXTRACT(EPOCH FROM (NOW() - s.created_at)) / 604800.0))
+						ELSE 0
+					  END
+					- (GREATEST((EXTRACT(EPOCH FROM (NOW() - s.created_at)) / 86400.0) - 30, 0) * 0.05)
+				) AS score,
+				s.created_at
+			FROM specs s
+			JOIN current_metrics cm ON cm.spec_id = s.id
+			JOIN previous_metrics pm ON pm.spec_id = s.id
+			JOIN current_orders co ON co.spec_id = s.id
+		),
+		ranked AS (
+			SELECT
+				spec_id,
+				ROW_NUMBER() OVER (
+					ORDER BY score DESC, purchases DESC, plays DESC, created_at DESC, spec_id
+				) AS rank,
+				score,
+				jsonb_build_object(
+					'plays', plays,
+					'unique_listeners', unique_listeners,
+					'favorites', favorites,
+					'downloads', downloads,
+					'purchases', purchases,
+					'revenue', revenue
+				) AS metrics
+			FROM scored
+			WHERE score > 0
+		),
+		old AS (
+			SELECT spec_id, rank
+			FROM beat_rankings
+			WHERE section = 'trending' AND period = $2
+		),
+		deleted AS (
+			DELETE FROM beat_rankings
+			WHERE section = 'trending' AND period = $2
+		)
+		INSERT INTO beat_rankings (section, period, spec_id, rank, score, previous_rank, metrics, calculated_at)
+		SELECT 'trending', $2, ranked.spec_id, ranked.rank, ranked.score, old.rank, ranked.metrics, NOW()
+		FROM ranked
+		LEFT JOIN old ON old.spec_id = ranked.spec_id`
+
+	_, err = tx.ExecContext(ctx, query, interval, period)
+	if err != nil {
+		log.Printf("[CatalogRepo.Home] trending ranking recalculation failed period=%s err=%v", period, err)
+		return err
+	}
+	log.Printf("[CatalogRepo.Home] trending ranking recalculation complete period=%s", period)
+	return tx.Commit()
+}
+
+func (r *PgSpecRepository) recalculateTopChartRankings(ctx context.Context, period, interval string) error {
+	lockKey := fmt.Sprintf("beat_rankings:%s:%s", domain.HomeSectionTopCharts, period)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var locked bool
+	if err = tx.GetContext(ctx, &locked, "SELECT pg_try_advisory_xact_lock(hashtext($1))", lockKey); err != nil || !locked {
+		if err != nil {
+			log.Printf("[CatalogRepo.Home] advisory lock failed key=%s err=%v", lockKey, err)
+		} else {
+			log.Printf("[CatalogRepo.Home] advisory lock busy key=%s", lockKey)
+			err = errRankingRefreshSkipped
+		}
+		return err
+	}
+
+	query := `
+		WITH event_metrics AS (
+			SELECT
+				s.id AS spec_id,
+				COUNT(*) FILTER (WHERE ae.event_type = 'play') AS plays,
+				COUNT(*) FILTER (WHERE ae.event_type = 'favorite') AS favorites,
+				COUNT(*) FILTER (WHERE ae.event_type = 'download') AS downloads
+			FROM specs s
+			LEFT JOIN analytics_events ae
+				ON ae.spec_id = s.id
+			   AND ae.created_at >= NOW() - $1::interval
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+			GROUP BY s.id
+		),
+		order_metrics AS (
+			SELECT
+				s.id AS spec_id,
+				COUNT(o.id) AS purchases,
+				COALESCE(SUM(o.amount), 0) / 100.0 AS revenue
+			FROM specs s
+			LEFT JOIN orders o
+				ON o.spec_id = s.id
+			   AND o.status = 'paid'
+			   AND o.created_at >= NOW() - $1::interval
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+			GROUP BY s.id
+		),
+		lifetime_metrics AS (
+			SELECT
+				s.id AS spec_id,
+				COALESCE(sa.play_count, 0) AS lifetime_plays,
+				COALESCE(sa.favorite_count, 0) AS lifetime_favorites,
+				COALESCE(sa.free_download_count, 0) AS lifetime_downloads,
+				COALESCE(sa.total_purchase_count, 0) AS lifetime_purchases
+			FROM specs s
+			LEFT JOIN spec_analytics sa ON sa.spec_id = s.id
+			WHERE s.category = 'beat'
+			  AND s.processing_status = 'completed'
+			  AND s.is_deleted = FALSE
+		),
+		scored AS (
+			SELECT
+				s.id AS spec_id,
+				em.plays,
+				em.favorites,
+				em.downloads,
+				om.purchases,
+				om.revenue,
+				(
+					(
+						(em.plays * 1.0)
+						+ (em.favorites * 3.0)
+						+ (em.downloads * 4.0)
+						+ (om.purchases * 20.0)
+						+ (om.revenue * 0.25)
+					)
+					+ (
+						(
+							(lm.lifetime_plays * 0.20)
+							+ (lm.lifetime_favorites * 1.00)
+							+ (lm.lifetime_downloads * 1.50)
+							+ (lm.lifetime_purchases * 6.00)
+						)
+						*
+						CASE
+							WHEN (
+								(em.plays * 1.0)
+								+ (em.favorites * 3.0)
+								+ (em.downloads * 4.0)
+								+ (om.purchases * 20.0)
+								+ (om.revenue * 0.25)
+							) >= 5 THEN 0.22
+							WHEN (
+								(em.plays * 1.0)
+								+ (em.favorites * 3.0)
+								+ (em.downloads * 4.0)
+								+ (om.purchases * 20.0)
+								+ (om.revenue * 0.25)
+							) > 0 THEN 0.12
+							ELSE 0.03
+						END
+					)
+				) AS score,
+				(
+					(em.plays * 1.0)
+					+ (em.favorites * 3.0)
+					+ (em.downloads * 4.0)
+					+ (om.purchases * 20.0)
+					+ (om.revenue * 0.25)
+				) AS recent_score,
+				(
+					(lm.lifetime_plays * 0.20)
+					+ (lm.lifetime_favorites * 1.00)
+					+ (lm.lifetime_downloads * 1.50)
+					+ (lm.lifetime_purchases * 6.00)
+				) AS lifetime_authority_score,
+				lm.lifetime_plays,
+				lm.lifetime_favorites,
+				lm.lifetime_downloads,
+				lm.lifetime_purchases,
+				s.created_at
+			FROM specs s
+			JOIN event_metrics em ON em.spec_id = s.id
+			JOIN order_metrics om ON om.spec_id = s.id
+			JOIN lifetime_metrics lm ON lm.spec_id = s.id
+		),
+		ranked AS (
+			SELECT
+				spec_id,
+				ROW_NUMBER() OVER (
+					ORDER BY score DESC, revenue DESC, purchases DESC, lifetime_plays DESC, plays DESC, created_at DESC, spec_id
+				) AS rank,
+				score,
+				jsonb_build_object(
+					'plays', GREATEST(plays, lifetime_plays),
+					'favorites', GREATEST(favorites, lifetime_favorites),
+					'downloads', GREATEST(downloads, lifetime_downloads),
+					'purchases', GREATEST(purchases, lifetime_purchases),
+					'revenue', revenue,
+					'recent_score', recent_score,
+					'lifetime_authority_score', lifetime_authority_score,
+					'algorithm_version', 3
+				) AS metrics
+			FROM scored
+			WHERE score > 0
+		),
+		old AS (
+			SELECT spec_id, rank
+			FROM beat_rankings
+			WHERE section = 'top_charts' AND period = $2
+		),
+		deleted AS (
+			DELETE FROM beat_rankings
+			WHERE section = 'top_charts' AND period = $2
+		)
+		INSERT INTO beat_rankings (section, period, spec_id, rank, score, previous_rank, metrics, calculated_at)
+		SELECT 'top_charts', $2, ranked.spec_id, ranked.rank, ranked.score, old.rank, ranked.metrics, NOW()
+		FROM ranked
+		LEFT JOIN old ON old.spec_id = ranked.spec_id`
+
+	_, err = tx.ExecContext(ctx, query, interval, period)
+	if err != nil {
+		log.Printf("[CatalogRepo.Home] top chart ranking recalculation failed period=%s err=%v", period, err)
+		return err
+	}
+	log.Printf("[CatalogRepo.Home] top chart ranking recalculation complete period=%s", period)
+	return tx.Commit()
+}
+
+func (r *PgSpecRepository) hydrateSpecRelations(ctx context.Context, specs []domain.Spec) error {
+	if len(specs) == 0 {
+		return nil
+	}
+
+	specMap := make(map[uuid.UUID]*domain.Spec, len(specs))
+	specIDs := make([]uuid.UUID, len(specs))
+	for i := range specs {
+		specs[i].Genres = []domain.Genre{}
+		specs[i].Licenses = []domain.LicenseOption{}
+		specMap[specs[i].ID] = &specs[i]
+		specIDs[i] = specs[i].ID
+	}
+
+	genreQuery, args, err := sqlx.In(`
+		SELECT sg.spec_id, g.*
+		FROM genres g
+		JOIN spec_genres sg ON g.id = sg.genre_id
+		WHERE sg.spec_id IN (?)`, specIDs)
+	if err != nil {
+		return err
+	}
+	genreQuery = r.db.Rebind(genreQuery)
+
+	var genreRows []struct {
+		SpecID uuid.UUID `db:"spec_id"`
+		domain.Genre
+	}
+	if err := r.db.SelectContext(ctx, &genreRows, genreQuery, args...); err != nil {
+		return fmt.Errorf("failed to fetch genres: %w", err)
+	}
+	for _, row := range genreRows {
+		if spec, ok := specMap[row.SpecID]; ok {
+			spec.Genres = append(spec.Genres, row.Genre)
+		}
+	}
+
+	licenseQuery, args, err := sqlx.In(`SELECT * FROM license_options WHERE spec_id IN (?) AND is_deleted = FALSE`, specIDs)
+	if err != nil {
+		return err
+	}
+	licenseQuery = r.db.Rebind(licenseQuery)
+
+	var licenses []domain.LicenseOption
+	if err := r.db.SelectContext(ctx, &licenses, licenseQuery, args...); err != nil {
+		return fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+	for _, lic := range licenses {
+		if spec, ok := specMap[lic.SpecID]; ok {
+			spec.Licenses = append(spec.Licenses, lic)
+		}
+	}
+	return nil
+}
+
+func rankingInterval(period string) (string, error) {
+	switch period {
+	case domain.HomePeriod24H:
+		return "24 hours", nil
+	case domain.HomePeriod7D:
+		return "7 days", nil
+	case domain.HomePeriod30D:
+		return "30 days", nil
+	default:
+		return "", fmt.Errorf("unsupported ranking period: %s", period)
+	}
 }
 
 func (r *PgSpecRepository) Delete(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {

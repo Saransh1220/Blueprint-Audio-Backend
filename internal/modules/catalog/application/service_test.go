@@ -20,6 +20,9 @@ type mockRepo struct {
 	listByUserIDFn   func(context.Context, uuid.UUID, int, int) ([]domain.Spec, int, error)
 	getByShortCodeFn func(context.Context, string) (*domain.Spec, error)
 	getBySlugFn      func(context.Context, string) (*domain.Spec, error)
+	statsFn          func(context.Context) (*domain.HomepageStats, error)
+	newestFn         func(context.Context, int) ([]domain.Spec, error)
+	rankedFn         func(context.Context, string, string, int) ([]domain.RankingRow, error)
 }
 
 func (m mockRepo) Create(ctx context.Context, s *domain.Spec) error { return m.createFn(ctx, s) }
@@ -52,6 +55,30 @@ func (m mockRepo) GetBySlug(ctx context.Context, slug string) (*domain.Spec, err
 func (m mockRepo) UpdateFilesAndStatus(ctx context.Context, id uuid.UUID, files map[string]*string, status domain.ProcessingStatus) error {
 	return nil
 }
+func (m mockRepo) GetHomepageStats(ctx context.Context) (*domain.HomepageStats, error) {
+	if m.statsFn != nil {
+		return m.statsFn(ctx)
+	}
+	return &domain.HomepageStats{}, nil
+}
+func (m mockRepo) GetNewestBeats(ctx context.Context, limit int) ([]domain.Spec, error) {
+	if m.newestFn != nil {
+		return m.newestFn(ctx, limit)
+	}
+	return []domain.Spec{}, nil
+}
+func (m mockRepo) GetRankedSpecs(ctx context.Context, section, period string, limit int) ([]domain.RankingRow, error) {
+	if m.rankedFn != nil {
+		return m.rankedFn(ctx, section, period, limit)
+	}
+	return []domain.RankingRow{}, nil
+}
+func (m mockRepo) GetRankingFreshness(context.Context, string, string) (*domain.RankingFreshness, error) {
+	return &domain.RankingFreshness{}, nil
+}
+func (m mockRepo) RecalculateBeatRankings(context.Context, string, string) error {
+	return nil
+}
 
 func TestSpecService_CreateSpecValidation(t *testing.T) {
 	svc := NewSpecService(mockRepo{createFn: func(context.Context, *domain.Spec) error { return nil }})
@@ -76,6 +103,47 @@ func TestSpecService_CreateSpecValidation(t *testing.T) {
 
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "ok", BasePrice: 1, Category: domain.CategorySample})
 	require.NoError(t, err)
+}
+
+func TestSpecService_GetHomeBuildsAllSections(t *testing.T) {
+	repo := mockRepo{
+		statsFn: func(context.Context) (*domain.HomepageStats, error) {
+			return &domain.HomepageStats{TotalLiveBeats: 3}, nil
+		},
+		newestFn: func(context.Context, int) ([]domain.Spec, error) {
+			return []domain.Spec{{ID: uuid.New(), Title: "Newest"}}, nil
+		},
+		rankedFn: func(_ context.Context, section, _ string, _ int) ([]domain.RankingRow, error) {
+			if section == domain.HomeSectionTrending {
+				previous := 2
+				return []domain.RankingRow{{Spec: domain.Spec{ID: uuid.New(), Title: "Trending"}, Rank: 1, PreviousRank: &previous}}, nil
+			}
+			return []domain.RankingRow{}, nil
+		},
+	}
+	home, err := NewSpecService(repo).GetHome(context.Background(), domain.HomepageParams{Limit: 99})
+	require.NoError(t, err)
+	assert.Equal(t, 20, home.CacheTTLSeconds/45)
+	assert.Len(t, home.Sections, 4)
+	assert.Equal(t, "algorithmic", home.Sections[domain.HomeSectionTrending].Source)
+	assert.Equal(t, "algorithmic", home.Sections[domain.HomeSectionTopCharts].Source)
+}
+
+func TestCatalogHelpers(t *testing.T) {
+	assert.Equal(t, 1, func() int { p, _ := normalizePageAndLimit(0, 0); return p }())
+	_, limit := normalizePageAndLimit(2, 999)
+	assert.Equal(t, 50, limit)
+	assert.Equal(t, 8, normalizeHomeLimit(0))
+	assert.Equal(t, 20, normalizeHomeLimit(99))
+	assert.Equal(t, domain.HomePeriod30D, normalizeHomePeriod("wrong"))
+	assert.Len(t, normalizeHomeSections([]string{"invalid", domain.HomeSectionTrending}), 1)
+	assert.Equal(t, "down", movementForRanks(1, func() *int { n := 0; return &n }()))
+	assert.Equal(t, "up", movementForRanks(1, func() *int { n := 2; return &n }()))
+	assert.Equal(t, "down", movementForRanks(2, func() *int { n := 1; return &n }()))
+	assert.Equal(t, "-", movementForRanks(1, func() *int { n := 1; return &n }()))
+	assert.Equal(t, "my-beat-2026", slugify("My Beat! 2026"))
+	assert.Len(t, randomCodeSegment(12), 12)
+	assert.Equal(t, domain.BeatRankingMetrics{}, parseRankingMetrics([]byte("bad")))
 }
 
 func TestSpecService_CreateSpecRejectsInvalidCurrency(t *testing.T) {

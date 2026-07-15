@@ -46,6 +46,34 @@ type SpecAnalytics struct {
 	IsFavorited        bool `json:"is_favorited"`
 }
 
+type HomepageResponse struct {
+	GeneratedAt     time.Time                          `json:"generated_at"`
+	CacheTTLSeconds int                                `json:"cache_ttl_seconds"`
+	Stats           HomepageStatsResponse              `json:"stats"`
+	Sections        map[string]HomepageSectionResponse `json:"sections"`
+}
+
+type HomepageStatsResponse struct {
+	TotalLiveBeats int `json:"total_live_beats"`
+	NewReleases7D  int `json:"new_releases_7d"`
+	TotalProducers int `json:"total_producers"`
+}
+
+type HomepageSectionResponse struct {
+	Title  string                 `json:"title"`
+	Source string                 `json:"source"`
+	Period string                 `json:"period,omitempty"`
+	Items  []HomepageItemResponse `json:"items"`
+}
+
+type HomepageItemResponse struct {
+	Rank     int                        `json:"rank"`
+	Score    *float64                   `json:"score,omitempty"`
+	Movement string                     `json:"movement"`
+	Metrics  *domain.BeatRankingMetrics `json:"metrics,omitempty"`
+	Spec     SpecResponse               `json:"spec"`
+}
+
 // LicenseResponse for nested license data
 type LicenseResponse struct {
 	ID                uuid.UUID   `json:"id"`

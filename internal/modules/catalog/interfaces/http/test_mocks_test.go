@@ -75,6 +75,14 @@ func (m *mockSpecService) GetSpecBySlug(ctx context.Context, slug string) (*doma
 	return args.Get(0).(*domain.Spec), args.Error(1)
 }
 
+func (m *mockSpecService) GetHome(ctx context.Context, params domain.HomepageParams) (*domain.HomepageData, error) {
+	args := m.Called(ctx, params)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.HomepageData), args.Error(1)
+}
+
 type mockAnalyticsService struct{ mock.Mock }
 
 func (m *mockAnalyticsService) GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*analyticsDomain.PublicAnalytics, error) {

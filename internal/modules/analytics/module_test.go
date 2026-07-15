@@ -42,7 +42,21 @@ func (s *specRepoStub) GetByShortCode(ctx context.Context, shortCode string) (*c
 func (s *specRepoStub) GetBySlug(ctx context.Context, slug string) (*catalogDomain.Spec, error) {
 	return nil, nil
 }
-
+func (s *specRepoStub) GetHomepageStats(ctx context.Context) (*catalogDomain.HomepageStats, error) {
+	return &catalogDomain.HomepageStats{}, nil
+}
+func (s *specRepoStub) GetNewestBeats(ctx context.Context, limit int) ([]catalogDomain.Spec, error) {
+	return nil, nil
+}
+func (s *specRepoStub) GetRankedSpecs(ctx context.Context, section, period string, limit int) ([]catalogDomain.RankingRow, error) {
+	return nil, nil
+}
+func (s *specRepoStub) GetRankingFreshness(ctx context.Context, section, period string) (*catalogDomain.RankingFreshness, error) {
+	return &catalogDomain.RankingFreshness{}, nil
+}
+func (s *specRepoStub) RecalculateBeatRankings(ctx context.Context, section, period string) error {
+	return nil
+}
 
 type fileSvcStub struct{}
 

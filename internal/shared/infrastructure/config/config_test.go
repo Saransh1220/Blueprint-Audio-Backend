@@ -2,10 +2,12 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_Defaults(t *testing.T) {
@@ -33,6 +35,28 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.False(t, cfg.Migration.AutoRun)
 	assert.Equal(t, "db/migrations", cfg.Migration.Path)
 	assert.True(t, cfg.Redis.Enabled)
+}
+
+func TestConfigHelpers(t *testing.T) {
+	t.Setenv("CONFIG_HELPER_VALUE", "")
+	assert.Equal(t, "fallback", getEnv("CONFIG_HELPER_VALUE", "fallback"))
+	assert.Equal(t, time.Minute, parseDuration("not-a-duration", time.Minute))
+	originalFromFile, hadFromFile := os.LookupEnv("FROM_FILE")
+	_ = os.Unsetenv("FROM_FILE")
+	t.Cleanup(func() {
+		if hadFromFile {
+			_ = os.Setenv("FROM_FILE", originalFromFile)
+		} else {
+			_ = os.Unsetenv("FROM_FILE")
+		}
+	})
+	workspace, err := filepath.Abs(".")
+	require.NoError(t, err)
+	t.Setenv("TEMP", workspace)
+	path := filepath.Join(t.TempDir(), "config-helper.test.env")
+	require.NoError(t, os.WriteFile(path, []byte("# comment\nFROM_FILE = 'value'\nBROKEN\n"), 0o600))
+	loadDotEnvIfPresent(path)
+	assert.Equal(t, "value", os.Getenv("FROM_FILE"))
 }
 
 func TestLoad_CustomValues(t *testing.T) {

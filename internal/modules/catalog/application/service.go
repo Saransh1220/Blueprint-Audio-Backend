@@ -2,9 +2,12 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -18,6 +21,10 @@ const (
 	shortCodeLength  = 8
 	currencyINR      = "INR"
 	currencyUSD      = "USD"
+
+	defaultHomeLimit = 8
+	maxHomeLimit     = 20
+	homeCacheTTL     = 900
 )
 
 type SpecService interface {
@@ -30,6 +37,7 @@ type SpecService interface {
 	GetUserSpecs(ctx context.Context, producerID uuid.UUID, page, limit int) ([]domain.Spec, int, error)
 	GetSpecByShortCode(ctx context.Context, code string) (*domain.Spec, error)
 	GetSpecBySlug(ctx context.Context, slug string) (*domain.Spec, error)
+	GetHome(ctx context.Context, params domain.HomepageParams) (*domain.HomepageData, error)
 }
 
 type specService struct {
@@ -120,6 +128,160 @@ func (s *specService) ListSpecs(ctx context.Context, filter domain.SpecFilter) (
 	return s.repo.List(ctx, filter)
 }
 
+func (s *specService) GetHome(ctx context.Context, params domain.HomepageParams) (*domain.HomepageData, error) {
+	limit := normalizeHomeLimit(params.Limit)
+	period := normalizeHomePeriod(params.Period)
+	sections := normalizeHomeSections(params.Sections)
+	log.Printf("[Catalog Home] building homepage limit=%d period=%s sections=%v", limit, period, sections)
+
+	stats, err := s.repo.GetHomepageStats(ctx)
+	if err != nil {
+		log.Printf("[Catalog Home] stats query failed: %v", err)
+		return nil, err
+	}
+	log.Printf("[Catalog Home] stats total_live_beats=%d new_releases_7d=%d total_producers=%d", stats.TotalLiveBeats, stats.NewReleases7D, stats.TotalProducers)
+
+	data := &domain.HomepageData{
+		GeneratedAt:     time.Now().UTC(),
+		CacheTTLSeconds: homeCacheTTL,
+		Stats:           *stats,
+		Sections:        make(map[string]domain.HomepageSection, len(sections)),
+	}
+
+	var newestFallback []domain.Spec
+	getFallback := func() ([]domain.Spec, error) {
+		if newestFallback != nil {
+			return newestFallback, nil
+		}
+		specs, err := s.repo.GetNewestBeats(ctx, limit)
+		if err != nil {
+			log.Printf("[Catalog Home] newest fallback query failed: %v", err)
+			return nil, err
+		}
+		log.Printf("[Catalog Home] loaded newest fallback specs count=%d", len(specs))
+		newestFallback = specs
+		return newestFallback, nil
+	}
+
+	for _, section := range sections {
+		switch section {
+		case domain.HomeSectionFeatured:
+			specs, err := getFallback()
+			if err != nil {
+				return nil, err
+			}
+			log.Printf("[Catalog Home] section=%s source=fallback items=%d", section, len(specs))
+			data.Sections[section] = domain.HomepageSection{
+				Title:  "Featured beats",
+				Source: "fallback",
+				Items:  specsToRankedItems(specs),
+			}
+		case domain.HomeSectionNewReleases:
+			specs, err := getFallback()
+			if err != nil {
+				return nil, err
+			}
+			log.Printf("[Catalog Home] section=%s source=query items=%d", section, len(specs))
+			data.Sections[section] = domain.HomepageSection{
+				Title:  "New releases",
+				Source: "query",
+				Items:  specsToRankedItems(specs),
+			}
+		case domain.HomeSectionTrending:
+			items, err := s.getRankedHomeItems(ctx, domain.HomeSectionTrending, domain.HomePeriod24H, limit)
+			if err != nil {
+				log.Printf("[Catalog Home] ranked section=%s unavailable, using fallback: %v", section, err)
+			}
+			if len(items) == 0 {
+				specs, err := getFallback()
+				if err != nil {
+					return nil, err
+				}
+				items = specsToRankedItems(specs)
+				log.Printf("[Catalog Home] section=%s source=fallback items=%d", section, len(items))
+			} else {
+				log.Printf("[Catalog Home] section=%s source=algorithmic period=%s items=%d", section, domain.HomePeriod24H, len(items))
+			}
+			data.Sections[section] = domain.HomepageSection{
+				Title:  "Trending now",
+				Source: "algorithmic",
+				Period: domain.HomePeriod24H,
+				Items:  items,
+			}
+		case domain.HomeSectionTopCharts:
+			items, err := s.getRankedHomeItems(ctx, domain.HomeSectionTopCharts, period, limit)
+			if err != nil {
+				log.Printf("[Catalog Home] ranked section=%s unavailable, using fallback: %v", section, err)
+			}
+			if len(items) == 0 {
+				specs, err := getFallback()
+				if err != nil {
+					return nil, err
+				}
+				items = specsToRankedItems(specs)
+				log.Printf("[Catalog Home] section=%s source=fallback items=%d", section, len(items))
+			} else {
+				log.Printf("[Catalog Home] section=%s source=algorithmic period=%s items=%d", section, period, len(items))
+			}
+			data.Sections[section] = domain.HomepageSection{
+				Title:  "Top charts",
+				Source: "algorithmic",
+				Period: period,
+				Items:  items,
+			}
+		}
+	}
+
+	log.Printf("[Catalog Home] built homepage sections=%d", len(data.Sections))
+	return data, nil
+}
+
+func (s *specService) getRankedHomeItems(ctx context.Context, section, period string, limit int) ([]domain.RankedSpec, error) {
+	log.Printf("[Catalog Home] loading ranked items section=%s period=%s limit=%d", section, period, limit)
+	if err := s.ensureRankingFresh(ctx, section, period); err != nil {
+		log.Printf("[Catalog Home] ranking refresh failed section=%s period=%s err=%v", section, period, err)
+	}
+
+	rows, err := s.repo.GetRankedSpecs(ctx, section, period, limit)
+	if err != nil {
+		log.Printf("[Catalog Home] ranked read failed section=%s period=%s err=%v", section, period, err)
+		return nil, err
+	}
+	log.Printf("[Catalog Home] ranked read succeeded section=%s period=%s rows=%d", section, period, len(rows))
+	items := make([]domain.RankedSpec, len(rows))
+	for i, row := range rows {
+		items[i] = domain.RankedSpec{
+			Spec:         row.Spec,
+			Rank:         row.Rank,
+			Score:        &row.Score,
+			Movement:     movementForRanks(row.Rank, row.PreviousRank),
+			Metrics:      metricsPointer(parseRankingMetrics(row.MetricsJSON), row.MetricsJSON),
+			CalculatedAt: row.CalculatedAt,
+		}
+	}
+	return items, nil
+}
+
+func (s *specService) ensureRankingFresh(ctx context.Context, section, period string) error {
+	freshness, err := s.repo.GetRankingFreshness(ctx, section, period)
+	if err != nil {
+		log.Printf("[Catalog Home] ranking freshness check failed section=%s period=%s err=%v", section, period, err)
+		return err
+	}
+
+	maxAge := time.Hour
+	if section == domain.HomeSectionTrending {
+		maxAge = 15 * time.Minute
+	}
+
+	if freshness.Count > 0 && !freshness.CalculatedAt.IsZero() && time.Since(freshness.CalculatedAt) < maxAge {
+		log.Printf("[Catalog Home] ranking fresh section=%s period=%s count=%d calculated_at=%s", section, period, freshness.Count, freshness.CalculatedAt.Format(time.RFC3339))
+		return nil
+	}
+	log.Printf("[Catalog Home] ranking stale/missing section=%s period=%s count=%d calculated_at=%s; recalculating", section, period, freshness.Count, freshness.CalculatedAt.Format(time.RFC3339))
+	return s.repo.RecalculateBeatRankings(ctx, section, period)
+}
+
 func (s *specService) DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {
 	return s.repo.Delete(ctx, id, producerId)
 }
@@ -185,6 +347,100 @@ func normalizePageAndLimit(page, limit int) (int, int) {
 		limit = maxSpecLimit
 	}
 	return page, limit
+}
+
+func normalizeHomeLimit(limit int) int {
+	if limit <= 0 {
+		return defaultHomeLimit
+	}
+	if limit > maxHomeLimit {
+		return maxHomeLimit
+	}
+	return limit
+}
+
+func normalizeHomePeriod(period string) string {
+	switch strings.ToLower(strings.TrimSpace(period)) {
+	case domain.HomePeriod24H:
+		return domain.HomePeriod24H
+	case domain.HomePeriod7D:
+		return domain.HomePeriod7D
+	case domain.HomePeriod30D:
+		return domain.HomePeriod30D
+	default:
+		return domain.HomePeriod30D
+	}
+}
+
+func normalizeHomeSections(sections []string) []string {
+	if len(sections) == 0 {
+		return []string{
+			domain.HomeSectionFeatured,
+			domain.HomeSectionTrending,
+			domain.HomeSectionTopCharts,
+			domain.HomeSectionNewReleases,
+		}
+	}
+
+	allowed := map[string]bool{
+		domain.HomeSectionFeatured:    true,
+		domain.HomeSectionTrending:    true,
+		domain.HomeSectionTopCharts:   true,
+		domain.HomeSectionNewReleases: true,
+	}
+	seen := make(map[string]bool, len(sections))
+	normalized := make([]string, 0, len(sections))
+	for _, section := range sections {
+		section = strings.ToLower(strings.TrimSpace(section))
+		if allowed[section] && !seen[section] {
+			seen[section] = true
+			normalized = append(normalized, section)
+		}
+	}
+	if len(normalized) == 0 {
+		return normalizeHomeSections(nil)
+	}
+	return normalized
+}
+
+func specsToRankedItems(specs []domain.Spec) []domain.RankedSpec {
+	items := make([]domain.RankedSpec, len(specs))
+	for i := range specs {
+		items[i] = domain.RankedSpec{
+			Spec:     specs[i],
+			Rank:     i + 1,
+			Movement: "-",
+		}
+	}
+	return items
+}
+
+func metricsPointer(metrics domain.BeatRankingMetrics, raw json.RawMessage) *domain.BeatRankingMetrics {
+	if len(raw) == 0 {
+		return nil
+	}
+	return &metrics
+}
+
+func movementForRanks(rank int, previousRank *int) string {
+	if previousRank == nil || *previousRank == rank {
+		return "-"
+	}
+	if rank < *previousRank {
+		return "up"
+	}
+	return "down"
+}
+
+func parseRankingMetrics(raw []byte) domain.BeatRankingMetrics {
+	var metrics domain.BeatRankingMetrics
+	if len(raw) == 0 {
+		return metrics
+	}
+	if err := json.Unmarshal(raw, &metrics); err != nil {
+		return domain.BeatRankingMetrics{}
+	}
+	return metrics
 }
 
 func normalizeSpecCurrencies(spec *domain.Spec) error {

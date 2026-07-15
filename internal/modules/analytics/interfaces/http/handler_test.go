@@ -93,7 +93,21 @@ func (m *mockSpecRepo) GetByShortCode(ctx context.Context, shortCode string) (*c
 func (m *mockSpecRepo) GetBySlug(ctx context.Context, slug string) (*catalogDomain.Spec, error) {
 	return nil, nil
 }
-
+func (m *mockSpecRepo) GetHomepageStats(ctx context.Context) (*catalogDomain.HomepageStats, error) {
+	return &catalogDomain.HomepageStats{}, nil
+}
+func (m *mockSpecRepo) GetNewestBeats(ctx context.Context, limit int) ([]catalogDomain.Spec, error) {
+	return nil, nil
+}
+func (m *mockSpecRepo) GetRankedSpecs(ctx context.Context, section, period string, limit int) ([]catalogDomain.RankingRow, error) {
+	return nil, nil
+}
+func (m *mockSpecRepo) GetRankingFreshness(ctx context.Context, section, period string) (*catalogDomain.RankingFreshness, error) {
+	return &catalogDomain.RankingFreshness{}, nil
+}
+func (m *mockSpecRepo) RecalculateBeatRankings(ctx context.Context, section, period string) error {
+	return nil
+}
 
 type mockFileService struct{ mock.Mock }
 
