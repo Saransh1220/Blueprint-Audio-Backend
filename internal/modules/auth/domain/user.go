@@ -50,6 +50,7 @@ type User struct {
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" db:"email_verified_at"`
 	Bio             *string    `json:"bio" db:"bio"`
 	AvatarUrl       *string    `json:"avatar_url" db:"avatar_url"`
+	BannerURL       *string    `json:"banner_url" db:"banner_url"`
 	InstagramURL    *string    `json:"instagram_url" db:"instagram_url"`
 	TwitterURL      *string    `json:"twitter_url" db:"twitter_url"`
 	YoutubeURL      *string    `json:"youtube_url" db:"youtube_url"`
@@ -66,7 +67,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
-	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error
+	UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, bannerURL *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error
 	UpdateSystemRole(ctx context.Context, id uuid.UUID, role SystemRole) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status UserStatus) error
 	CountBySystemRole(ctx context.Context, role SystemRole) (int, error)

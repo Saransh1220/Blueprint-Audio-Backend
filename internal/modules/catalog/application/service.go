@@ -49,17 +49,10 @@ func NewSpecService(repo domain.SpecRepository) SpecService {
 }
 
 func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
-	if spec.Title == "" {
-		return errors.New("title is required")
-	}
-	if spec.BasePrice < 0 {
-		return errors.New("price cannot be negative")
+	if err := validateSpec(spec); err != nil {
+		return err
 	}
 	if spec.Category == domain.CategoryBeat {
-		if spec.BPM < 50 || spec.BPM > 300 {
-			return errors.New("BPM must be between 50 and 300")
-		}
-
 		if spec.ProcessingStatus != domain.ProcessingStatusProcessing {
 			if spec.WavUrl == nil || *spec.WavUrl == "" {
 				return errors.New("WAV file is required!")
@@ -68,13 +61,6 @@ func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
 				return errors.New("stems file is mandatory for beats")
 			}
 		}
-	}
-
-	if len(spec.Moods) > 5 {
-		return errors.New("maximum 5 moods allowed")
-	}
-	if len(spec.Instruments) > 5 {
-		return errors.New("maximum 5 instruments allowed")
 	}
 
 	if spec.Slug == nil || strings.TrimSpace(*spec.Slug) == "" {
@@ -301,16 +287,8 @@ func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, produce
 	}
 
 	// Validate updates
-	if spec.Title == "" {
-		return errors.New("title is required")
-	}
-	if spec.BasePrice < 0 {
-		return errors.New("price cannot be negative")
-	}
-	if spec.Category == domain.CategoryBeat {
-		if spec.BPM < 50 || spec.BPM > 300 {
-			return errors.New("BPM must be between 50 and 300")
-		}
+	if err := validateSpec(spec); err != nil {
+		return err
 	}
 	if err := normalizeSpecCurrencies(spec); err != nil {
 		return err

@@ -40,7 +40,7 @@ func (m *mockUserRepository) MarkEmailVerified(ctx context.Context, id uuid.UUID
 func (m *mockUserRepository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	return m.Called(ctx, id, passwordHash).Error(0)
 }
-func (m *mockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
+func (m *mockUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, bannerURL *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
 	return m.Called(ctx, id, bio, avatarUrl, displayName, instagramURL, twitterURL, youtubeURL, spotifyURL, storeCurrency).Error(0)
 }
 func (m *mockUserRepository) UpdateSystemRole(ctx context.Context, id uuid.UUID, role domain.SystemRole) error {

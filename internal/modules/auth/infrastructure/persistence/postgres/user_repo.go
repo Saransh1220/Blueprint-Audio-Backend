@@ -207,7 +207,7 @@ func (r *PgUserRepository) Exists(ctx context.Context, id uuid.UUID) (bool, erro
 // UpdateProfile updates a user's profile fields (bio, avatar, and social media URLs).
 // Only the provided non-nil fields will be updated in the database.
 // Returns an error if the database operation fails.
-func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
+func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio *string, avatarUrl *string, bannerURL *string, displayName *string, instagramURL, twitterURL, youtubeURL, spotifyURL *string, storeCurrency *string) error {
 	// Build dynamic query to only update provided fields
 	setClauses := []string{}
 	args := []interface{}{}
@@ -226,6 +226,11 @@ func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio 
 	if avatarUrl != nil {
 		setClauses = append(setClauses, fmt.Sprintf("avatar_url = $%d", argIndex))
 		args = append(args, avatarUrl)
+		argIndex++
+	}
+	if bannerURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("banner_url = $%d", argIndex))
+		args = append(args, bannerURL)
 		argIndex++
 	}
 	if storeCurrency != nil {

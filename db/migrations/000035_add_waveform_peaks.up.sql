@@ -1,0 +1,2 @@
+ALTER TABLE specs
+  ADD COLUMN IF NOT EXISTS waveform_peaks SMALLINT[] NOT NULL DEFAULT '{}';

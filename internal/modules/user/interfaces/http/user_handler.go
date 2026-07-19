@@ -1,15 +1,21 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"image"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user/application"
+	_ "golang.org/x/image/webp"
 )
 
 // UserService defines the interface for user operations
@@ -21,6 +27,7 @@ type UserService interface {
 // FileService defines the interface for file operations
 type FileService interface {
 	Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, folder string) (string, string, error)
+	UploadWithKey(ctx context.Context, file io.Reader, key string, contentType string) (string, error)
 	GetPresignedURL(ctx context.Context, key string, expiration time.Duration) (string, error)
 	GetKeyFromUrl(fileUrl string) (string, error)
 	Delete(ctx context.Context, key string) error
@@ -47,13 +54,15 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req application.UpdateProfileRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.service.UpdateProfile(r.Context(), userID, req); err != nil {
-		http.Error(w, "failed to update profile", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -92,6 +101,15 @@ func (h *UserHandler) GetPublicProfile(w http.ResponseWriter, r *http.Request) {
 
 // UploadAvatar handles POST /users/profile/avatar - uploads a new avatar image
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	h.uploadProfileImage(w, r, "avatar", "avatars", false)
+}
+
+// UploadBanner handles POST /users/profile/banner.
+func (h *UserHandler) UploadBanner(w http.ResponseWriter, r *http.Request) {
+	h.uploadProfileImage(w, r, "banner", "banners", true)
+}
+
+func (h *UserHandler) uploadProfileImage(w http.ResponseWriter, r *http.Request, formField, folder string, landscape bool) {
 	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -107,13 +125,17 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the avatar file
-	file, header, err := r.FormFile("avatar")
+	file, _, err := r.FormFile(formField)
 	if err != nil {
-		http.Error(w, "avatar file is required", http.StatusBadRequest)
+		http.Error(w, formField+" file is required", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+	data, err := readAndValidateImage(file, landscape)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Get current user profile to check for existing avatar
 	currentUser, err := h.service.GetPublicProfile(r.Context(), userID)
@@ -123,32 +145,43 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete old avatar if it exists
-	if currentUser.AvatarURL != nil && *currentUser.AvatarURL != "" {
-		oldKey, err := h.fileService.GetKeyFromUrl(*currentUser.AvatarURL)
-		if err == nil {
-			// Ignore deletion errors (file might not exist)
-			_ = h.fileService.Delete(r.Context(), oldKey)
-		}
+	var oldURL *string
+	if landscape {
+		oldURL = currentUser.BannerURL
+	} else {
+		oldURL = currentUser.AvatarURL
 	}
-
-	// Upload to S3
-	avatarURL, _, err := h.fileService.Upload(r.Context(), file, header, "avatars")
+	imageID, err := uuid.NewV7()
 	if err != nil {
-		http.Error(w, "failed to upload avatar: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to generate image id", http.StatusInternalServerError)
+		return
+	}
+	imageURL, err := h.fileService.UploadWithKey(r.Context(), bytes.NewReader(data), fmt.Sprintf("%s/%s.jpg", folder, imageID), "image/jpeg")
+	if err != nil {
+		http.Error(w, "failed to upload image", http.StatusInternalServerError)
 		return
 	}
 
 	// Update user profile with new avatar URL
-	req := application.UpdateProfileRequest{
-		AvatarURL: &avatarURL,
+	req := application.UpdateProfileRequest{}
+	if landscape {
+		req.BannerURL = &imageURL
+	} else {
+		req.AvatarURL = &imageURL
 	}
 	if err := h.service.UpdateProfile(r.Context(), userID, req); err != nil {
 		// Rollback: delete the newly uploaded file
-		if newKey, keyErr := h.fileService.GetKeyFromUrl(avatarURL); keyErr == nil {
+		if newKey, keyErr := h.fileService.GetKeyFromUrl(imageURL); keyErr == nil {
 			_ = h.fileService.Delete(r.Context(), newKey)
 		}
-		http.Error(w, "failed to update avatar", http.StatusInternalServerError)
+		http.Error(w, "failed to update profile image", http.StatusInternalServerError)
 		return
+	}
+	// Delete the previous image only after the new URL is safely persisted.
+	if oldURL != nil && *oldURL != "" {
+		if oldKey, keyErr := h.fileService.GetKeyFromUrl(*oldURL); keyErr == nil {
+			_ = h.fileService.Delete(r.Context(), oldKey)
+		}
 	}
 
 	// Return updated profile
@@ -158,26 +191,59 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sanitize to generate presigned URL
+	// Sanitize to generate presigned URLs
 	h.sanitizeUserProfile(profile)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(profile)
 }
 
+func readAndValidateImage(file multipart.File, landscape bool) ([]byte, error) {
+	data := make([]byte, 0)
+	buffer := new(bytes.Buffer)
+	if _, err := buffer.ReadFrom(file); err != nil {
+		return nil, fmt.Errorf("failed to read image")
+	}
+	data = buffer.Bytes()
+	if len(data) == 0 || len(data) > 5<<20 {
+		return nil, fmt.Errorf("image must be at most 5MB")
+	}
+	src, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil || (format != "jpeg" && format != "png" && format != "webp") {
+		return nil, fmt.Errorf("image must be a valid JPEG, PNG, or WebP")
+	}
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width < 1 || height < 1 || (landscape && width <= height) || (!landscape && width != height) {
+		if landscape {
+			return nil, fmt.Errorf("banner image must be landscape")
+		}
+		return nil, fmt.Errorf("avatar image must be square")
+	}
+	if landscape {
+		src = imaging.Fill(src, 1500, 500, imaging.Center, imaging.Lanczos)
+	} else {
+		src = imaging.Fit(src, 512, 512, imaging.Lanczos)
+	}
+	output := new(bytes.Buffer)
+	if err := imaging.Encode(output, src, imaging.JPEG, imaging.JPEGQuality(85)); err != nil {
+		return nil, fmt.Errorf("failed to normalize image")
+	}
+	return output.Bytes(), nil
+}
+
 // sanitizeUserProfile generates presigned URLs for avatar images
 func (h *UserHandler) sanitizeUserProfile(profile *application.PublicUserResponse) {
-	if profile.AvatarURL == nil || *profile.AvatarURL == "" {
-		return
-	}
-
-	key, err := h.fileService.GetKeyFromUrl(*profile.AvatarURL)
-	if err != nil {
-		return // Keep original URL if we can't parse it
-	}
-
-	presignedURL, err := h.fileService.GetPresignedURL(context.Background(), key, time.Hour)
-	if err == nil && presignedURL != "" {
-		profile.AvatarURL = &presignedURL
+	for _, field := range []*string{profile.AvatarURL, profile.BannerURL} {
+		if field == nil || *field == "" {
+			continue
+		}
+		key, err := h.fileService.GetKeyFromUrl(*field)
+		if err != nil {
+			continue
+		}
+		if presignedURL, err := h.fileService.GetPresignedURL(context.Background(), key, time.Hour); err == nil && presignedURL != "" {
+			*field = presignedURL
+		}
 	}
 }

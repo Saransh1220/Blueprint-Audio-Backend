@@ -91,14 +91,22 @@ func TestSpecService_CreateSpecValidation(t *testing.T) {
 	require.EqualError(t, err, "price cannot be negative")
 
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 20})
-	require.EqualError(t, err, "BPM must be between 50 and 300")
+	require.EqualError(t, err, "BPM must be between 60 and 300")
 
 	stems := "stems"
-	err = svc.CreateSpec(ctx, &domain.Spec{Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 120, StemsUrl: &stems})
+	beat := domain.Spec{
+		Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 120, Key: "C MAJOR",
+		Genres:   []domain.Genre{{Name: "TRAP"}},
+		Licenses: []domain.LicenseOption{{LicenseType: domain.LicenseBasic, Name: "Basic"}},
+	}
+	beat.StemsUrl = &stems
+	err = svc.CreateSpec(ctx, &beat)
 	require.EqualError(t, err, "WAV file is required!")
 
 	wav := "wav"
-	err = svc.CreateSpec(ctx, &domain.Spec{Title: "x", BasePrice: 1, Category: domain.CategoryBeat, BPM: 120, WavUrl: &wav})
+	beat.StemsUrl = nil
+	beat.WavUrl = &wav
+	err = svc.CreateSpec(ctx, &beat)
 	require.EqualError(t, err, "stems file is mandatory for beats")
 
 	err = svc.CreateSpec(ctx, &domain.Spec{Title: "ok", BasePrice: 1, Category: domain.CategorySample})
@@ -193,7 +201,7 @@ func TestSpecService_DelegatesAndUpdate(t *testing.T) {
 	specID := uuid.New()
 	repo := mockRepo{
 		getByIDFn: func(context.Context, uuid.UUID) (*domain.Spec, error) {
-			return &domain.Spec{ID: specID, ProducerID: owner, Title: "old", Category: domain.CategoryBeat, BPM: 90}, nil
+			return &domain.Spec{ID: specID, ProducerID: owner, Title: "old", Category: domain.CategorySample}, nil
 		},
 		updateFn: func(_ context.Context, s *domain.Spec) error {
 			if s.ProducerID != owner {
@@ -219,7 +227,7 @@ func TestSpecService_DelegatesAndUpdate(t *testing.T) {
 	require.NoError(t, svc.DeleteSpec(ctx, specID, owner))
 	_, _, err = svc.GetUserSpecs(ctx, owner, 1, -1)
 
-	upd := &domain.Spec{ID: specID, Title: "new", BasePrice: 10, Category: domain.CategoryBeat, BPM: 100}
+	upd := &domain.Spec{ID: specID, Title: "new", BasePrice: 10, Category: domain.CategorySample}
 	require.NoError(t, svc.UpdateSpec(ctx, upd, owner))
 
 	err = svc.UpdateSpec(ctx, &domain.Spec{ID: specID, Title: "", BasePrice: 10}, owner)
@@ -229,7 +237,7 @@ func TestSpecService_DelegatesAndUpdate(t *testing.T) {
 	require.EqualError(t, err, "price cannot be negative")
 
 	err = svc.UpdateSpec(ctx, &domain.Spec{ID: specID, Title: "a", BasePrice: 1, Category: domain.CategoryBeat, BPM: 400}, owner)
-	require.EqualError(t, err, "BPM must be between 50 and 300")
+	require.EqualError(t, err, "BPM must be between 60 and 300")
 }
 
 func TestSpecService_UpdateSpecGuards(t *testing.T) {
@@ -265,6 +273,6 @@ func TestSpecService_UpdateSpecRejectsInvalidCurrency(t *testing.T) {
 	}
 	svc := NewSpecService(repo)
 
-	err := svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID, Title: "x", BasePrice: 1, PriceCurrency: "JPY"}, owner)
+	err := svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID, Title: "x", BasePrice: 1, Category: domain.CategorySample, PriceCurrency: "JPY"}, owner)
 	require.ErrorIs(t, err, domain.ErrInvalidCurrency)
 }

@@ -4,6 +4,7 @@ package application
 type UpdateProfileRequest struct {
 	Bio           *string `json:"bio,omitempty"`
 	AvatarURL     *string `json:"avatar_url,omitempty"`
+	BannerURL     *string `json:"banner_url,omitempty"`
 	DisplayName   *string `json:"display_name,omitempty"`
 	InstagramURL  *string `json:"instagram_url,omitempty"`
 	TwitterURL    *string `json:"twitter_url,omitempty"`
@@ -20,6 +21,7 @@ type PublicUserResponse struct {
 	Role          string  `json:"role"`
 	Bio           *string `json:"bio,omitempty"`
 	AvatarURL     *string `json:"avatar_url,omitempty"`
+	BannerURL     *string `json:"banner_url,omitempty"`
 	InstagramURL  *string `json:"instagram_url,omitempty"`
 	TwitterURL    *string `json:"twitter_url,omitempty"`
 	YoutubeURL    *string `json:"youtube_url,omitempty"`

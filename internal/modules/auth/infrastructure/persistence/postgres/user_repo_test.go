@@ -81,7 +81,7 @@ func TestPgUserRepository_ExistsAndUpdateProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, nil)
+	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	bio := "bio"
@@ -94,14 +94,14 @@ func TestPgUserRepository_ExistsAndUpdateProfile(t *testing.T) {
 	storeCurrency := "inr"
 
 	mock.ExpectExec("UPDATE users SET").WithArgs(&bio, &display, &avatar, "INR", &instagram, &twitter, &youtube, &spotify, sqlmock.AnyArg(), id).WillReturnResult(sqlmock.NewResult(0, 1))
-	err = repo.UpdateProfile(ctx, id, &bio, &avatar, &display, &instagram, &twitter, &youtube, &spotify, &storeCurrency)
+	err = repo.UpdateProfile(ctx, id, &bio, &avatar, nil, &display, &instagram, &twitter, &youtube, &spotify, &storeCurrency)
 	require.NoError(t, err)
 
 	mock.ExpectExec("UPDATE users SET").WillReturnError(assert.AnError)
-	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil, nil)
+	err = repo.UpdateProfile(ctx, id, &bio, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 
 	invalidCurrency := "GBP"
-	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, &invalidCurrency)
+	err = repo.UpdateProfile(ctx, id, nil, nil, nil, nil, nil, nil, nil, nil, &invalidCurrency)
 	require.ErrorIs(t, err, domain.ErrInvalidStoreCurrency)
 }

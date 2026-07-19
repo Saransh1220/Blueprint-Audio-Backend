@@ -15,15 +15,17 @@ func TestToSpecResponse_WithRelations(t *testing.T) {
 	spec := &domain.Spec{
 		ID: uuid.New(), ProducerID: uuid.New(), ProducerName: "p", Title: "t", Category: domain.CategoryBeat, Type: "wav", BPM: 120, Key: "C",
 		ImageUrl: "img", PreviewUrl: "prev", BasePrice: 10, Duration: 100, FreeMp3Enabled: true, CreatedAt: now, UpdatedAt: now,
-		Tags: pq.StringArray{"trap"},
-		Licenses: []domain.LicenseOption{{ID: uuid.New(), SpecID: uuid.New(), LicenseType: domain.LicenseBasic, Name: "Basic", Price: 1, Features: pq.StringArray{"a"}, FileTypes: pq.StringArray{"mp3"}, CreatedAt: now, UpdatedAt: now}},
-		Genres:   []domain.Genre{{ID: uuid.New(), Name: "HipHop", Slug: "hiphop", CreatedAt: now}},
+		Tags:          pq.StringArray{"trap"},
+		WaveformPeaks: pq.Int64Array{12, 48, 100},
+		Licenses:      []domain.LicenseOption{{ID: uuid.New(), SpecID: uuid.New(), LicenseType: domain.LicenseBasic, Name: "Basic", Price: 1, Features: pq.StringArray{"a"}, FileTypes: pq.StringArray{"mp3"}, CreatedAt: now, UpdatedAt: now}},
+		Genres:        []domain.Genre{{ID: uuid.New(), Name: "HipHop", Slug: "hiphop", CreatedAt: now}},
 	}
 	res := ToSpecResponse(spec)
 	require.Equal(t, spec.Title, res.Title)
 	require.Len(t, res.Licenses, 1)
 	require.Len(t, res.Genres, 1)
 	require.Equal(t, "Basic", res.Licenses[0].Type)
+	require.Equal(t, []int64{12, 48, 100}, res.WaveformPeaks)
 }
 
 func TestToSpecResponse_WithoutRelations(t *testing.T) {

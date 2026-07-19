@@ -5,9 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,9 +46,26 @@ type mockFileService struct {
 	mock.Mock
 }
 
+func validSquareJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 220, G: 40, B: 90, A: 255})
+		}
+	}
+	var buffer bytes.Buffer
+	assert.NoError(t, jpeg.Encode(&buffer, img, nil))
+	return buffer.Bytes()
+}
+
 func (m *mockFileService) Upload(ctx context.Context, file multipart.File, header *multipart.FileHeader, folder string) (string, string, error) {
 	args := m.Called(ctx, file, header, folder)
 	return args.String(0), args.String(1), args.Error(2)
+}
+func (m *mockFileService) UploadWithKey(ctx context.Context, file io.Reader, key string, contentType string) (string, error) {
+	args := m.Called(ctx, file, key, contentType)
+	return args.String(0), args.Error(1)
 }
 
 func (m *mockFileService) GetPresignedURL(ctx context.Context, key string, expiration time.Duration) (string, error) {
@@ -98,7 +120,7 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	h.UpdateProfile(w, req)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestUserHandler_GetPublicProfile(t *testing.T) {
@@ -148,7 +170,7 @@ func TestUserHandler_UploadAvatar(t *testing.T) {
 	var b bytes.Buffer
 	mw := multipart.NewWriter(&b)
 	part, _ := mw.CreateFormFile("avatar", "test.jpg")
-	part.Write([]byte("image content"))
+	part.Write(validSquareJPEG(t))
 	mw.Close()
 
 	req = httptest.NewRequest(http.MethodPost, "/users/profile/avatar", &b)
@@ -161,11 +183,13 @@ func TestUserHandler_UploadAvatar(t *testing.T) {
 	// Mock sequence
 	svc.On("GetPublicProfile", mock.Anything, userID).Return(&application.PublicUserResponse{ID: userID.String(), AvatarURL: &oldAvatar}, nil).Once()
 	fileSvc.On("GetKeyFromUrl", oldAvatar).Return("old_key", nil).Once()
-	fileSvc.On("Delete", mock.Anything, "old_key").Return(nil).Once()
-	fileSvc.On("Upload", mock.Anything, mock.Anything, mock.Anything, "avatars").Return(newAvatar, "new_key", nil).Once()
+	fileSvc.On("UploadWithKey", mock.Anything, mock.Anything, mock.MatchedBy(func(key string) bool {
+		return strings.HasPrefix(key, "avatars/") && strings.HasSuffix(key, ".jpg")
+	}), "image/jpeg").Return(newAvatar, nil).Once()
 	svc.On("UpdateProfile", mock.Anything, userID, mock.MatchedBy(func(r application.UpdateProfileRequest) bool {
 		return r.AvatarURL != nil && *r.AvatarURL == newAvatar
 	})).Return(nil).Once()
+	fileSvc.On("Delete", mock.Anything, "old_key").Return(nil).Once()
 	svc.On("GetPublicProfile", mock.Anything, userID).Return(&application.PublicUserResponse{ID: userID.String(), AvatarURL: &newAvatar}, nil).Once()
 	fileSvc.On("GetKeyFromUrl", newAvatar).Return("new_key", nil).Once()
 	fileSvc.On("GetPresignedURL", mock.Anything, "new_key", mock.Anything).Return("signed-new-avatar", nil).Once()
@@ -231,7 +255,7 @@ func TestUserHandler_UploadAvatar_RollbackOnUpdateError(t *testing.T) {
 	var b bytes.Buffer
 	mw := multipart.NewWriter(&b)
 	part, _ := mw.CreateFormFile("avatar", "test.jpg")
-	_, _ = part.Write([]byte("image content"))
+	_, _ = part.Write(validSquareJPEG(t))
 	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/users/profile/avatar", &b)
@@ -240,7 +264,9 @@ func TestUserHandler_UploadAvatar_RollbackOnUpdateError(t *testing.T) {
 
 	newAvatar := "http://new/avatar.jpg"
 	svc.On("GetPublicProfile", mock.Anything, userID).Return(&application.PublicUserResponse{ID: userID.String()}, nil).Once()
-	fileSvc.On("Upload", mock.Anything, mock.Anything, mock.Anything, "avatars").Return(newAvatar, "new_key", nil).Once()
+	fileSvc.On("UploadWithKey", mock.Anything, mock.Anything, mock.MatchedBy(func(key string) bool {
+		return strings.HasPrefix(key, "avatars/") && strings.HasSuffix(key, ".jpg")
+	}), "image/jpeg").Return(newAvatar, nil).Once()
 	svc.On("UpdateProfile", mock.Anything, userID, mock.Anything).Return(errors.New("update fail")).Once()
 	fileSvc.On("GetKeyFromUrl", newAvatar).Return("new_key", nil).Once()
 	fileSvc.On("Delete", mock.Anything, "new_key").Return(nil).Once()

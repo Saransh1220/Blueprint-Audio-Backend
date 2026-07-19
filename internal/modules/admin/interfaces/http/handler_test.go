@@ -25,7 +25,7 @@ func (userRepoStub) GetByEmail(context.Context, string) (*auth.User, error)  { r
 func (userRepoStub) GetByID(context.Context, uuid.UUID) (*auth.User, error)  { return nil, nil }
 func (userRepoStub) MarkEmailVerified(context.Context, uuid.UUID) error      { return nil }
 func (userRepoStub) UpdatePassword(context.Context, uuid.UUID, string) error { return nil }
-func (userRepoStub) UpdateProfile(context.Context, uuid.UUID, *string, *string, *string, *string, *string, *string, *string, *string) error {
+func (userRepoStub) UpdateProfile(context.Context, uuid.UUID, *string, *string, *string, *string, *string, *string, *string, *string, *string) error {
 	return nil
 }
 func (userRepoStub) UpdateSystemRole(context.Context, uuid.UUID, auth.SystemRole) error { return nil }

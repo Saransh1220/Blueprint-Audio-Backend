@@ -321,8 +321,8 @@ func TestSpecHandler_List_Get_Update_Delete_GetUserSpecs_Branches(t *testing.T) 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
-	t.Run("create succeeds for sample with metadata only", func(t *testing.T) {
-		h, specSvc, fileSvc, _, notificationSvc := newHandler()
+	t.Run("create rejects sample with missing required files", func(t *testing.T) {
+		h, _, _, _, _ := newHandler()
 		producerID := uuid.New()
 
 		req := makeMultipartRequest(t, http.MethodPost, "/specs", map[string]interface{}{
@@ -332,13 +332,8 @@ func TestSpecHandler_List_Get_Update_Delete_GetUserSpecs_Branches(t *testing.T) 
 		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
 		w := httptest.NewRecorder()
 
-		specSvc.On("CreateSpec", mock.Anything, mock.AnythingOfType("*domain.Spec")).Return(nil).Once()
-		fileSvc.On("GetKeyFromUrl", "").Return("", errors.New("no image key")).Once()
-		specSvc.On("UpdateFilesAndStatus", mock.Anything, mock.AnythingOfType("uuid.UUID"), mock.Anything, domain.ProcessingStatusCompleted).Return(nil).Maybe()
-		notificationSvc.On("Create", mock.Anything, producerID, "Upload Complete", mock.Anything, mock.Anything).Return(nil).Maybe()
-
 		h.Create(w, req)
-		assert.Equal(t, http.StatusAccepted, w.Code)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("update returns bad request for invalid image bytes", func(t *testing.T) {

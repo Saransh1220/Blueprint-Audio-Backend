@@ -59,12 +59,12 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
         INSERT INTO specs (
             id, producer_id, title, category, type, bpm, key, 
             base_price, price_currency, image_url, preview_url, wav_url, stems_url,
-            tags, duration, free_mp3_enabled,
+            tags, description, duration, free_mp3_enabled,
             created_at, updated_at, processing_status,moods,instruments,slug,short_code
         ) VALUES (
             :id, :producer_id, :title, :category, :type, :bpm, :key, 
             :base_price, :price_currency, :image_url, :preview_url, :wav_url, :stems_url,
-            :tags, :duration, :free_mp3_enabled,
+            :tags, :description, :duration, :free_mp3_enabled,
             :created_at, :updated_at, :processing_status, :moods, :instruments, :slug, :short_code
         )`
 
@@ -1380,6 +1380,14 @@ func (r *PgSpecRepository) UpdateFilesAndStatus(ctx context.Context, id uuid.UUI
 	if val, ok := files["stems_url"]; ok && val != nil {
 		query += ", stems_url = :stems_url"
 		params["stems_url"] = *val
+	}
+	if val, ok := files["waveform_peaks"]; ok && val != nil {
+		var peaks []int64
+		if err := json.Unmarshal([]byte(*val), &peaks); err != nil {
+			return fmt.Errorf("decode waveform peaks: %w", err)
+		}
+		query += ", waveform_peaks = :waveform_peaks"
+		params["waveform_peaks"] = pq.Int64Array(peaks)
 	}
 
 	query += " WHERE id = :id"

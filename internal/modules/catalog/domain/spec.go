@@ -48,6 +48,7 @@ type Spec struct {
 	IsDeleted      bool           `json:"is_deleted" db:"is_deleted"`
 	Moods          pq.StringArray `json:"moods" db:"moods"`
 	Instruments    pq.StringArray `json:"instruments" db:"instruments"`
+	WaveformPeaks  pq.Int64Array  `json:"waveform_peaks" db:"waveform_peaks"`
 	Slug           *string        `json:"slug" db:"slug"`
 	ShortCode      *string        `json:"short_code" db:"short_code"`
 	ProducerHandle string         `json:"producer_handle" db:"producer_handle"`

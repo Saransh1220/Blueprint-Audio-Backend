@@ -149,14 +149,17 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate presigned URL for avatar if present
-	if user.AvatarUrl != nil && *user.AvatarUrl != "" {
-		key, err := h.fileService.GetKeyFromUrl(*user.AvatarUrl)
-		if err == nil {
-			presignedURL, err := h.fileService.GetPresignedURL(r.Context(), key, 3600*time.Second)
-			if err == nil {
-				user.AvatarUrl = &presignedURL
-			}
+	// Generate presigned URLs for private profile images.
+	for _, imageURL := range []*string{user.AvatarUrl, user.BannerURL} {
+		if imageURL == nil || *imageURL == "" {
+			continue
+		}
+		key, err := h.fileService.GetKeyFromUrl(*imageURL)
+		if err != nil {
+			continue
+		}
+		if presignedURL, err := h.fileService.GetPresignedURL(r.Context(), key, 3600*time.Second); err == nil {
+			*imageURL = presignedURL
 		}
 	}
 

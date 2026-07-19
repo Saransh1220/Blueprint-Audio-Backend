@@ -18,6 +18,7 @@ type SpecResponse struct {
 	Type              string            `json:"type"`
 	BPM               int               `json:"bpm"`
 	Key               string            `json:"key"`
+	Description       string            `json:"description"`
 	ImageURL          string            `json:"image_url"`
 	PreviewURL        string            `json:"preview_url"`
 	Price             float64           `json:"price"`
@@ -35,6 +36,7 @@ type SpecResponse struct {
 	Slug              *string           `json:"slug,omitempty"`
 	Moods             []string          `json:"moods,omitempty"`
 	Instruments       []string          `json:"instruments,omitempty"`
+	WaveformPeaks     []int64           `json:"waveform_peaks,omitempty"`
 	ProcessingStatus  string            `json:"processing_status"`
 }
 
@@ -111,6 +113,7 @@ func ToSpecResponseForCurrency(spec *domain.Spec, displayCurrency string) *SpecR
 		Type:              spec.Type,
 		BPM:               spec.BPM,
 		Key:               spec.Key,
+		Description:       spec.Description,
 		ImageURL:          spec.ImageUrl,
 		PreviewURL:        spec.PreviewUrl,
 		Price:             spec.BasePrice,
@@ -125,6 +128,7 @@ func ToSpecResponseForCurrency(spec *domain.Spec, displayCurrency string) *SpecR
 		Slug:              spec.Slug,
 		Moods:             spec.Moods,
 		Instruments:       spec.Instruments,
+		WaveformPeaks:     spec.WaveformPeaks,
 		ProcessingStatus:  string(spec.ProcessingStatus),
 	}
 
