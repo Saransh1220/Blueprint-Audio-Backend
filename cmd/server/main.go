@@ -134,6 +134,7 @@ func main() {
 	// 7. Apply Middleware
 	handler := gatewayMiddleware.CORSMiddleware(mux, cfg.Server.AllowedOrigins)
 	handler = gatewayMiddleware.PrometheusMiddleware(handler)
+	handler = gatewayMiddleware.RequestLoggerMiddleware(handler)
 
 	// 8. Start Server
 	srv := gateway.NewServer(cfg.Server.Port, handler)
