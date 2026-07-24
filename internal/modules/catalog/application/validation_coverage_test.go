@@ -58,6 +58,28 @@ func TestValidateSpecCoversEveryValidationRule(t *testing.T) {
 		{"long license name", func(s *domain.Spec) { s.Licenses[0].Name = strings.Repeat("x", 101) }, "license name must be between 1 and 100 characters"},
 		{"nan license price", func(s *domain.Spec) { s.Licenses[0].Price = math.NaN() }, "license price cannot be negative"},
 		{"infinite license price", func(s *domain.Spec) { s.Licenses[0].Price = math.Inf(-1) }, "license price cannot be negative"},
+		{"too many license features", func(s *domain.Spec) {
+			s.Licenses[0].Features = make([]string, maxLicenseFeatures+1)
+			for i := range s.Licenses[0].Features {
+				s.Licenses[0].Features[i] = string(rune('a' + i))
+			}
+		}, "maximum 20 license features allowed"},
+		{"empty license feature", func(s *domain.Spec) { s.Licenses[0].Features = []string{" "} }, "invalid license features"},
+		{"long license feature", func(s *domain.Spec) {
+			s.Licenses[0].Features = []string{strings.Repeat("x", maxLicenseFeatureLength+1)}
+		}, "invalid license features"},
+		{"duplicate license features", func(s *domain.Spec) { s.Licenses[0].Features = []string{"Untagged", "untagged"} }, "duplicate license features"},
+		{"too many license file types", func(s *domain.Spec) {
+			s.Licenses[0].FileTypes = make([]string, maxLicenseFileTypes+1)
+			for i := range s.Licenses[0].FileTypes {
+				s.Licenses[0].FileTypes[i] = string(rune('a' + i))
+			}
+		}, "maximum 10 license file types allowed"},
+		{"empty license file type", func(s *domain.Spec) { s.Licenses[0].FileTypes = []string{" "} }, "invalid license file types"},
+		{"long license file type", func(s *domain.Spec) {
+			s.Licenses[0].FileTypes = []string{strings.Repeat("x", maxLicenseFileTypeLength+1)}
+		}, "invalid license file types"},
+		{"duplicate license file types", func(s *domain.Spec) { s.Licenses[0].FileTypes = []string{"WAV", "wav"} }, "duplicate license file types"},
 	}
 
 	for _, tt := range tests {
@@ -70,4 +92,22 @@ func TestValidateSpecCoversEveryValidationRule(t *testing.T) {
 
 	require.NoError(t, validateSpec(func() *domain.Spec { s := validBeatForValidation(); return &s }()))
 	require.NoError(t, validateSpec(&domain.Spec{Title: "Valid sample", Category: domain.CategorySample}))
+}
+
+func TestValidateSpecNormalizesNotNullDatabaseArrays(t *testing.T) {
+	spec := validBeatForValidation()
+	spec.Moods = nil
+	spec.Instruments = nil
+	spec.Licenses[0].Features = nil
+	spec.Licenses[0].FileTypes = nil
+
+	require.NoError(t, validateSpec(&spec))
+	require.NotNil(t, spec.Moods)
+	require.Empty(t, spec.Moods)
+	require.NotNil(t, spec.Instruments)
+	require.Empty(t, spec.Instruments)
+	require.NotNil(t, spec.Licenses[0].Features)
+	require.Empty(t, spec.Licenses[0].Features)
+	require.NotNil(t, spec.Licenses[0].FileTypes)
+	require.Empty(t, spec.Licenses[0].FileTypes)
 }

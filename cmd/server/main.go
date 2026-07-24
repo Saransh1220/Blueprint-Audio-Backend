@@ -124,6 +124,7 @@ func main() {
 		AuthHandler:         authModule.HTTPHandler(),
 		AuthMiddleware:      authMiddleware,
 		SpecHandler:         catalogModule.HTTPHandler(),
+		SpecUploadHandler:   catalogModule.UploadHTTPHandler(),
 		UserHandler:         userModule.HTTPHandler(),
 		PaymentHandler:      paymentModule.HTTPHandler(),
 		AnalyticsHandler:    analyticsModule.AnalyticsHandler,

@@ -143,7 +143,10 @@ If Render logs show a "dirty" migration state, stop and fix the database manuall
 
 ## 4. Create Render Backend Service
 
-In Render, create a **Web Service**. Do not create a Static Site, Private Service, Background Worker, Cron Job, Redis, or PostgreSQL service for the backend.
+In Render, create a **Web Service** for the API. Beat media processing also
+requires a separate **Background Worker** created from the same repository and
+Docker image; its setup is described below. You still do not need SQS, Redis,
+or another queue service because PostgreSQL holds the durable jobs.
 
 Steps:
 
@@ -173,6 +176,34 @@ Dockerfile Path: Dockerfile
 ```
 
 If Render asks for build/start commands with Docker, leave them empty. The `Dockerfile` handles build and startup.
+
+### Create the media worker
+
+Create a second Render service:
+
+```text
+Service type: Background Worker
+Name: blueprint-audio-worker
+Region: the same region as the API
+Branch: main
+Runtime/Language: Docker
+Dockerfile Path: Dockerfile
+Docker command: ./worker
+```
+
+Give it the same `DB_*`, `USE_S3`, `S3_*`, and `ENV` values as the API. It
+does not need API-only secrets such as JWT, payment, Google, or email
+credentials. Add:
+
+```env
+WORKER_ID=render-worker
+WORKER_POLL_INTERVAL=2s
+WORKER_LEASE_DURATION=30m
+```
+
+Do not enable `AUTO_MIGRATE` on the worker. Let the web service run migrations
+before it starts. A deployment is not ready for beat uploads until both the web
+service and worker are running.
 
 ## 5. Add Render Environment Variables
 

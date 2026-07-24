@@ -11,7 +11,8 @@ Backend API for the Blueprint Audio platform.
 - Docker + Docker Compose
 
 ## Repository Structure
-- `cmd/server` - application entrypoint
+- `cmd/server` - HTTP API entrypoint
+- `cmd/worker` - durable PostgreSQL-backed media processing worker
 - `internal/` - handlers, services, repositories, middleware, DTOs
 - `db/migrations` - SQL migrations
 - `pkg/migration` - migration runner utilities
@@ -52,9 +53,10 @@ make docker-up
 make migrate-up
 ```
 
-5. Run API locally:
+5. Run the API and worker locally in separate terminals:
 ```bash
 make run
+make run-worker
 ```
 
 Health check:
@@ -91,7 +93,14 @@ Required:
 Recommended:
 - `S3_REGION=auto`
 - `S3_USE_SSL=true`
-- `S3_PUBLIC_ENDPOINT=` (optional)
+- `S3_PRESIGN_ENDPOINT=` (optional; defaults to `S3_ENDPOINT`)
+- `S3_PUBLIC_ENDPOINT=` (optional path-style stable URL base; never used for R2 signing)
+
+Beat uploads use browser-to-object-storage presigned PUTs. The R2/S3 bucket
+must allow CORS for each frontend origin and the `PUT`, `GET`, and `HEAD`
+methods with the `Content-Type` request header. See
+[`docs/direct-beat-upload.md`](docs/direct-beat-upload.md) for the exact flow
+and an R2 CORS example.
 
 ### Payments
 - `RAZORPAY_KEY_ID`
@@ -119,8 +128,9 @@ Razorpay is used for INR checkout. Dodo Payments is used for USD checkout when r
 ## Common Commands
 ```bash
 make help             # list commands
-make build            # build binary -> bin/blueprint-audio
+make build            # build API + worker binaries
 make run              # run API
+make run-worker       # run durable media worker
 make test             # tidy + run all tests
 make clean            # cleanup artifacts
 ```

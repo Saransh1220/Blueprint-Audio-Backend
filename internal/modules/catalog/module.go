@@ -12,28 +12,41 @@ import (
 
 // Module represents the Catalog module
 type Module struct {
-	repository *persistence.PgSpecRepository
-	service    application.SpecService
-	handler    *catalogHttp.SpecHandler
+	repository       *persistence.PgSpecRepository
+	uploadRepository *persistence.PgSpecUploadRepository
+	service          application.SpecService
+	uploadService    application.SpecUploadService
+	handler          *catalogHttp.SpecHandler
+	uploadHandler    *catalogHttp.SpecUploadHandler
 }
 
-// NewModule creates and initializes the Catalog module
+type FileService interface {
+	catalogHttp.FileService
+	application.SpecObjectStore
+}
+
 // NewModule creates and initializes the Catalog module
 func NewModule(
 	db *sqlx.DB,
 	repository *persistence.PgSpecRepository, // Accept repository here
-	fileService catalogHttp.FileService,
+	fileService FileService,
 	analyticsService catalogHttp.AnalyticsService,
 	notificationService *notificationApp.NotificationService,
 	redisClient *redis.Client,
 ) *Module {
 	service := application.NewSpecService(repository)
+	uploadRepository := persistence.NewSpecUploadRepository(db)
+	uploadService := application.NewSpecUploadService(uploadRepository, repository, fileService)
 	handler := catalogHttp.NewSpecHandler(service, fileService, analyticsService, notificationService, redisClient)
+	uploadHandler := catalogHttp.NewSpecUploadHandler(uploadService)
 
 	return &Module{
-		repository: repository,
-		service:    service,
-		handler:    handler,
+		repository:       repository,
+		uploadRepository: uploadRepository,
+		service:          service,
+		uploadService:    uploadService,
+		handler:          handler,
+		uploadHandler:    uploadHandler,
 	}
 }
 
@@ -55,4 +68,16 @@ func (m *Module) Service() application.SpecService {
 // HTTPHandler returns the HTTP handler
 func (m *Module) HTTPHandler() *catalogHttp.SpecHandler {
 	return m.handler
+}
+
+func (m *Module) UploadRepository() *persistence.PgSpecUploadRepository {
+	return m.uploadRepository
+}
+
+func (m *Module) UploadService() application.SpecUploadService {
+	return m.uploadService
+}
+
+func (m *Module) UploadHTTPHandler() *catalogHttp.SpecUploadHandler {
+	return m.uploadHandler
 }

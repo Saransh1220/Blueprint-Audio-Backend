@@ -35,6 +35,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.False(t, cfg.Migration.AutoRun)
 	assert.Equal(t, "db/migrations", cfg.Migration.Path)
 	assert.True(t, cfg.Redis.Enabled)
+	assert.Empty(t, cfg.FileStorage.S3PresignEndpoint)
 }
 
 func TestConfigHelpers(t *testing.T) {
@@ -79,6 +80,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("REDIS_ENABLED", "false")
 	os.Setenv("REDIS_HOST", "redis-server")
 	os.Setenv("REDIS_PORT", "6380")
+	os.Setenv("S3_ENDPOINT", "https://internal.storage.example")
+	os.Setenv("S3_PRESIGN_ENDPOINT", "https://signed.storage.example")
+	os.Setenv("S3_PUBLIC_ENDPOINT", "https://cdn.example")
 
 	cfg := Load()
 
@@ -100,6 +104,18 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.False(t, cfg.Redis.Enabled)
 	assert.Equal(t, "redis-server", cfg.Redis.Host)
 	assert.Equal(t, "6380", cfg.Redis.Port)
+	assert.Equal(t, "https://internal.storage.example", cfg.FileStorage.S3Endpoint)
+	assert.Equal(t, "https://signed.storage.example", cfg.FileStorage.S3PresignEndpoint)
+	assert.Equal(t, "https://cdn.example", cfg.FileStorage.S3PublicEndpoint)
+}
+
+func TestLoad_PresignEndpointDefaultsToStorageEndpoint(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("S3_ENDPOINT", "https://storage.example")
+
+	cfg := Load()
+
+	assert.Equal(t, "https://storage.example", cfg.FileStorage.S3PresignEndpoint)
 }
 
 func TestLoad_DodoAndCurrencyConfig(t *testing.T) {

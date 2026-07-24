@@ -140,7 +140,7 @@ func TestPGSpecRepository_GetByIDAndListByUserID(t *testing.T) {
 	_, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
 
-	mock.ExpectQuery(`SELECT s\.\*, u\.display_name as producer_name, '' as producer_handle, COUNT\(\*\) OVER\(\) as total_count FROM specs s JOIN users u ON s\.producer_id = u\.id WHERE s\.producer_id = \$1 AND s\.is_deleted = FALSE ORDER BY s\.created_at DESC LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`SELECT s\.\*, u\.display_name as producer_name, '' as producer_handle, COUNT\(\*\) OVER\(\) as total_count FROM specs s JOIN users u ON s\.producer_id = u\.id WHERE s\.producer_id = \$1 AND s\.is_deleted = FALSE AND s\.processing_status = 'completed' ORDER BY s\.created_at DESC LIMIT \$2 OFFSET \$3`).
 		WithArgs(userID, 20, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "producer_id", "title", "category", "type", "bpm", "key", "base_price",
@@ -271,9 +271,11 @@ func TestPGSpecRepository_CreateWithGenresAndLicenses(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO specs").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO spec_analytics").WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery("SELECT id FROM genres WHERE slug = \\$1").WithArgs("hip-hop").WillReturnError(errors.New("no rows"))
-	mock.ExpectExec("INSERT INTO genres \\(id, name, slug, created_at\\)").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO spec_genres \\(spec_id, genre_id\\) VALUES \\(\\$1, \\$2\\)").WithArgs(specID, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	genreID := uuid.New()
+	mock.ExpectQuery("INSERT INTO genres[\\s\\S]*ON CONFLICT \\(slug\\) DO UPDATE[\\s\\S]*RETURNING id").
+		WithArgs(sqlmock.AnyArg(), "Hip Hop", "hip-hop", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(genreID))
+	mock.ExpectExec("INSERT INTO spec_genres \\(spec_id, genre_id\\) VALUES \\(\\$1, \\$2\\)").WithArgs(specID, genreID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO license_options").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -837,7 +839,7 @@ func TestPGSpecRepository_Update_ErrorBranches(t *testing.T) {
 	})
 }
 
-func TestPGSpecRepository_Create_WithLookupGenrePath(t *testing.T) {
+func TestPGSpecRepository_Create_GenreUpsertReturnsConcurrentWinner(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
 	repo := postgres.NewSpecRepository(db)
@@ -869,7 +871,8 @@ func TestPGSpecRepository_Create_WithLookupGenrePath(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO specs").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO spec_analytics").WithArgs(specID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery("SELECT id FROM genres WHERE slug = \\$1").WithArgs("hip-hop").
+	mock.ExpectQuery("INSERT INTO genres[\\s\\S]*ON CONFLICT \\(slug\\) DO UPDATE[\\s\\S]*RETURNING id").
+		WithArgs(sqlmock.AnyArg(), "Hip Hop", "hip-hop", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(genreID))
 	mock.ExpectExec("INSERT INTO spec_genres \\(spec_id, genre_id\\) VALUES \\(\\$1, \\$2\\)").WithArgs(specID, genreID).
 		WillReturnResult(sqlmock.NewResult(0, 1))

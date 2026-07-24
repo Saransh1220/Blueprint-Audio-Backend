@@ -276,3 +276,34 @@ func TestSpecService_UpdateSpecRejectsInvalidCurrency(t *testing.T) {
 	err := svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID, Title: "x", BasePrice: 1, Category: domain.CategorySample, PriceCurrency: "JPY"}, owner)
 	require.ErrorIs(t, err, domain.ErrInvalidCurrency)
 }
+
+func TestSpecService_RejectsUpdateAndDeleteWhileProcessing(t *testing.T) {
+	specID := uuid.New()
+	owner := uuid.New()
+	repo := mockRepo{
+		getByIDFn: func(context.Context, uuid.UUID) (*domain.Spec, error) {
+			return &domain.Spec{
+				ID:               specID,
+				ProducerID:       owner,
+				ProcessingStatus: domain.ProcessingStatusProcessing,
+			}, nil
+		},
+		updateFn: func(context.Context, *domain.Spec) error {
+			return errors.New("update must not be called")
+		},
+		deleteFn: func(context.Context, uuid.UUID, uuid.UUID) error {
+			return errors.New("delete must not be called")
+		},
+	}
+	svc := NewSpecService(repo)
+
+	err := svc.UpdateSpec(context.Background(), &domain.Spec{ID: specID}, owner)
+	require.ErrorIs(t, err, domain.ErrSpecProcessing)
+	err = svc.DeleteSpec(context.Background(), specID, owner)
+	require.ErrorIs(t, err, domain.ErrSpecProcessing)
+}
+
+func TestLegacyGenreSlugPreservesRAndBCompatibility(t *testing.T) {
+	require.Equal(t, "r&b", legacyGenreSlug("R&B"))
+	require.Equal(t, "hip-hop", legacyGenreSlug("HIP-HOP"))
+}

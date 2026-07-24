@@ -24,3 +24,15 @@ type FileStorage interface {
 	// GetKeyFromURL extracts the storage key from a public URL
 	GetKeyFromURL(url string) (string, error)
 }
+
+// DirectUploadStorage is an optional capability implemented by storage
+// backends that can safely participate in direct-to-object-storage uploads.
+// FileStorage intentionally remains unchanged so existing storage consumers
+// and test doubles do not need to implement these operations.
+type DirectUploadStorage interface {
+	CreatePresignedUpload(ctx context.Context, key, contentType string, expectedSize int64, expiration time.Duration) (PresignedUpload, error)
+	StatObject(ctx context.Context, key string) (ObjectInfo, error)
+	OpenObject(ctx context.Context, key string) (io.ReadCloser, error)
+	CopyObject(ctx context.Context, sourceKey, destinationKey, expectedETag string) (string, error)
+	ObjectURL(key string) (string, error)
+}

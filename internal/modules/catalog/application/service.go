@@ -49,6 +49,13 @@ func NewSpecService(repo domain.SpecRepository) SpecService {
 }
 
 func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
+	if err := s.prepareSpecForCreate(ctx, spec); err != nil {
+		return err
+	}
+	return s.repo.Create(ctx, spec)
+}
+
+func (s *specService) prepareSpecForCreate(ctx context.Context, spec *domain.Spec) error {
 	if err := validateSpec(spec); err != nil {
 		return err
 	}
@@ -83,7 +90,7 @@ func (s *specService) CreateSpec(ctx context.Context, spec *domain.Spec) error {
 		return err
 	}
 
-	return s.repo.Create(ctx, spec)
+	return nil
 }
 
 func (s *specService) GetSpec(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
@@ -269,6 +276,19 @@ func (s *specService) ensureRankingFresh(ctx context.Context, section, period st
 }
 
 func (s *specService) DeleteSpec(ctx context.Context, id uuid.UUID, producerId uuid.UUID) error {
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return domain.ErrSpecNotFound
+	}
+	if existing.ProducerID != producerId {
+		return domain.ErrUnauthorized
+	}
+	if isProcessingSpec(existing.ProcessingStatus) {
+		return domain.ErrSpecProcessing
+	}
 	return s.repo.Delete(ctx, id, producerId)
 }
 
@@ -284,6 +304,9 @@ func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, produce
 	}
 	if existing.ProducerID != producerID {
 		return errors.New("unauthorized: you can only update your own specs")
+	}
+	if isProcessingSpec(existing.ProcessingStatus) {
+		return domain.ErrSpecProcessing
 	}
 
 	// Validate updates
@@ -301,6 +324,11 @@ func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, produce
 		spec.Slug = existing.Slug
 	}
 	return s.repo.Update(ctx, spec)
+}
+
+func isProcessingSpec(status domain.ProcessingStatus) bool {
+	return status == domain.ProcessingStatusPending ||
+		status == domain.ProcessingStatusProcessing
 }
 
 // GetUserSpecs retrieves all specs for a specific producer with pagination

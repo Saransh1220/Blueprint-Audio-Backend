@@ -25,13 +25,14 @@ func NewModule(ctx context.Context, cfg config.FileStorageConfig) (*Module, erro
 	if cfg.UseS3 {
 		// Initialize S3 storage
 		s3Cfg := s3.S3Config{
-			BucketName:     cfg.S3BucketName,
-			Region:         cfg.S3Region,
-			Endpoint:       cfg.S3Endpoint,
-			PublicEndpoint: cfg.S3PublicEndpoint,
-			AccessKey:      cfg.S3AccessKey,
-			SecretKey:      cfg.S3SecretKey,
-			UseSSL:         cfg.S3UseSSL,
+			BucketName:      cfg.S3BucketName,
+			Region:          cfg.S3Region,
+			Endpoint:        cfg.S3Endpoint,
+			PresignEndpoint: cfg.S3PresignEndpoint,
+			PublicEndpoint:  cfg.S3PublicEndpoint,
+			AccessKey:       cfg.S3AccessKey,
+			SecretKey:       cfg.S3SecretKey,
+			UseSSL:          cfg.S3UseSSL,
 		}
 		storage, err = s3.NewS3Storage(ctx, s3Cfg)
 		if err != nil {

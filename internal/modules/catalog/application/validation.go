@@ -14,6 +14,13 @@ var allowedGenres = set("TRAP", "DRILL", "R&B", "EXPERIMENTAL", "HOUSE", "LO-FI"
 var allowedMoods = set("Moody", "Dark", "Cinematic", "Dreamy", "Aggressive", "Soulful", "Melancholic")
 var allowedInstruments = set("Piano", "Guitar", "Drums", "Synth", "Bass", "Strings", "Brass", "808", "Vocal")
 
+const (
+	maxLicenseFeatures       = 20
+	maxLicenseFeatureLength  = 200
+	maxLicenseFileTypes      = 10
+	maxLicenseFileTypeLength = 50
+)
+
 func set(values ...string) map[string]struct{} {
 	result := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -23,6 +30,8 @@ func set(values ...string) map[string]struct{} {
 }
 
 func validateSpec(spec *domain.Spec) error {
+	normalizeDatabaseArrays(spec)
+
 	titleLength := utf8.RuneCountInString(strings.TrimSpace(spec.Title))
 	if titleLength == 0 {
 		return fmt.Errorf("title is required")
@@ -83,8 +92,43 @@ func validateSpec(spec *domain.Spec) error {
 		if math.IsNaN(license.Price) || math.IsInf(license.Price, 0) || license.Price < 0 {
 			return fmt.Errorf("license price cannot be negative")
 		}
+		if err := validateStringList(
+			"license features",
+			license.Features,
+			maxLicenseFeatures,
+			maxLicenseFeatureLength,
+			nil,
+		); err != nil {
+			return err
+		}
+		if err := validateStringList(
+			"license file types",
+			license.FileTypes,
+			maxLicenseFileTypes,
+			maxLicenseFileTypeLength,
+			nil,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func normalizeDatabaseArrays(spec *domain.Spec) {
+	if spec.Moods == nil {
+		spec.Moods = []string{}
+	}
+	if spec.Instruments == nil {
+		spec.Instruments = []string{}
+	}
+	for i := range spec.Licenses {
+		if spec.Licenses[i].Features == nil {
+			spec.Licenses[i].Features = []string{}
+		}
+		if spec.Licenses[i].FileTypes == nil {
+			spec.Licenses[i].FileTypes = []string{}
+		}
+	}
 }
 
 func validateStringList(name string, values []string, max, valueMax int, allowed map[string]struct{}) error {

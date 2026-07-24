@@ -3,11 +3,20 @@ package application
 import (
 	"bytes"
 	"encoding/base64"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type readerOnly struct {
+	reader io.Reader
+}
+
+func (r readerOnly) Read(buffer []byte) (int, error) {
+	return r.reader.Read(buffer)
+}
 
 func TestExtractWaveformPeaksRejectsInvalidBarCounts(t *testing.T) {
 	for _, barCount := range []int{-1, 0, 513} {
@@ -26,11 +35,22 @@ func TestExtractWaveformPeaksDecodesMP3(t *testing.T) {
 	data, err := base64.StdEncoding.DecodeString(encodedMP3)
 	require.NoError(t, err)
 
-	peaks, err := ExtractWaveformPeaks(bytes.NewReader(data), 8)
+	analysis, err := AnalyzeMP3(readerOnly{reader: bytes.NewReader(data)}, 8)
 	require.NoError(t, err)
-	require.Len(t, peaks, 8)
-	for _, peak := range peaks {
+	require.Greater(t, analysis.Duration, 0)
+	require.Len(t, analysis.WaveformPeaks, 8)
+	for _, peak := range analysis.WaveformPeaks {
 		require.GreaterOrEqual(t, peak, int64(8))
 		require.LessOrEqual(t, peak, int64(100))
 	}
+}
+
+func TestValidateDecodedMP3FrameCountLimitsDuration(t *testing.T) {
+	const sampleRate = 44_100
+	require.NoError(t, validateDecodedMP3FrameCount(
+		int64(sampleRate)*maxPreviewDurationSeconds, sampleRate,
+	))
+	require.Error(t, validateDecodedMP3FrameCount(
+		int64(sampleRate)*maxPreviewDurationSeconds+1, sampleRate,
+	))
 }

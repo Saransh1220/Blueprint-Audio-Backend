@@ -8,6 +8,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	admin_http "github.com/saransh1220/blueprint-audio/internal/modules/admin/interfaces/http"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
+	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
 	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
@@ -20,6 +21,7 @@ type RouterConfig struct {
 	AuthHandler         *auth_http.AuthHandler
 	AuthMiddleware      *middleware.AuthMiddleWare
 	SpecHandler         *catalog_http.SpecHandler
+	SpecUploadHandler   *catalog_http.SpecUploadHandler
 	UserHandler         *user_http.UserHandler
 	PaymentHandler      *payment_http.PaymentHandler
 	AnalyticsHandler    *analytics_http.AnalyticsHandler
@@ -58,7 +60,16 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Home)))
 	mux.Handle("GET /specs", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.List)))
 	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
-	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Create)))
+	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.CreateGone)))
+	if config.SpecUploadHandler != nil {
+		producerOnly := []authDomain.UserRole{authDomain.RoleProducer}
+		mux.Handle("POST /spec-uploads", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Initiate)))
+		mux.Handle("PUT /spec-uploads/{id}/metadata", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.SaveMetadata)))
+		mux.Handle("POST /spec-uploads/{id}/files", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.PrepareFile)))
+		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.ConfirmFile)))
+		mux.Handle("POST /spec-uploads/{id}/complete", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Complete)))
+		mux.Handle("GET /spec-uploads/{id}", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Status)))
+	}
 	mux.Handle("PATCH /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Update)))
 	mux.Handle("DELETE /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Delete)))
 	mux.Handle("POST /specs/{id}/download-free", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.DownloadFree)))

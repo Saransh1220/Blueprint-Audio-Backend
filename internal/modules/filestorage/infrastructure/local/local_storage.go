@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage/domain"
 )
 
 // LocalStorage implements FileStorage interface using local filesystem
@@ -14,6 +16,9 @@ type LocalStorage struct {
 	basePath string
 	baseURL  string
 }
+
+var _ domain.FileStorage = (*LocalStorage)(nil)
+var _ domain.DirectUploadStorage = (*LocalStorage)(nil)
 
 // NewLocalStorage creates a new local filesystem storage
 func NewLocalStorage(basePath, baseURL string) (*LocalStorage, error) {
@@ -50,8 +55,7 @@ func (l *LocalStorage) UploadFile(ctx context.Context, key string, file io.Reade
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Return public URL
-	return fmt.Sprintf("%s/%s", l.baseURL, key), nil
+	return l.ObjectURL(key)
 }
 
 // DeleteFile deletes a file from local filesystem
@@ -77,4 +81,38 @@ func (l *LocalStorage) GetKeyFromURL(url string) (string, error) {
 		return url[len(prefix):], nil
 	}
 	return "", fmt.Errorf("url does not match expected format: %s", url)
+}
+
+// CreatePresignedUpload is unavailable for local filesystem storage because a
+// browser cannot upload directly to the backend's filesystem.
+func (l *LocalStorage) CreatePresignedUpload(
+	ctx context.Context,
+	key, contentType string,
+	expectedSize int64,
+	expiration time.Duration,
+) (domain.PresignedUpload, error) {
+	return domain.PresignedUpload{}, domain.ErrDirectUploadUnsupported
+}
+
+// StatObject is part of the direct-upload capability and is intentionally
+// unavailable when local filesystem storage is selected.
+func (l *LocalStorage) StatObject(ctx context.Context, key string) (domain.ObjectInfo, error) {
+	return domain.ObjectInfo{}, domain.ErrDirectUploadUnsupported
+}
+
+// OpenObject is part of the direct-upload capability and is intentionally
+// unavailable when local filesystem storage is selected.
+func (l *LocalStorage) OpenObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	return nil, domain.ErrDirectUploadUnsupported
+}
+
+// CopyObject is part of the direct-upload capability and is intentionally
+// unavailable when local filesystem storage is selected.
+func (l *LocalStorage) CopyObject(ctx context.Context, sourceKey, destinationKey, expectedETag string) (string, error) {
+	return "", domain.ErrDirectUploadUnsupported
+}
+
+// ObjectURL returns the stable public URL for a locally stored object.
+func (l *LocalStorage) ObjectURL(key string) (string, error) {
+	return fmt.Sprintf("%s/%s", l.baseURL, key), nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	"github.com/saransh1220/blueprint-audio/internal/shared/utils"
 	"github.com/stretchr/testify/assert"
 )
@@ -48,4 +49,44 @@ func TestRequireSystemRole(t *testing.T) {
 	rec := httptest.NewRecorder()
 	m.RequireSystemRole([]string{"super_admin"}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("next should not run") })).ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestRequireUserRole(t *testing.T) {
+	m := NewAuthMiddleware(testSecret)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := m.RequireUserRole([]domain.UserRole{domain.RoleProducer}, next)
+
+	t.Run("requires authentication", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", nil))
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+
+	t.Run("rejects a different application role", func(t *testing.T) {
+		token, err := utils.GenerateToken(
+			uuid.New(), "artist@example.com", string(domain.RoleArtist), "user",
+			testSecret, time.Hour,
+		)
+		assert.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("allows producer", func(t *testing.T) {
+		token, err := utils.GenerateToken(
+			uuid.New(), "producer@example.com", string(domain.RoleProducer), "user",
+			testSecret, time.Hour,
+		)
+		assert.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
 }

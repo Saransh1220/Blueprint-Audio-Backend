@@ -66,3 +66,62 @@ func (s *FileService) Delete(ctx context.Context, key string) error {
 func (s *FileService) GetKeyFromUrl(fileUrl string) (string, error) {
 	return s.storage.GetKeyFromURL(fileUrl)
 }
+
+// CreatePresignedUpload creates a temporary PUT request for a direct upload.
+func (s *FileService) CreatePresignedUpload(
+	ctx context.Context,
+	key, contentType string,
+	expectedSize int64,
+	expiration time.Duration,
+) (domain.PresignedUpload, error) {
+	storage, err := s.directUploadStorage()
+	if err != nil {
+		return domain.PresignedUpload{}, err
+	}
+	return storage.CreatePresignedUpload(ctx, key, contentType, expectedSize, expiration)
+}
+
+// StatObject returns object metadata verified by the storage backend.
+func (s *FileService) StatObject(ctx context.Context, key string) (domain.ObjectInfo, error) {
+	storage, err := s.directUploadStorage()
+	if err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	return storage.StatObject(ctx, key)
+}
+
+// OpenObject opens an object as a stream.
+func (s *FileService) OpenObject(ctx context.Context, key string) (io.ReadCloser, error) {
+	storage, err := s.directUploadStorage()
+	if err != nil {
+		return nil, err
+	}
+	return storage.OpenObject(ctx, key)
+}
+
+// CopyObject copies an object inside the storage backend and returns the
+// destination's stable canonical URL.
+func (s *FileService) CopyObject(ctx context.Context, sourceKey, destinationKey, expectedETag string) (string, error) {
+	storage, err := s.directUploadStorage()
+	if err != nil {
+		return "", err
+	}
+	return storage.CopyObject(ctx, sourceKey, destinationKey, expectedETag)
+}
+
+// ObjectURL returns the stable canonical URL for an object key.
+func (s *FileService) ObjectURL(key string) (string, error) {
+	storage, err := s.directUploadStorage()
+	if err != nil {
+		return "", err
+	}
+	return storage.ObjectURL(key)
+}
+
+func (s *FileService) directUploadStorage() (domain.DirectUploadStorage, error) {
+	storage, ok := s.storage.(domain.DirectUploadStorage)
+	if !ok {
+		return nil, domain.ErrDirectUploadUnsupported
+	}
+	return storage, nil
+}

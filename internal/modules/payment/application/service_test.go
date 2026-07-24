@@ -246,6 +246,11 @@ func TestPaymentService_CreateOrder_Errors(t *testing.T) {
 	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
 	_, err = s.CreateOrder(ctx, userID, specID, licenseID, "INR")
 	assert.EqualError(t, err, "license option not found")
+
+	spec.ProcessingStatus = catalogDomain.ProcessingStatusProcessing
+	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+	_, err = s.CreateOrder(ctx, userID, specID, licenseID, "INR")
+	assert.EqualError(t, err, "Beat/Sample is not ready for purchase")
 }
 
 func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {

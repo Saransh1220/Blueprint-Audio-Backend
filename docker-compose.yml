@@ -69,7 +69,9 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
 
       # S3/R2
+      USE_S3: ${USE_S3:-true}
       S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET}
@@ -110,8 +112,48 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      worker:
+        condition: service_started
     volumes:
       - ./:/app
+    networks:
+      - blueprint-audio_network
+    restart: unless-stopped
+
+  # Durable beat media processor. It claims PostgreSQL jobs and streams
+  # directly between object storage and the worker; no request temp files.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blueprint-audio_worker
+    command: [ "./worker" ]
+    environment:
+      ENV: ${ENV:-development}
+
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-blueprint-audio}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+
+      USE_S3: ${USE_S3:-true}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_PRESIGN_ENDPOINT: ${S3_PRESIGN_ENDPOINT:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_USE_SSL: ${S3_USE_SSL:-true}
+      S3_REGION: ${S3_REGION:-auto}
+
+      WORKER_ID: ${WORKER_ID:-compose-worker}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-2s}
+      WORKER_LEASE_DURATION: ${WORKER_LEASE_DURATION:-30m}
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - blueprint-audio_network
     restart: unless-stopped

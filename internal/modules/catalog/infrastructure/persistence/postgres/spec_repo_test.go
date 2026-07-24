@@ -80,8 +80,9 @@ func TestPgSpecRepository_List_Genres(t *testing.T) {
 		Genres: []domain.Genre{
 			{ID: uuid.Nil, Name: genreName, Slug: genreName},
 		},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
+		ProcessingStatus: domain.ProcessingStatusCompleted,
 	}
 
 	// We need a user to insert spec (FK)

@@ -73,15 +73,16 @@ type CurrencyConfig struct {
 
 // FileStorageConfig holds file storage configuration
 type FileStorageConfig struct {
-	UseS3            bool
-	S3Region         string
-	S3Endpoint       string
-	S3PublicEndpoint string
-	S3AccessKey      string
-	S3SecretKey      string
-	S3BucketName     string
-	S3UseSSL         bool
-	LocalPath        string
+	UseS3             bool
+	S3Region          string
+	S3Endpoint        string
+	S3PresignEndpoint string
+	S3PublicEndpoint  string
+	S3AccessKey       string
+	S3SecretKey       string
+	S3BucketName      string
+	S3UseSSL          bool
+	LocalPath         string
 }
 
 type MigrationConfig struct {
@@ -146,15 +147,16 @@ func Load() Config {
 			INRUSDRate: getEnv("INR_USD_RATE", "0.012"),
 		},
 		FileStorage: FileStorageConfig{
-			UseS3:            getEnv("USE_S3", "true") == "true",
-			S3Region:         getEnv("S3_REGION", "us-east-1"),
-			S3Endpoint:       getEnv("S3_ENDPOINT", ""),
-			S3PublicEndpoint: getEnv("S3_PUBLIC_ENDPOINT", getEnv("S3_ENDPOINT", "")),
-			S3AccessKey:      getEnv("S3_ACCESS_KEY", ""),
-			S3SecretKey:      getEnv("S3_SECRET_KEY", ""),
-			S3BucketName:     getEnv("S3_BUCKET", ""),
-			S3UseSSL:         getEnv("S3_USE_SSL", "true") == "true",
-			LocalPath:        getEnv("LOCAL_STORAGE_PATH", "./uploads"),
+			UseS3:             getEnv("USE_S3", "true") == "true",
+			S3Region:          getEnv("S3_REGION", "us-east-1"),
+			S3Endpoint:        getEnv("S3_ENDPOINT", ""),
+			S3PresignEndpoint: getEnv("S3_PRESIGN_ENDPOINT", getEnv("S3_ENDPOINT", "")),
+			S3PublicEndpoint:  getEnv("S3_PUBLIC_ENDPOINT", getEnv("S3_ENDPOINT", "")),
+			S3AccessKey:       getEnv("S3_ACCESS_KEY", ""),
+			S3SecretKey:       getEnv("S3_SECRET_KEY", ""),
+			S3BucketName:      getEnv("S3_BUCKET", ""),
+			S3UseSSL:          getEnv("S3_USE_SSL", "true") == "true",
+			LocalPath:         getEnv("LOCAL_STORAGE_PATH", "./uploads"),
 		},
 		Google: GoogleConfig{
 			ClientID: getEnv("GOOGLE_CLIENT_ID", ""),

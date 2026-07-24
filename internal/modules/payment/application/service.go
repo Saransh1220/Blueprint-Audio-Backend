@@ -102,6 +102,13 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 	if err != nil {
 		return nil, errors.New("Beat/Sample not found")
 	}
+	// Processing uploads are not purchasable. The empty value is tolerated for
+	// legacy/test records created before processing_status was introduced; real
+	// database rows default to completed.
+	if spec.ProcessingStatus != "" &&
+		spec.ProcessingStatus != catalogDomain.ProcessingStatusCompleted {
+		return nil, errors.New("Beat/Sample is not ready for purchase")
+	}
 
 	var licenseOption *catalogDomain.LicenseOption
 	for _, lo := range spec.Licenses {

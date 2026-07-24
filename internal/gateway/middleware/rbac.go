@@ -54,3 +54,18 @@ func (m *AuthMiddleWare) RequireSystemRole(roles []string, next http.Handler) ht
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 	}))
 }
+
+// RequireUserRole authenticates the request and permits only the requested
+// application roles (for example, producer rather than artist).
+func (m *AuthMiddleWare) RequireUserRole(roles []domain.UserRole, next http.Handler) http.Handler {
+	return m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role, _ := r.Context().Value(ContextKeyRole).(string)
+		for _, allowed := range roles {
+			if role == string(allowed) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+	}))
+}

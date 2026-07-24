@@ -321,19 +321,17 @@ func TestSpecHandler_List_Get_Update_Delete_GetUserSpecs_Branches(t *testing.T) 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
-	t.Run("create rejects sample with missing required files", func(t *testing.T) {
+	t.Run("legacy multipart create is gone", func(t *testing.T) {
 		h, _, _, _, _ := newHandler()
-		producerID := uuid.New()
 
 		req := makeMultipartRequest(t, http.MethodPost, "/specs", map[string]interface{}{
 			"title":    "Sample Pack",
 			"category": "sample",
 		})
-		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
 		w := httptest.NewRecorder()
 
-		h.Create(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
+		h.CreateGone(w, req)
+		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
 	t.Run("update returns bad request for invalid image bytes", func(t *testing.T) {

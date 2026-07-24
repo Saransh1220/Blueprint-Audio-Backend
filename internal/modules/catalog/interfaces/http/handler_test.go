@@ -34,8 +34,8 @@ func TestSpecHandler_BasicValidationBranches(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/specs", bytes.NewBufferString("not-multipart"))
 	w := httptest.NewRecorder()
-	h.Create(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	h.CreateGone(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
 
 	req = httptest.NewRequest(http.MethodGet, "/specs/bad-id", nil)
 	req.SetPathValue("id", "bad-id")
@@ -270,37 +270,11 @@ func TestSpecHandler_UpdateSuccessWithoutImage(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "New")
 }
 
-func TestSpecHandler_CreateBranches(t *testing.T) {
-	h, specSvc, _, _, _ := newHandler()
-	producerID := uuid.New()
-
-	makeReq := func(metadata map[string]any) *http.Request {
-		var b bytes.Buffer
-		raw, _ := json.Marshal(metadata)
-		b.WriteString("--x\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n")
-		b.Write(raw)
-		b.WriteString("\r\n--x--\r\n")
-		req := httptest.NewRequest(http.MethodPost, "/specs", &b)
-		req.Header.Set("Content-Type", "multipart/form-data; boundary=x")
-		return req
-	}
-
-	req := makeReq(map[string]any{"title": "T", "category": "sample", "price": 10})
+func TestSpecHandler_CreateGone(t *testing.T) {
+	h, _, _, _, _ := newHandler()
+	req := httptest.NewRequest(http.MethodPost, "/specs", nil)
 	w := httptest.NewRecorder()
-	h.Create(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	req = makeReq(map[string]any{"title": "T", "category": "sample", "price": 10})
-	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
-	specSvc.On("CreateSpec", mock.Anything, mock.AnythingOfType("*domain.Spec")).Return(assert.AnError).Once()
-	w = httptest.NewRecorder()
-	h.Create(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-
-	// Beat without wav/stems should fail validation before service call.
-	req = makeReq(map[string]any{"title": "Beat", "category": "beat", "price": 10})
-	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, producerID))
-	w = httptest.NewRecorder()
-	h.Create(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	h.CreateGone(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
+	assert.Contains(t, w.Body.String(), "/spec-uploads")
 }

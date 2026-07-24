@@ -26,10 +26,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the API and the durable media worker
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/server ./cmd/server && \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/worker ./cmd/worker
 
 # Final stage
 FROM alpine:3.22
@@ -38,8 +39,10 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
-# Copy the binary from builder
-COPY --from=builder /app/main .
+# Copy both process binaries from the builder. The API remains the default;
+# deployments run the worker from this same image with `./worker`.
+COPY --from=builder /out/server ./server
+COPY --from=builder /out/worker ./worker
 
 # Copy migrations (if needed at runtime)
 COPY --from=builder /app/db/migrations ./db/migrations
@@ -48,4 +51,4 @@ COPY --from=builder /app/db/migrations ./db/migrations
 EXPOSE 8080
 
 # Run the application
-CMD ["./main"]
+CMD ["./server"]

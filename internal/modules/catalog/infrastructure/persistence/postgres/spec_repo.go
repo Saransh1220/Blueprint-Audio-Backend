@@ -29,7 +29,22 @@ func NewSpecRepository(db *sqlx.DB) *PgSpecRepository {
 }
 
 func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error {
-	// 1. Initialize metadata
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := createSpecTx(ctx, tx, spec); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// createSpecTx inserts a complete spec aggregate using the caller's transaction.
+// Upload finalization uses the same helper so the spec and its durable processing
+// job become visible atomically.
+func createSpecTx(ctx context.Context, tx *sqlx.Tx, spec *domain.Spec) error {
 	if spec.ID == uuid.Nil {
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -47,14 +62,6 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 		spec.ProcessingStatus = domain.ProcessingStatusPending
 	}
 
-	// 2. Start Transaction
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// 3. Insert Main Spec
 	query := `
         INSERT INTO specs (
             id, producer_id, title, category, type, bpm, key, 
@@ -68,41 +75,47 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
             :created_at, :updated_at, :processing_status, :moods, :instruments, :slug, :short_code
         )`
 
-	_, err = tx.NamedExecContext(ctx, query, spec)
+	_, err := tx.NamedExecContext(ctx, query, spec)
 	if err != nil {
 		return err
 	}
 
-	// 3b. Create analytics record
 	analyticsQuery := `INSERT INTO spec_analytics (spec_id) VALUES ($1) ON CONFLICT DO NOTHING`
 	_, err = tx.ExecContext(ctx, analyticsQuery, spec.ID)
 	if err != nil {
 		return err
 	}
 
-	// 4. Insert Genres (Many-to-Many)
 	for _, genre := range spec.Genres {
 		var genreID uuid.UUID
 
-		// Check if we have an ID, if not look it up or create
 		if genre.ID != uuid.Nil {
 			genreID = genre.ID
 		} else {
-			// Try to find by slug
-			err = tx.GetContext(ctx, &genreID, "SELECT id FROM genres WHERE slug = $1", genre.Slug)
+			candidateID, err := uuid.NewV7()
 			if err != nil {
-				// Not found, Create new Genre
-				id, err := uuid.NewV7()
-				if err != nil {
-					return err
-				}
-				genreID = id
-				now := time.Now()
-				createGenreQuery := `INSERT INTO genres (id, name, slug, created_at) VALUES ($1, $2, $3, $4)`
-				_, err = tx.ExecContext(ctx, createGenreQuery, genreID, genre.Name, genre.Slug, now)
-				if err != nil {
-					return fmt.Errorf("failed to create genre %s: %w", genre.Name, err)
-				}
+				return err
+			}
+			// The no-op update makes PostgreSQL return the row that won a
+			// concurrent first insert for this slug, without changing its
+			// canonical name or ID.
+			const getOrCreateGenreQuery = `
+				INSERT INTO genres (id, name, slug, created_at)
+				VALUES ($1, $2, $3, $4)
+				ON CONFLICT (slug) DO UPDATE
+				SET slug = EXCLUDED.slug
+				RETURNING id`
+			err = tx.GetContext(
+				ctx,
+				&genreID,
+				getOrCreateGenreQuery,
+				candidateID,
+				genre.Name,
+				genre.Slug,
+				time.Now(),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to get or create genre %s: %w", genre.Name, err)
 			}
 		}
 
@@ -113,7 +126,6 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 		}
 	}
 
-	// 5. Insert License Options
 	for i := range spec.Licenses {
 		license := &spec.Licenses[i]
 		if license.ID == uuid.Nil {
@@ -137,8 +149,7 @@ func (r *PgSpecRepository) Create(ctx context.Context, spec *domain.Spec) error 
 		}
 	}
 
-	// 6. Commit
-	return tx.Commit()
+	return nil
 }
 
 func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Spec, error) {
@@ -246,6 +257,7 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.is_deleted = FALSE
+		  AND s.processing_status = 'completed'
 	`
 	args := []interface{}{}
 	argId := 1
@@ -1241,7 +1253,9 @@ func (r *PgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 		SELECT s.*, u.display_name as producer_name, '' as producer_handle, COUNT(*) OVER() as total_count 
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
-		WHERE s.producer_id = $1 AND s.is_deleted = FALSE
+		WHERE s.producer_id = $1
+		  AND s.is_deleted = FALSE
+		  AND s.processing_status = 'completed'
 		ORDER BY s.created_at DESC 
 		LIMIT $2 OFFSET $3
 	`
