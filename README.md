@@ -186,8 +186,15 @@ make logs
 
 Default local services from `docker-compose.yml`:
 - API: `http://localhost:8080`
+- Swagger UI: `http://localhost:8080/docs/`
+- OpenAPI YAML: `http://localhost:8080/openapi.yaml`
+- OpenAPI JSON: `http://localhost:8080/openapi.json`
 - PostgreSQL: `${DB_PORT}` -> container `5432`
 - Redis: `6379`
+
+API documentation is enabled by default. Set `API_DOCS_ENABLED=false` to disable all
+documentation endpoints. Protected operations in Swagger UI accept the access token
+returned by login through the **Authorize** button.
 
 ## Key API Routes
 - `GET /health`

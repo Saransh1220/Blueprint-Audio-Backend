@@ -45,6 +45,7 @@ type ServerConfig struct {
 	AllowedOrigins string
 	Environment    string
 	SecureCookies  bool
+	APIDocsEnabled bool
 }
 
 // JWTConfig holds JWT configuration
@@ -105,6 +106,7 @@ func Load() Config {
 			AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:4200"),
 			Environment:    environment,
 			SecureCookies:  environment == "production",
+			APIDocsEnabled: getEnv("API_DOCS_ENABLED", "true") == "true",
 		},
 		Database: database.PostgresConfig{
 			Host:     getEnv("DB_HOST", "localhost"),

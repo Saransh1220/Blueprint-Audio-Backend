@@ -96,6 +96,35 @@ func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
 	}
 }
 
+func TestSetupRoutes_APIDocumentation(t *testing.T) {
+	config := RouterConfig{
+		AuthHandler:         &auth_http.AuthHandler{},
+		AuthMiddleware:      middleware.NewAuthMiddleware("test-secret"),
+		SpecHandler:         &catalog_http.SpecHandler{},
+		UserHandler:         &user_http.UserHandler{},
+		PaymentHandler:      &payment_http.PaymentHandler{},
+		AnalyticsHandler:    &analytics_http.AnalyticsHandler{},
+		NotificationHandler: &notification_http.NotificationHandler{},
+	}
+
+	mux := SetupRoutes(config)
+	request := httptest.NewRequest(http.MethodGet, "/docs/", nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected API docs to be enabled by default, got %d", response.Code)
+	}
+
+	config.DisableAPIDocs = true
+	mux = SetupRoutes(config)
+	request = httptest.NewRequest(http.MethodGet, "/docs/", nil)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled API docs to return 404, got %d", response.Code)
+	}
+}
+
 // responseRecorder is a helper to capture HTTP responses
 type responseRecorder struct {
 	statusCode int

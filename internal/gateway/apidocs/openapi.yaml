@@ -1,0 +1,1841 @@
+openapi: 3.0.3
+info:
+  title: Waveyard API
+  version: 1.0.0
+  description: |
+    HTTP API for the Waveyard beat marketplace.
+
+    Use **Authorize** to provide an access token as `Bearer <token>` for protected
+    operations. Refresh tokens are stored in an HTTP-only `refresh_token` cookie.
+  contact:
+    name: Waveyard Engineering
+servers:
+  - url: /
+    description: Current API host
+security: []
+tags:
+  - name: Operations
+    description: Health and observability endpoints
+  - name: Authentication
+    description: Registration, sessions, verification, and password recovery
+  - name: Catalog
+    description: Public beat catalog and producer catalog operations
+  - name: Uploads
+    description: Durable multi-step producer upload pipeline
+  - name: Users
+    description: User profiles and public producer information
+  - name: Payments
+    description: Orders, payment verification, licenses, and downloads
+  - name: Notifications
+    description: User notifications and realtime subscription
+  - name: Analytics
+    description: Plays, favorites, and producer analytics
+  - name: Admin
+    description: Super-admin management and audit operations
+
+x-bearer-security: &bearerSecurity
+  - bearerAuth: []
+x-refresh-security: &refreshSecurity
+  - refreshCookie: []
+x-standard-errors: &standardErrors
+  "400":
+    $ref: "#/components/responses/BadRequest"
+  "401":
+    $ref: "#/components/responses/Unauthorized"
+  "403":
+    $ref: "#/components/responses/Forbidden"
+  "500":
+    $ref: "#/components/responses/InternalError"
+
+paths:
+  /health:
+    get:
+      tags: [Operations]
+      operationId: healthCheck
+      summary: Check API health
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+  /metrics:
+    get:
+      tags: [Operations]
+      operationId: prometheusMetrics
+      summary: Read Prometheus metrics
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /register:
+    post:
+      tags: [Authentication]
+      operationId: register
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User created; email verification is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Log in with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Access token returned and refresh cookie set
+          headers:
+            Set-Cookie:
+              description: HTTP-only refresh token cookie
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /auth/google:
+    post:
+      tags: [Authentication]
+      operationId: googleLogin
+      summary: Log in with a Google ID token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleLoginRequest"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshSession
+      summary: Refresh an access token
+      security: *refreshSecurity
+      responses:
+        "200":
+          description: New access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Revoke the current refresh session
+      description: The refresh cookie is optional; when present its session is revoked. The cookie is always cleared.
+      security:
+        - {}
+        - refreshCookie: []
+      responses:
+        "200": { $ref: "#/components/responses/SuccessMessage" }
+  /auth/verify-email:
+    post:
+      tags: [Authentication]
+      operationId: verifyEmail
+      summary: Verify an email address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200": { $ref: "#/components/responses/SuccessMessage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/resend-verification:
+    post:
+      tags: [Authentication]
+      operationId: resendVerification
+      summary: Resend an email verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "200": { $ref: "#/components/responses/SuccessMessage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      operationId: forgotPassword
+      summary: Request a password-reset code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "200": { $ref: "#/components/responses/SuccessMessage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      summary: Reset a password using an emailed code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200": { $ref: "#/components/responses/SuccessMessage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUser
+      summary: Get the authenticated user
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /catalog/home:
+    get:
+      tags: [Catalog]
+      operationId: getCatalogHome
+      summary: Get ranked homepage catalog sections
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: sections
+          in: query
+          description: Comma-separated section identifiers
+          schema: { type: string }
+        - name: period
+          in: query
+          schema: { type: string, enum: [24h, 7d, 30d] }
+        - $ref: "#/components/parameters/CloudflareCountry"
+        - $ref: "#/components/parameters/CountryCode"
+      responses:
+        "200":
+          description: Homepage catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Homepage"
+        "500": { $ref: "#/components/responses/InternalError" }
+  /specs:
+    get:
+      tags: [Catalog]
+      operationId: listSpecs
+      summary: Search and filter beats
+      parameters:
+        - { name: category, in: query, schema: { type: string, enum: [beat, sample] } }
+        - { name: genres, in: query, description: Comma-separated genres, schema: { type: string } }
+        - { name: tags, in: query, description: Comma-separated tags, schema: { type: string } }
+        - { name: moods, in: query, description: Comma-separated moods, schema: { type: string } }
+        - { name: instruments, in: query, description: Comma-separated instruments, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: key, in: query, schema: { type: string } }
+        - { name: min_bpm, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: max_bpm, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: min_duration, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: max_duration, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: min_price, in: query, schema: { type: number, minimum: 0 } }
+        - { name: max_price, in: query, schema: { type: number, minimum: 0 } }
+        - { name: sort, in: query, schema: { type: string } }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/CloudflareCountry"
+        - $ref: "#/components/parameters/CountryCode"
+      responses:
+        "200":
+          description: Paginated specs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedSpecs"
+        "500": { $ref: "#/components/responses/InternalError" }
+    post:
+      tags: [Catalog]
+      operationId: createSpecLegacy
+      summary: Legacy spec creation endpoint
+      description: Returns 410. Use the `/spec-uploads` workflow instead.
+      deprecated: true
+      security: *bearerSecurity
+      responses:
+        "410":
+          description: This endpoint has been replaced by the upload pipeline
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: multipart spec uploads are no longer supported; use /spec-uploads
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /specs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Catalog]
+      operationId: getSpec
+      summary: Get a beat by UUID, short code, or slug
+      parameters:
+        - $ref: "#/components/parameters/CloudflareCountry"
+        - $ref: "#/components/parameters/CountryCode"
+      responses:
+        "200":
+          description: Spec details
+          headers:
+            X-Cache:
+              description: Whether the response was served from the catalog cache
+              schema: { type: string, enum: [HIT, MISS] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Spec" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    patch:
+      tags: [Catalog]
+      operationId: updateSpec
+      summary: Update owned beat metadata and cover image
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [metadata]
+              properties:
+                metadata:
+                  type: string
+                  description: JSON-encoded spec metadata
+                image:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Updated spec
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Spec" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Catalog]
+      operationId: deleteSpec
+      summary: Delete an owned beat
+      security: *bearerSecurity
+      responses:
+        "204": { $ref: "#/components/responses/NoContent" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /spec-uploads:
+    post:
+      tags: [Uploads]
+      operationId: initiateSpecUpload
+      summary: Start a producer upload
+      security: *bearerSecurity
+      responses:
+        "201":
+          description: Upload initiated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateSpecUploadResponse" }
+        <<: *standardErrors
+  /spec-uploads/{id}/metadata:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    put:
+      tags: [Uploads]
+      operationId: saveSpecUploadMetadata
+      summary: Save metadata for an upload
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpecMetadataRequest" }
+      responses:
+        "204": { $ref: "#/components/responses/NoContent" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /spec-uploads/{id}/files:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Uploads]
+      operationId: prepareSpecUploadFile
+      summary: Create a presigned file-upload instruction
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUploadFileRequest" }
+      responses:
+        "201":
+          description: Presigned upload instruction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PresignedUploadResponse" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "501": { $ref: "#/components/responses/NotImplemented" }
+  /spec-uploads/{id}/files/{assetID}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/AssetID"
+    post:
+      tags: [Uploads]
+      operationId: confirmSpecUploadFile
+      summary: Confirm that a file upload completed
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Confirmed upload asset
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfirmedUploadFileResponse" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /spec-uploads/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Uploads]
+      operationId: completeSpecUpload
+      summary: Finalize an upload and queue processing
+      security: *bearerSecurity
+      responses:
+        "202":
+          description: Upload accepted for processing; the published spec is returned
+          headers:
+            Location:
+              description: URL of the published spec
+              schema: { type: string, example: /specs/9c891cb5-f00b-4e4e-9d31-b262ef86209f }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Spec" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /spec-uploads/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Uploads]
+      operationId: getSpecUploadStatus
+      summary: Get upload and processing status
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Upload status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpecUploadStatus" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /specs/{id}/download-free:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Catalog]
+      operationId: downloadFreeSpec
+      summary: Get a free MP3 download URL
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Temporary download URL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadURL" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /users/profile:
+    patch:
+      tags: [Users]
+      operationId: updateProfile
+      summary: Update the authenticated profile
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicUser" }
+        <<: *standardErrors
+  /users/profile/avatar:
+    post:
+      tags: [Users]
+      operationId: uploadAvatar
+      summary: Upload the authenticated user's avatar
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicUser" }
+        <<: *standardErrors
+  /users/profile/banner:
+    post:
+      tags: [Users]
+      operationId: uploadBanner
+      summary: Upload the authenticated user's profile banner
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [banner]
+              properties:
+                banner: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicUser" }
+        <<: *standardErrors
+  /users/{id}/public:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Users]
+      operationId: getPublicUserProfile
+      summary: Get a public producer profile
+      responses:
+        "200":
+          description: Public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /users/{id}/specs:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Catalog]
+      operationId: getUserSpecs
+      summary: List a producer's published specs
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/CloudflareCountry"
+        - $ref: "#/components/parameters/CountryCode"
+      responses:
+        "200":
+          description: Producer specs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedSpecs" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /orders:
+    post:
+      tags: [Payments]
+      operationId: createOrder
+      summary: Create an order for a license option
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrderRequest" }
+      responses:
+        "200":
+          description: Created order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        <<: *standardErrors
+    get:
+      tags: [Payments]
+      operationId: listOrders
+      summary: List the current user's orders
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: User orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /orders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Payments]
+      operationId: getOrder
+      summary: Get an order
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /orders/producer:
+    get:
+      tags: [Payments]
+      operationId: listProducerOrders
+      summary: List orders for the authenticated producer's catalog
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Producer orders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProducerOrders" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /payments/verify:
+    post:
+      tags: [Payments]
+      operationId: verifyPayment
+      summary: Verify a Razorpay payment and issue a license
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyPaymentRequest" }
+      responses:
+        "200":
+          description: Payment verified and license issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VerifyPaymentResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /webhooks/dodo:
+    post:
+      tags: [Payments]
+      operationId: dodoWebhook
+      summary: Receive a Dodo Payments webhook
+      description: Signature verification uses the Dodo webhook headers.
+      parameters:
+        - { name: webhook-id, in: header, required: true, schema: { type: string } }
+        - { name: webhook-timestamp, in: header, required: true, schema: { type: string } }
+        - { name: webhook-signature, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean, example: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /licenses:
+    get:
+      tags: [Payments]
+      operationId: listLicenses
+      summary: List the current user's licenses
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - { name: q, in: query, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Paginated licenses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedLicenses" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /licenses/{id}/downloads:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Payments]
+      operationId: getLicenseDownloads
+      summary: Get temporary download URLs for an owned license
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: License file URLs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LicenseDownloads" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: List notifications
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Notification" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /notifications/{id}/read:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Notifications]
+      operationId: markNotificationRead
+      summary: Mark a notification as read
+      security: *bearerSecurity
+      responses:
+        "204": { $ref: "#/components/responses/NoContent" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      operationId: markAllNotificationsRead
+      summary: Mark every notification as read
+      security: *bearerSecurity
+      responses:
+        "204": { $ref: "#/components/responses/NoContent" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      operationId: unreadNotificationCount
+      summary: Get the unread notification count
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, example: 3 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /ws:
+    get:
+      tags: [Notifications]
+      operationId: subscribeNotifications
+      summary: Upgrade to the notification WebSocket
+      description: OpenAPI documents the HTTP upgrade handshake; subsequent WebSocket messages are outside the OpenAPI protocol.
+      security: *bearerSecurity
+      responses:
+        "101": { description: Switching Protocols }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /specs/{id}/play:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Analytics]
+      operationId: trackSpecPlay
+      summary: Record a play
+      responses:
+        "200": { $ref: "#/components/responses/NoContent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /specs/{id}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Analytics]
+      operationId: toggleSpecFavorite
+      summary: Toggle a favorite
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Updated favorite state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FavoriteResponse" }
+        <<: *standardErrors
+  /specs/{id}/analytics:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Analytics]
+      operationId: getSpecAnalytics
+      summary: Get producer analytics for an owned spec
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Spec analytics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProducerAnalytics" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /analytics/overview:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsOverview
+      summary: Get producer analytics overview
+      security: *bearerSecurity
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, default: 30 } }
+        - { name: sortBy, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Analytics overview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalyticsOverview" }
+        <<: *standardErrors
+  /analytics/top-specs:
+    get:
+      tags: [Analytics]
+      operationId: getTopSpecs
+      summary: Get a producer's top-performing specs
+      security: *bearerSecurity
+      parameters:
+        - { name: sortBy, in: query, schema: { type: string, enum: [plays, downloads, revenue] } }
+      responses:
+        "200":
+          description: Top specs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TopSpecStat" }
+        <<: *standardErrors
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: adminListUsers
+      summary: List users
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/AdminPage"
+        - $ref: "#/components/parameters/AdminLimit"
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Paginated users
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserPage" }
+        <<: *standardErrors
+  /admin/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Admin]
+      operationId: adminGetUser
+      summary: Get a user
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/users/{id}/system-role:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateUserSystemRole
+      summary: Change a user's system role
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [system_role]
+              properties:
+                system_role: { type: string, enum: [user, super_admin] }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/users/{id}/status:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateUserStatus
+      summary: Activate or suspend a user
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/specs:
+    get:
+      tags: [Admin]
+      operationId: adminListSpecs
+      summary: List all specs, including moderated records
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/AdminPage"
+        - $ref: "#/components/parameters/AdminLimit"
+      responses:
+        "200":
+          description: Paginated spec records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSpecPage" }
+        <<: *standardErrors
+  /admin/specs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateSpec
+      summary: Moderate or update a spec
+      security: *bearerSecurity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                base_price: { type: number, minimum: 0 }
+                is_deleted: { type: boolean }
+      responses:
+        "200":
+          description: Updated spec state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSpecState" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteSpec
+      summary: Soft-delete a spec
+      security: *bearerSecurity
+      responses:
+        "204": { $ref: "#/components/responses/NoContent" }
+        <<: *standardErrors
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/orders:
+    get:
+      tags: [Admin]
+      operationId: adminListOrders
+      summary: List all orders
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/AdminPage"
+        - $ref: "#/components/parameters/AdminLimit"
+      responses:
+        "200":
+          description: Paginated orders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminOrderPage" }
+        <<: *standardErrors
+  /admin/licenses:
+    get:
+      tags: [Admin]
+      operationId: adminListLicenses
+      summary: List all licenses
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/AdminPage"
+        - $ref: "#/components/parameters/AdminLimit"
+      responses:
+        "200":
+          description: Paginated licenses
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminLicensePage" }
+        <<: *standardErrors
+  /admin/analytics/overview:
+    get:
+      tags: [Admin]
+      operationId: adminAnalyticsOverview
+      summary: Get platform-wide summary metrics
+      security: *bearerSecurity
+      responses:
+        "200":
+          description: Platform metrics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAnalyticsOverview" }
+        <<: *standardErrors
+  /admin/audit-log:
+    get:
+      tags: [Admin]
+      operationId: adminListAuditLog
+      summary: List admin audit events
+      security: *bearerSecurity
+      parameters:
+        - $ref: "#/components/parameters/AdminPage"
+        - $ref: "#/components/parameters/AdminLimit"
+      responses:
+        "200":
+          description: Paginated audit events
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAuditLogPage" }
+        <<: *standardErrors
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token returned by login or refresh.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: HTTP-only refresh session cookie set by login.
+
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      description: Resource UUID. Catalog lookup also accepts a short code or slug.
+      schema: { type: string }
+    AssetID:
+      name: assetID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    AdminPage:
+      name: page
+      in: query
+      description: Admin list page; invalid or non-positive values fall back to 1.
+      schema: { type: integer, minimum: 1, default: 1 }
+    AdminLimit:
+      name: limit
+      in: query
+      description: Admin page size; defaults to 50 and is capped at 100.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    CloudflareCountry:
+      name: CF-IPCountry
+      in: header
+      description: Cloudflare two-letter country code. IN selects INR display prices; every other value selects USD.
+      schema: { type: string, minLength: 2, maxLength: 2, example: IN }
+    CountryCode:
+      name: X-Country-Code
+      in: header
+      description: Fallback country code when CF-IPCountry is absent. IN selects INR display prices; every other value selects USD.
+      schema: { type: string, minLength: 2, maxLength: 2, example: IN }
+
+  responses:
+    SuccessMessage:
+      description: Operation completed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
+    NoContent:
+      description: Operation completed with no response body
+    BadRequest:
+      description: Invalid input
+      content: &errorContent
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+        text/plain:
+          schema: { $ref: "#/components/schemas/PlainTextError" }
+    Unauthorized:
+      description: Missing or invalid authentication
+      content: *errorContent
+    Forbidden:
+      description: Authenticated user lacks permission
+      content: *errorContent
+    NotFound:
+      description: Resource not found
+      content: *errorContent
+    Conflict:
+      description: Request conflicts with current resource state
+      content: *errorContent
+    TooManyRequests:
+      description: Rate limit exceeded
+      content: *errorContent
+    InternalError:
+      description: Unexpected server error
+      content: *errorContent
+    NotImplemented:
+      description: The configured storage backend cannot provide direct uploads
+      content: *errorContent
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, example: invalid request body }
+        details: { type: string }
+    PlainTextError:
+      type: string
+      description: Error body written by net/http's http.Error. Some handlers currently put JSON-looking text in this plain-text body.
+      example: invalid request body
+    Message:
+      type: object
+      properties:
+        message: { type: string, example: operation completed }
+    UUID:
+      type: string
+      format: uuid
+    Money:
+      type: object
+      required: [amount_minor, amount_major, currency]
+      properties:
+        amount_minor: { type: integer, format: int64, description: Amount in the currency's smallest unit }
+        amount_major: { type: number, format: double, description: Decimal amount in the currency's major unit }
+        currency: { type: string, example: INR }
+    User:
+      type: object
+      required: [id, email, name, display_name, role, system_role, status, email_verified, bio, avatar_url, banner_url, instagram_url, twitter_url, youtube_url, spotify_url, store_currency, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        email: { type: string, format: email }
+        name: { type: string }
+        display_name: { type: string, nullable: true }
+        role: { type: string, enum: [artist, producer] }
+        system_role: { type: string, enum: [user, super_admin] }
+        status: { type: string, enum: [active, suspended] }
+        email_verified: { type: boolean }
+        email_verified_at: { type: string, format: date-time, nullable: true }
+        bio: { type: string, nullable: true }
+        avatar_url: { type: string, format: uri, nullable: true }
+        banner_url: { type: string, format: uri, nullable: true }
+        instagram_url: { type: string, format: uri, nullable: true }
+        twitter_url: { type: string, format: uri, nullable: true }
+        youtube_url: { type: string, format: uri, nullable: true }
+        spotify_url: { type: string, format: uri, nullable: true }
+        store_currency: { type: string, enum: [INR, USD] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PublicUser:
+      type: object
+      required: [id, name, role, store_currency, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        display_name: { type: string }
+        role: { type: string }
+        bio: { type: string }
+        avatar_url: { type: string, format: uri }
+        banner_url: { type: string, format: uri }
+        instagram_url: { type: string, format: uri }
+        twitter_url: { type: string, format: uri }
+        youtube_url: { type: string, format: uri }
+        spotify_url: { type: string, format: uri }
+        store_currency: { type: string, enum: [INR, USD] }
+        created_at: { type: string, description: Timestamp serialized by the profile DTO }
+    RegisterRequest:
+      type: object
+      required: [email, password, name, display_name, role]
+      properties:
+        email: { type: string, format: email, example: producer@example.com }
+        password: { type: string, format: password, minLength: 8, example: secure-password }
+        name: { type: string, example: nightmaker }
+        display_name: { type: string, example: Night Maker }
+        role: { type: string, enum: [artist, producer] }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    GoogleLoginRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: Google ID token }
+    VerifyEmailRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email: { type: string, format: email }
+        code: { type: string, pattern: "^[0-9]{6}$", example: "123456" }
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    ResetPasswordRequest:
+      type: object
+      required: [email, code, new_password]
+      properties:
+        email: { type: string, format: email }
+        code: { type: string, pattern: "^[0-9]{6}$" }
+        new_password: { type: string, format: password, minLength: 8 }
+    AuthResponse:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: JWT access token }
+    AccessTokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: JWT access token }
+    Genre:
+      type: object
+      required: [id, name, slug, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        created_at: { type: string, format: date-time }
+    LicenseOption:
+      type: object
+      required: [id, spec_id, type, name, price, price_money, display_price_money, features, file_types, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        spec_id: { type: string, format: uuid }
+        type: { type: string, enum: [Basic, Premium, Trackout, Unlimited] }
+        name: { type: string }
+        price: { type: number, format: double }
+        price_money: { $ref: "#/components/schemas/Money" }
+        display_price_money: { $ref: "#/components/schemas/Money" }
+        features: { type: array, items: { type: string } }
+        file_types: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PublicAnalytics:
+      type: object
+      required: [play_count, favorite_count, total_download_count, is_favorited]
+      properties:
+        play_count: { type: integer }
+        favorite_count: { type: integer }
+        total_download_count: { type: integer }
+        is_favorited: { type: boolean }
+    Spec:
+      type: object
+      required: [id, producer_id, producer_name, title, category, type, bpm, key, description, image_url, preview_url, price, price_money, display_price_money, duration, free_mp3_enabled, created_at, updated_at, processing_status]
+      properties:
+        id: { type: string, format: uuid }
+        producer_id: { type: string, format: uuid }
+        producer_name: { type: string }
+        title: { type: string }
+        category: { type: string, enum: [beat, sample] }
+        type: { type: string }
+        bpm: { type: integer }
+        key: { type: string }
+        description: { type: string }
+        image_url: { type: string, format: uri }
+        preview_url: { type: string, format: uri }
+        price: { type: number, format: double }
+        price_money: { $ref: "#/components/schemas/Money" }
+        display_price_money: { $ref: "#/components/schemas/Money" }
+        duration: { type: integer, description: Seconds }
+        free_mp3_enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        licenses: { type: array, items: { $ref: "#/components/schemas/LicenseOption" } }
+        genres: { type: array, items: { $ref: "#/components/schemas/Genre" } }
+        tags: { type: array, items: { type: string } }
+        moods: { type: array, items: { type: string } }
+        instruments: { type: array, items: { type: string } }
+        waveform_peaks: { type: array, items: { type: integer, format: int64 } }
+        analytics: { $ref: "#/components/schemas/PublicAnalytics" }
+        short_code: { type: string }
+        slug: { type: string }
+        processing_status: { type: string, enum: [pending, processing, completed, failed] }
+    Pagination:
+      type: object
+      required: [total, page, per_page, limit, offset, total_pages]
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        total_pages: { type: integer }
+    PaginatedSpecs:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Spec" } }
+        metadata: { $ref: "#/components/schemas/Pagination" }
+    Homepage:
+      type: object
+      required: [generated_at, cache_ttl_seconds, stats, sections]
+      properties:
+        generated_at: { type: string, format: date-time }
+        cache_ttl_seconds: { type: integer }
+        stats:
+          $ref: "#/components/schemas/HomepageStats"
+        sections:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/HomepageSection" }
+    HomepageStats:
+      type: object
+      required: [total_live_beats, new_releases_7d, total_producers]
+      properties:
+        total_live_beats: { type: integer }
+        new_releases_7d: { type: integer }
+        total_producers: { type: integer }
+    HomepageSection:
+      type: object
+      required: [title, source, items]
+      properties:
+        title: { type: string }
+        source: { type: string }
+        period: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/HomepageItem" }
+    HomepageItem:
+      type: object
+      required: [rank, movement, spec]
+      properties:
+        rank: { type: integer }
+        score: { type: number, format: double }
+        movement: { type: string }
+        metrics: { $ref: "#/components/schemas/BeatRankingMetrics" }
+        spec: { $ref: "#/components/schemas/Spec" }
+    BeatRankingMetrics:
+      type: object
+      required: [plays, favorites, downloads, purchases, revenue]
+      properties:
+        plays: { type: integer }
+        unique_listeners: { type: integer }
+        favorites: { type: integer }
+        downloads: { type: integer }
+        purchases: { type: integer }
+        revenue: { type: number, format: double }
+    SpecMetadataRequest:
+      type: object
+      required: [title, category, type, bpm, key, price, price_currency, description]
+      properties:
+        title: { type: string }
+        category: { type: string, enum: [beat, sample] }
+        type: { type: string }
+        bpm: { type: integer, minimum: 1 }
+        key: { type: string }
+        price: { type: number, minimum: 0 }
+        price_currency: { type: string, enum: [INR, USD] }
+        description: { type: string }
+        free_mp3_enabled: { type: boolean }
+        tags: { type: array, items: { type: string } }
+        moods: { type: array, items: { type: string } }
+        instruments: { type: array, items: { type: string } }
+        genres:
+          type: array
+          items:
+            type: object
+            required: [name, slug]
+            properties:
+              name: { type: string }
+              slug: { type: string }
+        licenses:
+          type: array
+          items:
+            type: object
+            required: [type, name, price, price_currency, features, file_types]
+            properties:
+              type: { type: string, enum: [Basic, Premium, Trackout, Unlimited] }
+              name: { type: string }
+              price: { type: number, minimum: 0 }
+              price_currency: { type: string, enum: [INR, USD] }
+              features: { type: array, items: { type: string } }
+              file_types: { type: array, items: { type: string } }
+    CreateSpecUploadResponse:
+      type: object
+      required: [upload_id, spec_id, expires_at]
+      properties:
+        upload_id: { type: string, format: uuid }
+        spec_id: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+    CreateUploadFileRequest:
+      type: object
+      required: [kind, file_name, content_type, size_bytes]
+      properties:
+        kind: { type: string, enum: [preview, wav, stems, image] }
+        file_name: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, format: int64, minimum: 1 }
+    PresignedUploadResponse:
+      type: object
+      required: [asset_id, kind, object_key, upload_url, method, headers]
+      properties:
+        asset_id: { type: string, format: uuid }
+        kind: { type: string }
+        object_key: { type: string }
+        upload_url: { type: string, format: uri }
+        method: { type: string, example: PUT }
+        headers: { type: object, additionalProperties: { type: string } }
+    ConfirmedUploadFileResponse:
+      type: object
+      required: [asset_id, kind, file_name, size_bytes, content_type]
+      properties:
+        asset_id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, preview, wav, stems] }
+        file_name: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        content_type: { type: string }
+    SpecUploadStatus:
+      type: object
+      required: [upload_id, spec_id, status, processing_status, created_at, updated_at, expires_at]
+      properties:
+        upload_id: { type: string, format: uuid }
+        spec_id: { type: string, format: uuid }
+        status: { type: string, enum: [uploading, queued, processing, completed, failed, expired] }
+        processing_status: { type: string, enum: [pending, processing, completed, failed] }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    DownloadURL:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+    UpdateProfileRequest:
+      type: object
+      properties:
+        bio: { type: string }
+        avatar_url: { type: string, format: uri }
+        banner_url: { type: string, format: uri }
+        display_name: { type: string }
+        instagram_url: { type: string, format: uri }
+        twitter_url: { type: string, format: uri }
+        youtube_url: { type: string, format: uri }
+        spotify_url: { type: string, format: uri }
+        store_currency: { type: string, enum: [INR, USD] }
+    CreateOrderRequest:
+      type: object
+      required: [spec_id, license_option_id]
+      properties:
+        spec_id: { type: string, format: uuid }
+        license_option_id: { type: string, format: uuid }
+    Order:
+      type: object
+      required: [id, user_id, spec_id, license_type, amount, currency, provider, status, created_at, updated_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        spec_id: { type: string, format: uuid }
+        license_type: { type: string }
+        amount: { type: integer, format: int64 }
+        currency: { type: string }
+        razorpay_order_id: { type: string }
+        provider: { type: string }
+        provider_checkout_id: { type: string }
+        provider_payment_id: { type: string }
+        checkout_url: { type: string, format: uri }
+        status: { type: string, enum: [pending, processing, paid, failed, cancelled, refunded] }
+        notes: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    VerifyPaymentRequest:
+      type: object
+      required: [order_id, razorpay_payment_id, razorpay_signature]
+      properties:
+        order_id: { type: string, format: uuid }
+        razorpay_payment_id: { type: string }
+        razorpay_signature: { type: string }
+    VerifyPaymentResponse:
+      type: object
+      required: [success, license, message]
+      properties:
+        success: { type: boolean }
+        license: { $ref: "#/components/schemas/License" }
+        message: { type: string }
+    License:
+      type: object
+      required: [id, order_id, user_id, spec_id, license_option_id, license_type, purchase_price, currency, license_key, is_active, is_revoked, downloads_count, issued_at, created_at, updated_at, spec_title, spec_image]
+      properties:
+        id: { type: string, format: uuid }
+        order_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        spec_id: { type: string, format: uuid }
+        license_option_id: { type: string, format: uuid }
+        license_type: { type: string }
+        purchase_price: { type: integer, format: int64 }
+        currency: { type: string }
+        license_key: { type: string }
+        is_active: { type: boolean }
+        is_revoked: { type: boolean }
+        revoked_reason: { type: string }
+        revoked_at: { type: string, format: date-time }
+        downloads_count: { type: integer }
+        last_downloaded_at: { type: string, format: date-time }
+        issued_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        spec_title: { type: string }
+        spec_image: { type: string, format: uri, nullable: true }
+    PaginatedLicenses:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/License" } }
+        metadata: { $ref: "#/components/schemas/LicensePagination" }
+    LicensePagination:
+      type: object
+      required: [total, page, per_page]
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer, enum: [5] }
+    LicenseDownloads:
+      type: object
+      required: [license_id, license_type, spec_title, expires_in]
+      properties:
+        license_id: { type: string }
+        license_type: { type: string }
+        spec_title: { type: string }
+        mp3_url: { type: string, format: uri }
+        wav_url: { type: string, format: uri }
+        stems_url: { type: string, format: uri }
+        expires_in: { type: integer, description: Seconds }
+    ProducerOrders:
+      type: object
+      required: [orders, total, limit, offset]
+      properties:
+        orders: { type: array, items: { $ref: "#/components/schemas/ProducerOrder" } }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    ProducerOrder:
+      type: object
+      required: [id, amount, currency, status, created_at, license_type, buyer_name, buyer_email, spec_title]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        amount: { type: number, format: double }
+        currency: { type: string }
+        status: { type: string, enum: [pending, processing, paid, failed, cancelled, refunded] }
+        created_at: { type: string, format: date-time }
+        license_type: { type: string }
+        buyer_name: { type: string }
+        buyer_email: { type: string, format: email }
+        spec_title: { type: string }
+        razorpay_order_id: { type: string }
+    Notification:
+      type: object
+      required: [id, user_id, title, message, type, is_read, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        title: { type: string }
+        message: { type: string }
+        type: { type: string, enum: [info, success, warning, error] }
+        is_read: { type: boolean }
+        created_at: { type: string, format: date-time }
+    FavoriteResponse:
+      type: object
+      required: [is_favorited]
+      properties:
+        is_favorited: { type: boolean }
+    ProducerAnalytics:
+      type: object
+      required: [play_count, favorite_count, free_download_count, total_purchase_count, license_purchases]
+      properties:
+        play_count: { type: integer }
+        favorite_count: { type: integer }
+        free_download_count: { type: integer }
+        total_purchase_count: { type: integer }
+        license_purchases: { type: object, additionalProperties: { type: integer } }
+    DailyStat:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string, format: date }
+        count: { type: integer }
+    TopSpecStat:
+      type: object
+      required: [spec_id, title, plays, downloads, revenue]
+      properties:
+        spec_id: { type: string, format: uuid }
+        title: { type: string }
+        plays: { type: integer }
+        downloads: { type: integer }
+        revenue: { type: number }
+    AnalyticsOverview:
+      type: object
+      required: [total_plays, total_favorites, total_revenue, total_downloads, plays_by_day, downloads_by_day, revenue_by_day, top_specs, revenue_by_license]
+      properties:
+        total_plays: { type: integer }
+        total_favorites: { type: integer }
+        total_revenue: { type: number }
+        total_downloads: { type: integer }
+        plays_by_day: { type: array, items: { $ref: "#/components/schemas/DailyStat" } }
+        downloads_by_day: { type: array, items: { $ref: "#/components/schemas/DailyStat" } }
+        revenue_by_day: { type: array, items: { $ref: "#/components/schemas/DailyRevenueStat" } }
+        top_specs: { type: array, items: { $ref: "#/components/schemas/TopSpecStat" } }
+        revenue_by_license: { type: object, additionalProperties: { type: number } }
+    DailyRevenueStat:
+      type: object
+      required: [date, revenue]
+      properties:
+        date: { type: string, format: date }
+        revenue: { type: number, format: double }
+    AdminPageMetadata:
+      type: object
+      required: [total, page, per_page]
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        per_page: { type: integer }
+    AdminUser:
+      type: object
+      required: [id, email, name, display_name, role, system_role, status, email_verified, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        email: { type: string, format: email }
+        name: { type: string }
+        display_name: { type: string, nullable: true }
+        role: { type: string, enum: [artist, producer] }
+        system_role: { type: string, enum: [user, super_admin] }
+        status: { type: string, enum: [active, suspended] }
+        email_verified: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AdminUserPage:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AdminUser" } }
+        metadata: { $ref: "#/components/schemas/AdminPageMetadata" }
+    AdminSpec:
+      type: object
+      required: [id, producer_id, producer_email, producer_name, title, category, base_price, processing_status, is_deleted, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        producer_id: { $ref: "#/components/schemas/UUID" }
+        producer_email: { type: string, format: email }
+        producer_name: { type: string }
+        title: { type: string }
+        category: { type: string }
+        base_price: { type: string, description: PostgreSQL NUMERIC serialized from the map-backed admin query }
+        processing_status: { type: string, enum: [pending, processing, completed, failed] }
+        is_deleted: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AdminSpecState:
+      type: object
+      required: [id, producer_id, title, category, base_price, processing_status, is_deleted, deleted_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        producer_id: { $ref: "#/components/schemas/UUID" }
+        title: { type: string }
+        category: { type: string }
+        base_price: { type: string, description: PostgreSQL NUMERIC serialized from the map-backed admin query }
+        processing_status: { type: string, enum: [pending, processing, completed, failed] }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+    AdminSpecPage:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AdminSpec" } }
+        metadata: { $ref: "#/components/schemas/AdminPageMetadata" }
+    AdminOrder:
+      type: object
+      required: [id, user_id, buyer_email, spec_id, spec_title, license_type, amount, currency, status, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        user_id: { $ref: "#/components/schemas/UUID" }
+        buyer_email: { type: string, format: email }
+        spec_id: { $ref: "#/components/schemas/UUID" }
+        spec_title: { type: string }
+        license_type: { type: string }
+        amount: { type: integer }
+        currency: { type: string }
+        status: { type: string, enum: [pending, processing, paid, failed, cancelled, refunded] }
+        created_at: { type: string, format: date-time }
+    AdminOrderPage:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AdminOrder" } }
+        metadata: { $ref: "#/components/schemas/AdminPageMetadata" }
+    AdminLicense:
+      type: object
+      required: [id, user_id, user_email, spec_id, spec_title, license_type, purchase_price, is_active, is_revoked, downloads_count, issued_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        user_id: { $ref: "#/components/schemas/UUID" }
+        user_email: { type: string, format: email }
+        spec_id: { $ref: "#/components/schemas/UUID" }
+        spec_title: { type: string }
+        license_type: { type: string }
+        purchase_price: { type: integer }
+        is_active: { type: boolean }
+        is_revoked: { type: boolean }
+        downloads_count: { type: integer }
+        issued_at: { type: string, format: date-time }
+    AdminLicensePage:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AdminLicense" } }
+        metadata: { $ref: "#/components/schemas/AdminPageMetadata" }
+    AdminAuditLog:
+      type: object
+      required: [id, actor_id, actor_email, action, resource_type, resource_id, before_state, after_state, ip_address, user_agent, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        actor_id: { type: string, format: uuid, nullable: true }
+        actor_email: { type: string, format: email, nullable: true }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string, format: uuid, nullable: true }
+        before_state: { type: object, additionalProperties: true, nullable: true }
+        after_state: { type: object, additionalProperties: true, nullable: true }
+        ip_address: { type: string, nullable: true }
+        user_agent: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    AdminAuditLogPage:
+      type: object
+      required: [data, metadata]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/AdminAuditLog" } }
+        metadata: { $ref: "#/components/schemas/AdminPageMetadata" }
+    AdminAnalyticsOverview:
+      type: object
+      required: [users, producers, specs, orders, paid_orders, revenue]
+      properties:
+        users: { type: integer }
+        producers: { type: integer }
+        specs: { type: integer }
+        orders: { type: integer }
+        paid_orders: { type: integer }
+        revenue: { type: integer, format: int64 }

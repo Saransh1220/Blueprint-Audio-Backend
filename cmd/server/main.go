@@ -130,6 +130,7 @@ func main() {
 		AnalyticsHandler:    analyticsModule.AnalyticsHandler,
 		NotificationHandler: notificationModule.HTTPHandler(),
 		AdminHandler:        adminModule.HTTPHandler(),
+		DisableAPIDocs:      !cfg.Server.APIDocsEnabled,
 	})
 
 	// 7. Apply Middleware

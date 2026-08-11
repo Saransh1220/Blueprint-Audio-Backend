@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/apidocs"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	admin_http "github.com/saransh1220/blueprint-audio/internal/modules/admin/interfaces/http"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
@@ -27,6 +28,7 @@ type RouterConfig struct {
 	AnalyticsHandler    *analytics_http.AnalyticsHandler
 	NotificationHandler *notification_http.NotificationHandler
 	AdminHandler        *admin_http.AdminHandler
+	DisableAPIDocs      bool
 }
 
 // SetupRoutes creates and configures all application routes
@@ -41,6 +43,10 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 
 	// Prometheus Metrics Endpoint
 	mux.Handle("/metrics", promhttp.Handler())
+
+	if !config.DisableAPIDocs {
+		apidocs.Register(mux)
+	}
 
 	// Auth Routes
 	emailActionLimiter := middleware.RateLimitMiddleware(3, 15*time.Minute)
