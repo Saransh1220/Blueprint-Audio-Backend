@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
+	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 )
 
 type PgAnalyticsRepository struct {
@@ -219,6 +221,126 @@ func (r *PgAnalyticsRepository) IsFavorited(ctx context.Context, userID, specID 
 	}
 
 	return exists, nil
+}
+
+// ListUserFavorites returns a cursor-paginated page of the user's favorited specs.
+//
+// The cursor encodes (favorited_at DESC, spec_id DESC) so pages are stable even
+// when concurrent favorites are added. We fetch limit+1 rows to detect whether
+// another page exists, then trim the slice before returning.
+func (r *PgAnalyticsRepository) ListUserFavorites(ctx context.Context, userID uuid.UUID, limit int, cursor *domain.FavoriteCursor) (*domain.FavoritePage, error) {
+	const maxLimit = 100
+	if limit <= 0 || limit > maxLimit {
+		limit = 20
+	}
+
+	// Base query — fetch limit+1 to check for more pages.
+	// We join specs, producers (users) and exclude soft-deleted specs.
+	args := []interface{}{userID}
+	argIdx := 2
+
+	query := `
+		SELECT
+			uf.created_at  AS favorited_at,
+			s.id, s.producer_id, s.title, s.category, s.type, s.bpm, s.key,
+			s.image_url, s.preview_url, s.wav_url, s.stems_url,
+			s.base_price, s.price_currency, s.description, s.duration,
+			s.free_mp3_enabled, s.created_at, s.updated_at, s.deleted_at,
+			s.is_deleted, s.moods, s.instruments, s.waveform_peaks,
+			s.slug, s.short_code, s.processing_status,
+			u.display_name AS producer_name,
+			'' AS producer_handle,
+			s.tags
+		FROM user_favorites uf
+		JOIN specs s ON s.id = uf.spec_id
+		JOIN users u ON u.id = s.producer_id
+		WHERE uf.user_id = $1
+		  AND s.is_deleted = FALSE
+`
+
+	// Keyset: continue after last seen (favorited_at DESC, spec_id DESC)
+	if cursor != nil {
+		query += fmt.Sprintf(`
+		  AND (uf.created_at, uf.spec_id) < ($%d, $%d)
+`, argIdx, argIdx+1)
+		args = append(args, cursor.FavoritedAt, cursor.SpecID)
+		argIdx += 2
+	}
+
+	query += fmt.Sprintf(`
+		ORDER BY uf.created_at DESC, uf.spec_id DESC
+		LIMIT $%d
+`, argIdx)
+	args = append(args, limit+1)
+
+	// rawRow embeds the Spec domain struct and adds the favorited_at column.
+	// sqlx scans PostgreSQL timestamptz directly into time.Time.
+	type rawRow struct {
+		FavoritedAt time.Time `db:"favorited_at"`
+		catalogDomain.Spec
+	}
+
+	rows, err := r.db.QueryxContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ListUserFavorites query: %w", err)
+	}
+	defer rows.Close()
+
+	var rawRows []rawRow
+	for rows.Next() {
+		var rr rawRow
+		if err := rows.StructScan(&rr); err != nil {
+			return nil, fmt.Errorf("ListUserFavorites scan: %w", err)
+		}
+		rawRows = append(rawRows, rr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ListUserFavorites rows: %w", err)
+	}
+
+	hasMore := len(rawRows) > limit
+	if hasMore {
+		rawRows = rawRows[:limit]
+	}
+
+	// Enrich each spec with its licenses and genres (N+1 is acceptable for
+	// small pages; a single query with JSON aggregation can replace this later).
+	items := make([]domain.FavoriteItem, 0, len(rawRows))
+	for _, rr := range rawRows {
+		spec := rr.Spec
+
+		// Licenses
+		licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
+		if err := r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, spec.ID); err != nil {
+			return nil, fmt.Errorf("ListUserFavorites licenses: %w", err)
+		}
+
+		// Genres
+		genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
+		if err := r.db.SelectContext(ctx, &spec.Genres, genreQuery, spec.ID); err != nil {
+			return nil, fmt.Errorf("ListUserFavorites genres: %w", err)
+		}
+
+		items = append(items, domain.FavoriteItem{
+			Spec:        spec,
+			FavoritedAt: rr.FavoritedAt,
+		})
+	}
+
+	page := &domain.FavoritePage{
+		Items:   items,
+		HasMore: hasMore,
+	}
+
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		page.NextCursor = &domain.FavoriteCursor{
+			FavoritedAt: last.FavoritedAt,
+			SpecID:      last.Spec.ID,
+		}
+	}
+
+	return page, nil
 }
 
 // GetLicensePurchaseCounts returns purchase counts grouped by license type

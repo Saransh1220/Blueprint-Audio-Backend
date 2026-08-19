@@ -29,6 +29,7 @@ COPY . .
 # Build the API and the durable media worker
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/server ./cmd/server && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/worker ./cmd/worker
 

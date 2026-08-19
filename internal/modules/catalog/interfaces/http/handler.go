@@ -558,6 +558,11 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var (
+		oldImageURL    string
+		newUploadedKey string
+	)
+
 	if file != nil {
 		defer file.Close()
 
@@ -589,25 +594,29 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Delete Old Image
-		if existingSpec.ImageUrl != "" {
-			if oldKey, err := h.fileService.GetKeyFromUrl(existingSpec.ImageUrl); err == nil {
-				_ = h.fileService.Delete(context.Background(), oldKey)
-			}
-		}
-
-		// Update URL
+		oldImageURL = existingSpec.ImageUrl
+		newUploadedKey = key
 		existingSpec.ImageUrl = url
 	}
 
 	// 5. Save Updates
 	if err := h.service.UpdateSpec(r.Context(), existingSpec, producerID); err != nil {
+		if newUploadedKey != "" {
+			_ = h.fileService.Delete(context.Background(), newUploadedKey)
+		}
 		if err == domain.ErrSpecProcessing {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Delete old image only after successful database update
+	if oldImageURL != "" {
+		if oldKey, err := h.fileService.GetKeyFromUrl(oldImageURL); err == nil {
+			_ = h.fileService.Delete(context.Background(), oldKey)
+		}
 	}
 
 	// 6. Return Updated Spec

@@ -90,8 +90,12 @@ func NewS3Storage(ctx context.Context, cfg S3Config) (*S3Storage, error) {
 	var presignClient *s3.Client
 	if presignEndpoint != "" {
 		presignEndpointURL := presignEndpoint
-		if !cfg.UseSSL && !hasHTTPPrefix(presignEndpointURL) {
-			presignEndpointURL = "http://" + presignEndpointURL
+		if !hasHTTPPrefix(presignEndpointURL) {
+			if cfg.UseSSL {
+				presignEndpointURL = "https://" + presignEndpointURL
+			} else {
+				presignEndpointURL = "http://" + presignEndpointURL
+			}
 		}
 
 		presignClient = s3.NewFromConfig(awsCfg, func(o *s3.Options) {

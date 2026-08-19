@@ -467,7 +467,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(time() - max(process_start_time_seconds{job=~\"$job\",instance=~\"$instance\"})) or vector(0)",
+          "expr": "(time() - min(process_start_time_seconds{job=~\"$job\",instance=~\"$instance\"})) or vector(0)",
           "instant": true,
           "legendFormat": "Uptime",
           "range": false,

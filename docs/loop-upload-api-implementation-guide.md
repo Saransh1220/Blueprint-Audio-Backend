@@ -241,8 +241,8 @@ Create or update the following files:
 
 ```text
 db/migrations/
-  000036_create_loops.up.sql
-  000036_create_loops.down.sql
+  000037_create_loops.up.sql
+  000037_create_loops.down.sql
 
 internal/modules/catalog/
   domain/
@@ -270,6 +270,9 @@ internal/modules/catalog/
   module.go                          # wire loop repository/service/handler
 
 internal/gateway/
+  apidocs/
+    openapi.yaml                     # define POST /catalog/loops contract
+  openapi/                           # regenerated artifacts for contract checks
   middleware/
     auth.go                          # reusable producer-role guard
   routes.go                          # register POST /catalog/loops
@@ -470,7 +473,7 @@ Write the migration after the aggregate fields are agreed. This keeps the SQL
 schema aligned with the domain instead of allowing database columns to dictate
 the model accidentally.
 
-### `000036_create_loops.up.sql`
+### `000037_create_loops.up.sql`
 
 The intended schema is:
 
@@ -571,7 +574,7 @@ Integer money avoids floating-point rounding and matches the Angular
 
 ### Down migration
 
-`000036_create_loops.down.sql` should only reverse this migration:
+`000037_create_loops.down.sql` should only reverse this migration:
 
 ```sql
 DROP TABLE IF EXISTS loop_assets;
@@ -748,26 +751,30 @@ The WAV inspector should follow this exact algorithm:
 6. Require audio format `1` for PCM.
 7. Require one or two channels.
 8. Require 16-bit or 24-bit samples for version one.
-9. For the `data` chunk, record its offset and byte length.
-10. Skip unknown chunks. If a chunk size is odd, also skip its RIFF padding
+9. Require positive `blockAlign` and `byteRate` values and validate them:
+   - `blockAlign == channels * (bitsPerSample / 8)`
+   - `byteRate == sampleRate * blockAlign`
+   Reject inconsistent or zero values before performing division.
+10. For the `data` chunk, record its offset and byte length.
+11. Skip unknown chunks. If a chunk size is odd, also skip its RIFF padding
     byte.
-11. Require both `fmt ` and `data` before accepting the file.
-12. Calculate:
+12. Require both `fmt ` and `data` before accepting the file.
+13. Calculate:
 
     ```text
     totalFrames = dataSize / blockAlign
     durationSeconds = ceil(dataSize / byteRate)
     ```
 
-13. Require duration between 1 and 180 seconds.
-14. Divide `totalFrames` into 64 buckets.
-15. Decode each sample to a signed amplitude:
+14. Require duration between 1 and 180 seconds.
+15. Divide `totalFrames` into 64 buckets.
+16. Decode each sample to a signed amplitude:
     - 16-bit: little-endian signed integer;
     - 24-bit: assemble three bytes and sign-extend.
-16. For stereo, combine left/right absolute amplitudes per frame.
-17. Keep an average or peak amplitude for each bucket.
-18. Normalize the 64 bucket values to the range `0..100`.
-19. Rewind the stream to byte zero before returning.
+17. For stereo, combine left/right absolute amplitudes per frame.
+18. Keep an average or peak amplitude for each bucket.
+19. Normalize the 64 bucket values to the range `0..100`.
+20. Rewind the stream to byte zero before returning.
 
 Unit-test files containing `JUNK`, `LIST`, or other metadata chunks. Real WAV
 files frequently contain these chunks, so a parser that assumes `data` begins
@@ -1596,8 +1603,8 @@ Write domain tests for enum/invariant helpers at the same time.
 Files:
 
 ```text
-000036_create_loops.up.sql
-000036_create_loops.down.sql
+000037_create_loops.up.sql
+000037_create_loops.down.sql
 ```
 
 Why now: the domain fields are known, and the repository can be implemented

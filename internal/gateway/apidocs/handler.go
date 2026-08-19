@@ -101,7 +101,7 @@ const swaggerUIHTML = `<!doctype html>
   <script>
     window.addEventListener('load', function () {
       window.ui = SwaggerUIBundle({
-        url: '/openapi.yaml',
+        url: '/openapi.json',
         dom_id: '#swagger-ui',
         deepLinking: true,
         displayRequestDuration: true,

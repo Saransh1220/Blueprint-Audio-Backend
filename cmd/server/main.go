@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/gateway"
 	gatewayMiddleware "github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/openapi"
 	"github.com/saransh1220/blueprint-audio/internal/modules/admin"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth"
@@ -119,6 +120,9 @@ func main() {
 	// 5. Middleware
 	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret)
 
+	// Favorites strict server (OpenAPI-generated contract implementation)
+	favoritesServer := openapi.NewFavoritesServer(analyticsModule.AnalyticsService)
+
 	// 6. Setup Routes
 	mux := gateway.SetupRoutes(gateway.RouterConfig{
 		AuthHandler:         authModule.HTTPHandler(),
@@ -130,6 +134,7 @@ func main() {
 		AnalyticsHandler:    analyticsModule.AnalyticsHandler,
 		NotificationHandler: notificationModule.HTTPHandler(),
 		AdminHandler:        adminModule.HTTPHandler(),
+		FavoritesServer:     favoritesServer,
 		DisableAPIDocs:      !cfg.Server.APIDocsEnabled,
 	})
 

@@ -64,6 +64,13 @@ func (m *mockAnalyticsService) GetTopSpecs(ctx context.Context, producerID uuid.
 	}
 	return args.Get(0).([]analyticsDomain.TopSpecStat), args.Error(1)
 }
+func (m *mockAnalyticsService) ListMyFavorites(ctx context.Context, userID uuid.UUID, limit int, encodedCursor *string) (*analyticsDomain.FavoritePage, error) {
+	args := m.Called(ctx, userID, limit, encodedCursor)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*analyticsDomain.FavoritePage), args.Error(1)
+}
 
 type mockSpecRepo struct{ mock.Mock }
 

@@ -568,7 +568,7 @@ func (r *PgSpecUploadRepository) CompleteJob(
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		UPDATE specs
 		SET image_url = $2,
 		    preview_url = $3,
@@ -583,6 +583,13 @@ func (r *PgSpecUploadRepository) CompleteJob(
 		result.StemsURL, result.Duration, pq.Array(result.WaveformPeaks))
 	if err != nil {
 		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUploadState
 	}
 	_, err = tx.ExecContext(ctx, `
 		UPDATE spec_processing_jobs

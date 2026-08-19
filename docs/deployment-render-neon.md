@@ -145,8 +145,10 @@ If Render logs show a "dirty" migration state, stop and fix the database manuall
 
 In Render, create a **Web Service** for the API. Beat media processing also
 requires a separate **Background Worker** created from the same repository and
-Docker image; its setup is described below. You still do not need SQS, Redis,
-or another queue service because PostgreSQL holds the durable jobs.
+Docker image; its setup is described below. PostgreSQL eliminates the need for
+Redis specifically as the media-processing job queue (jobs are held and leased
+durably in PostgreSQL). Redis may still be used optionally by the API for
+caching; deployments without Redis must set `REDIS_ENABLED=false`.
 
 Steps:
 

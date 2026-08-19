@@ -172,7 +172,8 @@ func (h *SpecUploadHandler) Status(w http.ResponseWriter, r *http.Request) {
 func (h *SpecUploadHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidUpload):
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("[SpecUploadHandler] invalid upload request: %v", err)
+		http.Error(w, "invalid upload request", http.StatusBadRequest)
 	case errors.Is(err, domain.ErrUploadNotFound):
 		http.Error(w, "upload session not found", http.StatusNotFound)
 	case errors.Is(err, domain.ErrUploadForbidden):

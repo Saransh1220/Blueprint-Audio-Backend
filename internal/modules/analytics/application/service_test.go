@@ -41,6 +41,13 @@ func (m *mockAnalyticsRepository) IsFavorited(ctx context.Context, userID, specI
 	args := m.Called(ctx, userID, specID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *mockAnalyticsRepository) ListUserFavorites(ctx context.Context, userID uuid.UUID, limit int, cursor *analyticsDomain.FavoriteCursor) (*analyticsDomain.FavoritePage, error) {
+	args := m.Called(ctx, userID, limit, cursor)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*analyticsDomain.FavoritePage), args.Error(1)
+}
 func (m *mockAnalyticsRepository) GetLicensePurchaseCounts(ctx context.Context, specID uuid.UUID) (map[string]int, error) {
 	args := m.Called(ctx, specID)
 	if args.Get(0) == nil {

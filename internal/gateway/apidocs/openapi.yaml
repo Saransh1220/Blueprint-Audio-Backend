@@ -1103,6 +1103,54 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AdminAuditLogPage" }
         <<: *standardErrors
+  /me/favorites:
+    get:
+      tags: [Catalog]
+      operationId: listMyFavorites
+      summary: List the authenticated user's favorited beats
+      description: |
+        Returns favorited beats ordered by favorite creation time, newest first.
+        The cursor is opaque and must be returned unchanged by clients.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of favorites to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+
+        - name: cursor
+          in: query
+          description: Opaque cursor returned by the previous response.
+          schema:
+            type: string
+
+        - $ref: "#/components/parameters/CloudflareCountry"
+        - $ref: "#/components/parameters/CountryCode"
+
+      responses:
+        "200":
+          description: Favorited beats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FavoritePage"
+
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+
 
 components:
   securitySchemes:
@@ -1839,3 +1887,35 @@ components:
         orders: { type: integer }
         paid_orders: { type: integer }
         revenue: { type: integer, format: int64 }
+    FavoritePage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - has_more
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FavoriteItem"
+
+        has_more:
+          type: boolean
+
+        next_cursor:
+          type: string
+          description: Present when another page is available.
+
+    FavoriteItem:
+      type: object
+      additionalProperties: false
+      required:
+        - favorited_at
+        - spec
+      properties:
+        favorited_at:
+          type: string
+          format: date-time
+
+        spec:
+          $ref: "#/components/schemas/Spec"

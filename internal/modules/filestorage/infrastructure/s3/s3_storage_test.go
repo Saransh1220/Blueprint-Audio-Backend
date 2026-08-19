@@ -112,3 +112,24 @@ func TestS3Storage_PresigningUsesPresignEndpointNotPublicEndpoint(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "http://cdn.storage/bucket/audio/file.mp3", objectURL)
 }
+
+func TestS3Storage_PresigningBareEndpointWithSSL(t *testing.T) {
+	storage, err := NewS3Storage(context.Background(), S3Config{
+		BucketName:      "bucket",
+		Region:          "auto",
+		Endpoint:        "internal.storage:9000",
+		PresignEndpoint: "browser.storage:9000",
+		PublicEndpoint:  "cdn.storage",
+		AccessKey:       "x",
+		SecretKey:       "y",
+		UseSSL:          true,
+	})
+	require.NoError(t, err)
+
+	readURL, err := storage.GetPresignedURL(context.Background(), "audio/file.mp3", time.Minute)
+	require.NoError(t, err)
+	parsedReadURL, err := neturl.Parse(readURL)
+	require.NoError(t, err)
+	require.Equal(t, "https", parsedReadURL.Scheme)
+	require.Equal(t, "browser.storage:9000", parsedReadURL.Host)
+}

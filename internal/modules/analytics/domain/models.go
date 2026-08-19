@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 )
 
 // SpecAnalytics represents analytics data for a spec
@@ -83,6 +84,9 @@ type AnalyticsRepository interface {
 	RemoveFavorite(ctx context.Context, userID, specID uuid.UUID) error
 	IsFavorited(ctx context.Context, userID, specID uuid.UUID) (bool, error)
 
+	// ListUserFavorites returns a cursor-paginated page of the user's favorited specs.
+	ListUserFavorites(ctx context.Context, userID uuid.UUID, limit int, cursor *FavoriteCursor) (*FavoritePage, error)
+
 	GetLicensePurchaseCounts(ctx context.Context, specID uuid.UUID) (map[string]int, error)
 
 	// Overview Analytics
@@ -95,4 +99,24 @@ type AnalyticsRepository interface {
 	GetDownloadsByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyStat, error)
 	GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]DailyRevenueStat, error)
 	GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]TopSpecStat, error)
+}
+
+// FavoriteCursor is the opaque keyset cursor for ListUserFavorites pagination.
+// It encodes the last row seen so the next query can start after it.
+type FavoriteCursor struct {
+	FavoritedAt time.Time `json:"favorited_at"`
+	SpecID      uuid.UUID `json:"spec_id"`
+}
+
+// FavoriteItem pairs a catalogDomain.Spec with the time it was favorited.
+type FavoriteItem struct {
+	Spec        catalogDomain.Spec
+	FavoritedAt time.Time
+}
+
+// FavoritePage is the result of a single ListUserFavorites call.
+type FavoritePage struct {
+	Items      []FavoriteItem
+	NextCursor *FavoriteCursor
+	HasMore    bool
 }

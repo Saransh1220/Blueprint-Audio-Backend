@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +19,10 @@ type AnalyticsService interface {
 
 	ToggleFavorite(ctx context.Context, userID, specID uuid.UUID) (bool, error)
 	IsFavorited(ctx context.Context, userID, specID uuid.UUID) (bool, error)
+
+	// ListMyFavorites returns a cursor-paginated page of the authenticated user's favorites.
+	// encodedCursor is opaque base64-encoded JSON; pass nil or empty for the first page.
+	ListMyFavorites(ctx context.Context, userID uuid.UUID, limit int, encodedCursor *string) (*domain.FavoritePage, error)
 
 	GetPublicAnalytics(ctx context.Context, specID uuid.UUID, userID *uuid.UUID) (*domain.PublicAnalytics, error)
 	GetProducerAnalytics(ctx context.Context, specID, producerID uuid.UUID) (*domain.ProducerAnalytics, error)
@@ -214,4 +220,61 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 
 func (s *analyticsService) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]domain.TopSpecStat, error) {
 	return s.repo.GetTopSpecs(ctx, producerID, limit, sortBy)
+}
+
+// ErrInvalidCursor indicates that a client supplied a malformed or unparseable pagination cursor.
+var ErrInvalidCursor = errors.New("invalid cursor")
+
+// ListMyFavorites returns a cursor-paginated page of the user's favorites.
+// encodedCursor is an opaque base64-encoded JSON string produced by EncodeFavoriteCursor;
+// pass nil for the first page.
+func (s *analyticsService) ListMyFavorites(ctx context.Context, userID uuid.UUID, limit int, encodedCursor *string) (*domain.FavoritePage, error) {
+	const defaultLimit = 20
+	const maxLimit = 50
+
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
+	var cursor *domain.FavoriteCursor
+	if encodedCursor != nil && *encodedCursor != "" {
+		decoded, err := DecodeFavoriteCursor(*encodedCursor)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		}
+		cursor = decoded
+	}
+
+	page, err := s.repo.ListUserFavorites(ctx, userID, limit, cursor)
+	if err != nil {
+		return nil, fmt.Errorf("ListMyFavorites: %w", err)
+	}
+
+	return page, nil
+}
+
+// EncodeFavoriteCursor serialises a FavoriteCursor to an opaque base64-encoded JSON string
+// suitable for returning as next_cursor in an HTTP response.
+func EncodeFavoriteCursor(c *domain.FavoriteCursor) (string, error) {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// DecodeFavoriteCursor parses a base64-encoded JSON cursor produced by EncodeFavoriteCursor.
+func DecodeFavoriteCursor(s string) (*domain.FavoriteCursor, error) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return nil, errors.New("malformed cursor")
+	}
+	var c domain.FavoriteCursor
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, errors.New("malformed cursor")
+	}
+	return &c, nil
 }

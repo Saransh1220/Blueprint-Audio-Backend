@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/apidocs"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
+	"github.com/saransh1220/blueprint-audio/internal/gateway/openapi"
 	admin_http "github.com/saransh1220/blueprint-audio/internal/modules/admin/interfaces/http"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
 	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
@@ -28,7 +29,9 @@ type RouterConfig struct {
 	AnalyticsHandler    *analytics_http.AnalyticsHandler
 	NotificationHandler *notification_http.NotificationHandler
 	AdminHandler        *admin_http.AdminHandler
-	DisableAPIDocs      bool
+	// FavoritesServer implements the oapi-codegen StrictServerInterface for /me/favorites.
+	FavoritesServer *openapi.FavoritesServer
+	DisableAPIDocs  bool
 }
 
 // SetupRoutes creates and configures all application routes
@@ -46,6 +49,26 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 
 	if !config.DisableAPIDocs {
 		apidocs.Register(mux)
+	}
+
+	// --- OpenAPI-generated routes (strict server) ---
+	// GET /me/favorites — requires authentication.
+	// RequireAuth rejects unauthenticated requests before the handler is reached.
+	// FavoritesServer additionally validates the userID from context as a second
+	// line of defence (defence-in-depth).
+	if config.FavoritesServer != nil {
+		// The generated Handler wraps ServerInterface in an http.Handler.
+		// We use HandlerWithOptions so we can supply the auth middleware and our
+		// existing mux as the base router — the generator registers its own routes
+		// directly onto the mux.
+		authMiddlewareFunc := openapi.MiddlewareFunc(config.AuthMiddleware.RequireAuth)
+		openapi.HandlerWithOptions(
+			openapi.NewStrictHandler(config.FavoritesServer, nil),
+			openapi.StdHTTPServerOptions{
+				BaseRouter:  mux,
+				Middlewares: []openapi.MiddlewareFunc{authMiddlewareFunc},
+			},
+		)
 	}
 
 	// Auth Routes

@@ -142,6 +142,7 @@ CREATE TABLE spec_audio_analysis_jobs (
     locked_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -149,11 +150,11 @@ CREATE TABLE spec_audio_analysis_jobs (
 );
 
 CREATE INDEX idx_spec_audio_analysis_claim
-    ON spec_audio_analysis_jobs (status, created_at)
+    ON spec_audio_analysis_jobs (status, next_attempt_at, created_at)
     WHERE status IN ('queued', 'processing');
 ```
 
-Before implementing, decide whether failed jobs may be manually retried using the same row or whether retry creates a new job. The recommended first version reuses the same job, increments `attempts`, and clears transient error fields.
+When scheduling retries, set `next_attempt_at` atomically with `status = 'queued'`. Ensure `ClaimNext` only claims jobs where `status = 'queued' AND next_attempt_at <= NOW()`. Before implementing, decide whether failed jobs may be manually retried using the same row or whether retry creates a new job. The recommended first version reuses the same job, increments `attempts`, and clears transient error fields.
 
 ## 7. Go domain and repository changes
 
@@ -307,6 +308,8 @@ Implement the pipeline incrementally:
 ### Stage A — Secure ingestion
 
 - Validate the URL scheme and reject unexpected protocols.
+- Restrict downloads strictly to the configured R2 presign host (not merely any HTTPS URL).
+- Disable redirects or validate every redirect target against the allowed host, and reject private or link-local destinations before connecting.
 - Download with a strict timeout and maximum byte limit.
 - Do not log the presigned URL.
 - Store input only in an isolated temporary directory.
@@ -530,7 +533,7 @@ Never include raw audio, service tokens, authorization headers, or presigned URL
 
 ## 17. Deployment
 
-Deploy three independently scalable services:
+Deploy four independently scalable services:
 
 ```text
 Go API

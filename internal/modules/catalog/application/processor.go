@@ -125,7 +125,7 @@ func (p *SpecUploadProcessor) ProcessNext(
 		context.Background(),
 		bundle.Spec.ProducerID,
 		"Upload Complete",
-		fmt.Sprintf("Your beat '%s' is now live!", bundle.Spec.Title),
+		fmt.Sprintf("'%s' is now live!", bundle.Spec.Title),
 		notificationDomain.NotificationTypeSuccess,
 	)
 	return true, nil
