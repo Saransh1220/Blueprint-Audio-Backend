@@ -17,6 +17,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog"
+	catalogApplication "github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	catalogPersistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
@@ -143,7 +144,17 @@ func main() {
 	handler = gatewayMiddleware.PrometheusMiddleware(handler)
 	handler = gatewayMiddleware.RequestLoggerMiddleware(handler)
 
-	// 8. Start Server
+	// 8. Start Embedded Worker (if enabled)
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+
+	if cfg.Worker.Enabled {
+		uploadRepo := catalogPersistence.NewSpecUploadRepository(db)
+		processor := catalogApplication.NewSpecUploadProcessor(uploadRepo, fsModule.Service(), notificationModule.Service())
+		go catalogApplication.StartUploadWorker(workerCtx, processor, cfg.Worker)
+	}
+
+	// 9. Start Server
 	srv := gateway.NewServer(cfg.Server.Port, handler)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

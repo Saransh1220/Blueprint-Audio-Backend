@@ -24,7 +24,16 @@ type Config struct {
 	FileStorage FileStorageConfig
 	Google      GoogleConfig
 	Email       EmailConfig
+	Worker      WorkerConfig
 	AppBaseURL  string
+}
+
+// WorkerConfig holds media processor worker configuration
+type WorkerConfig struct {
+	Enabled       bool
+	ID            string
+	PollInterval  time.Duration
+	LeaseDuration time.Duration
 }
 
 // GoogleConfig holds Google OAuth configuration
@@ -168,6 +177,12 @@ func Load() Config {
 			From:         getEnv("EMAIL_FROM", ""),
 			ReplyTo:      getEnv("EMAIL_REPLY_TO", ""),
 			Enabled:      getEnv("EMAIL_ENABLED", "true") == "true",
+		},
+		Worker: WorkerConfig{
+			Enabled:       getEnv("WORKER_ENABLED", "true") == "true",
+			ID:            getEnv("WORKER_ID", ""),
+			PollInterval:  parseDuration(getEnv("WORKER_POLL_INTERVAL", "2s"), 2*time.Second),
+			LeaseDuration: parseDuration(getEnv("WORKER_LEASE_DURATION", "30m"), 30*time.Minute),
 		},
 		AppBaseURL: getEnv("APP_BASE_URL", "http://localhost:4200"),
 	}
