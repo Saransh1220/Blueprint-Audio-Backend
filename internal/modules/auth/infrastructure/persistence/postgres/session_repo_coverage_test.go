@@ -38,3 +38,39 @@ func TestPgSessionRepositoryMissingAndErrorBranches(t *testing.T) {
 	require.EqualError(t, repo.RevokeAllForUser(ctx, userID), "write failed")
 	require.NoError(t, mockDB.ExpectationsWereMet())
 }
+
+func TestPgSessionRepositoryMarkRotatedAndIsActive(t *testing.T) {
+	db, mockDB, cleanup := newMockDB(t)
+	defer cleanup()
+	repo := postgres.NewSessionRepository(db)
+	ctx := context.Background()
+	successor := uuid.New()
+
+	mockDB.ExpectExec(`UPDATE user_sessions SET is_revoked = true, rotated_at = \$1, replaced_by = \$2, updated_at = \$1\s+WHERE refresh_token_digest = \$3 AND is_revoked = false`).
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	rotated, err := repo.MarkRotated(ctx, "old", successor)
+	require.NoError(t, err)
+	require.True(t, rotated)
+
+	mockDB.ExpectExec("UPDATE user_sessions SET is_revoked = true, rotated_at").
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	rotated, err = repo.MarkRotated(ctx, "old", successor)
+	require.NoError(t, err)
+	require.False(t, rotated, "already-revoked session must not be rotated twice")
+
+	mockDB.ExpectExec("UPDATE user_sessions SET is_revoked = true, rotated_at").
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnError(errors.New("write failed"))
+	_, err = repo.MarkRotated(ctx, "old", successor)
+	require.EqualError(t, err, "write failed")
+
+	mockDB.ExpectQuery("SELECT EXISTS").WithArgs(successor, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	active, err := repo.IsActive(ctx, successor)
+	require.NoError(t, err)
+	require.True(t, active)
+
+	mockDB.ExpectQuery("SELECT EXISTS").WithArgs(successor, sqlmock.AnyArg()).WillReturnError(errors.New("read failed"))
+	_, err = repo.IsActive(ctx, successor)
+	require.EqualError(t, err, "read failed")
+	require.NoError(t, mockDB.ExpectationsWereMet())
+}

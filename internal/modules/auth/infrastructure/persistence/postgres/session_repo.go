@@ -74,6 +74,30 @@ func (r *PgSessionRepository) Revoke(ctx context.Context, token string) error {
 	return err
 }
 
+func (r *PgSessionRepository) MarkRotated(ctx context.Context, token string, successorID uuid.UUID) (bool, error) {
+	now := time.Now()
+	query := `UPDATE user_sessions SET is_revoked = true, rotated_at = $1, replaced_by = $2, updated_at = $1
+			  WHERE refresh_token_digest = $3 AND is_revoked = false`
+	res, err := r.db.ExecContext(ctx, query, now, successorID, digestRefreshToken(token))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (r *PgSessionRepository) IsActive(ctx context.Context, id uuid.UUID) (bool, error) {
+	var active bool
+	query := `SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id = $1 AND is_revoked = false AND expires_at > $2)`
+	if err := r.db.GetContext(ctx, &active, query, id, time.Now()); err != nil {
+		return false, err
+	}
+	return active, nil
+}
+
 func (r *PgSessionRepository) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	query := `UPDATE user_sessions SET is_revoked = true, updated_at = $1 WHERE user_id = $2 AND is_revoked = false`
 	_, err := r.db.ExecContext(ctx, query, time.Now(), userID)

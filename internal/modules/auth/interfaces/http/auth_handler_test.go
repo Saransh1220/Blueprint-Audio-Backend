@@ -55,9 +55,12 @@ func (m *MockAuthService) GoogleLogin(ctx context.Context, googleClientID string
 	return args.Get(0).(*application.TokenPair), args.Error(1)
 }
 
-func (m *MockAuthService) RefreshSession(ctx context.Context, refreshToken string) (string, error) {
+func (m *MockAuthService) RefreshSession(ctx context.Context, refreshToken string) (*application.TokenPair, error) {
 	args := m.Called(ctx, refreshToken)
-	return args.String(0), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*application.TokenPair), args.Error(1)
 }
 
 func (m *MockAuthService) Logout(ctx context.Context, refreshToken string) error {

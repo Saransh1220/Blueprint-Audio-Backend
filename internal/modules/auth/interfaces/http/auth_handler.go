@@ -20,7 +20,7 @@ type AuthService interface {
 	Login(ctx context.Context, req application.LoginRequest) (*application.TokenPair, error)
 	GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GoogleLogin(ctx context.Context, googleClientID string, req application.GoogleLoginRequest) (*application.TokenPair, error)
-	RefreshSession(ctx context.Context, refreshToken string) (string, error)
+	RefreshSession(ctx context.Context, refreshToken string) (*application.TokenPair, error)
 	Logout(ctx context.Context, refreshToken string) error
 	VerifyEmail(ctx context.Context, req application.VerifyEmailRequest) error
 	ResendVerification(ctx context.Context, req application.ResendVerificationRequest) error
@@ -212,17 +212,29 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newAccessToken, err := h.service.RefreshSession(r.Context(), cookie.Value)
+	tokens, err := h.service.RefreshSession(r.Context(), cookie.Value)
 	if err != nil {
 		log.Printf("Refresh Error (Service): %v", err)
-		// Specifically check for specific domain errors if necessary
+		if errors.Is(err, application.ErrAccountSuspended) {
+			// All sessions were revoked; drop the dead cookie.
+			h.setRefreshCookie(w, "", time.Unix(0, 0), -1)
+			http.Error(w, `{"error": "account suspended"}`, http.StatusForbidden)
+			return
+		}
 		http.Error(w, `{"error": "invalid or expired refresh token"}`, http.StatusUnauthorized)
 		return
 	}
 
+	// Rotation: the response carries a brand-new refresh token cookie. Inside the
+	// grace window the service returns no refresh token, because another tab's
+	// response already delivered the replacement cookie; leave the cookie alone.
+	if tokens.RefreshToken != "" {
+		h.setRefreshCookie(w, tokens.RefreshToken, time.Now().Add(h.refreshExpiry), 0)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"token": newAccessToken})
+	json.NewEncoder(w).Encode(map[string]string{"token": tokens.AccessToken})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
