@@ -10,6 +10,8 @@ mkdir -p /usr/local/lib/docker/cli-plugins /data/pg
 curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+curl -fsSL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-arm64 \n  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # 2 GB swap so Go image builds don't OOM
 fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
