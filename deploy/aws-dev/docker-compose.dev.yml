@@ -1,0 +1,67 @@
+# AWS dev server stack. Runs on ONE EC2 instance that is stopped when not in use.
+# Postgres data lives on the EBS volume (/data/pg) so it survives stop/start.
+# Usage (on the instance):  docker compose -f deploy/aws-dev/docker-compose.dev.yml --env-file .env.dev up -d --build
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - /data/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ../../.env.dev
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_SSLMODE: disable
+      REDIS_ENABLED: "false"
+      AUTO_MIGRATE: "true"
+      MIGRATIONS_PATH: db/migrations
+      PORT: "8080"
+      WORKER_ENABLED: "false" # the separate worker container below does the media jobs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080" # only reachable locally + via the tunnel, never public
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["./worker"]
+    restart: unless-stopped
+    env_file: ../../.env.dev
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_SSLMODE: disable
+      WORKER_ID: aws-dev-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Cloudflare Tunnel: gives a stable HTTPS URL (api-dev.<your-domain>) with no
+  # open inbound ports and no Elastic IP (an idle Elastic IP costs money).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - api
