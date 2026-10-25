@@ -66,11 +66,12 @@ func authLogKey(value string) string {
 }
 
 type RegisterRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
+	Email              string `json:"email"`
+	Password           string `json:"password"`
+	Name               string `json:"name"`
+	DisplayName        string `json:"display_name"`
+	Role               string `json:"role"`
+	RegistrationSource string `json:"registration_source"` // e.g. "waveyard", "sonically", "blueprint"
 }
 
 type LoginRequest struct {
@@ -169,18 +170,24 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*domai
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
+	source := req.RegistrationSource
+	if source == "" {
+		source = "waveyard"
+	}
+
 	user := &domain.User{
-		ID:            userID,
-		Email:         req.Email,
-		PasswordHash:  string(hashedPass),
-		Name:          req.Name,
-		DisplayName:   displayName,
-		Role:          role,
-		SystemRole:    domain.SystemRoleUser,
-		Status:        domain.UserStatusActive,
-		EmailVerified: false,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		ID:                 userID,
+		Email:              req.Email,
+		PasswordHash:       string(hashedPass),
+		Name:               req.Name,
+		DisplayName:        displayName,
+		Role:               role,
+		SystemRole:         domain.SystemRoleUser,
+		Status:             domain.UserStatusActive,
+		EmailVerified:      false,
+		RegistrationSource: source,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
@@ -400,20 +407,27 @@ func (s *AuthService) ResetPassword(ctx context.Context, req ResetPasswordReques
 }
 
 func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*TokenPair, error) {
+	tokens, _, err := s.issueSession(ctx, user)
+	return tokens, err
+}
+
+// issueSession creates an access token, a refresh token and the session row
+// that backs it, and returns the new session's id alongside the tokens.
+func (s *AuthService) issueSession(ctx context.Context, user *domain.User) (*TokenPair, uuid.UUID, error) {
 	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role), string(user.SystemRole))
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	refreshTokenString, err := jwt.GenerateRefreshToken()
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	expiresAt := time.Now().Add(s.jwtRefreshExpiry)
 	sessionID, err := uuid.NewV7()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate uuid: %w", err)
+		return nil, uuid.Nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
 	session := &domain.UserSession{
@@ -427,45 +441,117 @@ func (s *AuthService) generateSession(ctx context.Context, user *domain.User) (*
 	}
 
 	if err := s.sessionRepo.Create(ctx, session); err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshTokenString,
-	}, nil
+	}, sessionID, nil
 }
 
-func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (string, error) {
+// refreshGraceWindow is how long after a rotation the old refresh token may
+// still be presented. Two tabs share one cookie jar, so the loser of a refresh
+// race arrives holding the token the winner just replaced.
+const refreshGraceWindow = 10 * time.Second
+
+var errSessionRevoked = errors.New("session has been revoked")
+
+// RefreshSession exchanges a valid refresh token for a new access token and a
+// new refresh token. The presented refresh token is revoked (rotation), so each
+// refresh token is normally used at most once. A suspended user's sessions are
+// all revoked and the refresh is refused.
+//
+// Grace window: if the token was rotated less than refreshGraceWindow ago and
+// the session that replaced it is still active, the caller gets a fresh access
+// token only (empty RefreshToken). The browser already holds the successor
+// cookie from the winning request. Sessions revoked by logout, password reset
+// or suspension carry no rotation marker, so they never qualify.
+func (s *AuthService) RefreshSession(ctx context.Context, refreshToken string) (*TokenPair, error) {
 	if refreshToken == "" {
-		return "", errors.New("refresh token is required")
+		return nil, errors.New("refresh token is required")
 	}
 
 	session, err := s.sessionRepo.GetByToken(ctx, refreshToken)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if session == nil {
-		return "", errors.New("invalid refresh token")
+		return nil, errors.New("invalid refresh token")
 	}
-	if session.IsRevoked {
-		return "", errors.New("session has been revoked")
+	if session.IsRevoked && session.RotatedAt == nil {
+		return nil, errSessionRevoked
 	}
 	if time.Now().After(session.ExpiresAt) {
-		return "", errors.New("refresh token expired")
+		return nil, errors.New("refresh token expired")
 	}
 
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if user.Status == domain.UserStatusSuspended {
+		if err := s.sessionRepo.RevokeAllForUser(ctx, user.ID); err != nil {
+			log.Printf("AuthService.RefreshSession failed to revoke sessions of suspended user. user_id=%s err=%v", user.ID, err)
+		}
+		return nil, ErrAccountSuspended
 	}
 
-	newAccessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role), string(user.SystemRole))
+	if session.IsRevoked {
+		return s.refreshWithinGrace(ctx, session, user)
+	}
+
+	// Create the replacement first so a failure here leaves the old token usable.
+	tokens, newSessionID, err := s.issueSession(ctx, user)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	rotated, err := s.sessionRepo.MarkRotated(ctx, refreshToken, newSessionID)
+	if err != nil {
+		s.discardSession(ctx, tokens.RefreshToken)
+		return nil, fmt.Errorf("failed to rotate session: %w", err)
+	}
+	if !rotated {
+		// A concurrent refresh rotated this token between our read and write.
+		s.discardSession(ctx, tokens.RefreshToken)
+		current, err := s.sessionRepo.GetByToken(ctx, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil || current.RotatedAt == nil {
+			return nil, errSessionRevoked
+		}
+		return s.refreshWithinGrace(ctx, current, user)
 	}
 
-	return newAccessToken, nil
+	return tokens, nil
+}
+
+// refreshWithinGrace mints an access token for a recently rotated session,
+// provided its successor is still alive. It never issues a refresh token.
+func (s *AuthService) refreshWithinGrace(ctx context.Context, session *domain.UserSession, user *domain.User) (*TokenPair, error) {
+	if session.RotatedAt == nil || session.ReplacedBy == nil || time.Since(*session.RotatedAt) > refreshGraceWindow {
+		return nil, errSessionRevoked
+	}
+	active, err := s.sessionRepo.IsActive(ctx, *session.ReplacedBy)
+	if err != nil {
+		return nil, err
+	}
+	if !active {
+		return nil, errSessionRevoked
+	}
+	accessToken, err := jwt.GenerateToken(s.jwtSecret, s.jwtExpiry, user.ID, string(user.Role), string(user.SystemRole))
+	if err != nil {
+		return nil, err
+	}
+	return &TokenPair{AccessToken: accessToken}, nil
+}
+
+// discardSession best-effort revokes a session that was created but never handed out.
+func (s *AuthService) discardSession(ctx context.Context, refreshToken string) {
+	if err := s.sessionRepo.Revoke(ctx, refreshToken); err != nil {
+		log.Printf("AuthService.discardSession failed to revoke unused session: %v", err)
+	}
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {

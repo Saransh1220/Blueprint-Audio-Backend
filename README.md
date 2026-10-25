@@ -283,7 +283,7 @@ make help
 | `make test-integration` | Runs integration tests with build tag | `go test -v -tags=integration ./...` |
 | `make test-coverage` / `make coverage` | Runs tests, generates JSON reports, line-by-line HTML dashboards, and enforces thresholds | Runs `tools/coverage-runner` and `tools/coverage-report` |
 | `make coverage-report` | Generates coverage dashboards in non-blocking mode | Runs coverage reporter without failing on test errors |
-| `make coverage-check COVERAGE_THRESHOLD=80` | CI gate that checks coverage against a minimum percentage threshold | Fails build if coverage falls below `COVERAGE_THRESHOLD` |
+| `make coverage-check COVERAGE_THRESHOLD=90` | CI gate that checks coverage against a minimum percentage threshold | Fails build if coverage falls below `COVERAGE_THRESHOLD` |
 
 ---
 
@@ -769,8 +769,8 @@ This generates:
 
 ### Enforce CI Coverage Threshold
 ```bash
-# Fail if test coverage falls below 80%
-make coverage-check COVERAGE_THRESHOLD=80
+# Fail if test coverage falls below 90%
+make coverage-check COVERAGE_THRESHOLD=90
 ```
 
 ---

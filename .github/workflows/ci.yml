@@ -31,7 +31,7 @@ jobs:
       - name: Coverage check
         env:
           GOFLAGS: -mod=mod
-        run: make coverage-check COVERAGE_THRESHOLD=70
+        run: make coverage-check COVERAGE_THRESHOLD=90
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4

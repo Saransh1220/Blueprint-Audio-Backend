@@ -31,7 +31,7 @@ func NewUserRepository(db *sqlx.DB) *PgUserRepository {
 // Returns an error if the database operation fails.
 // Create implements domain.UserRepository
 func (r *PgUserRepository) Create(ctx context.Context, user *domain.User) error {
-	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, system_role, status, email_verified, email_verified_at, store_currency, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :system_role, :status, :email_verified, :email_verified_at, :store_currency, :created_at, :updated_at)`
+	query := `INSERT INTO users (id, email, password_hash, name, display_name, role, system_role, status, email_verified, email_verified_at, store_currency, registration_source, created_at, updated_at) VALUES (:id, :email, :password_hash, :name, :display_name, :role, :system_role, :status, :email_verified, :email_verified_at, :store_currency, :registration_source, :created_at, :updated_at)`
 
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = time.Now()

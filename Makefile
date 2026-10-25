@@ -1,4 +1,4 @@
-.PHONY: help build run run-worker test test-unit test-integration test-coverage coverage coverage-report coverage-check clean migrate-up migrate-down migrate-create docker-build docker-up docker-down dev
+.PHONY: help build run run-worker test test-unit test-integration test-coverage coverage coverage-report coverage-check clean migrate-up migrate-down migrate-create docker-build docker-up docker-down dev swagger swagger-check
 
 # Variables
 APP_NAME=blueprint-audio
@@ -6,8 +6,9 @@ DOCKER_COMPOSE=docker-compose
 GO=go
 MIGRATE=migrate
 COVERAGE_DIR=coverage
-COVERAGE_THRESHOLD?=80
-COVERAGE_EXCLUDE_FILES?=cmd/server/main.go,cmd/worker/main.go,pkg/migration/migration.go,internal/gateway/server.go
+COVERAGE_THRESHOLD?=90
+# api.gen.go is oapi-codegen output ("DO NOT EDIT"), so it is excluded alongside the entrypoints.
+COVERAGE_EXCLUDE_FILES?=cmd/server/main.go,cmd/worker/main.go,pkg/migration/migration.go,internal/gateway/server.go,internal/gateway/openapi/api.gen.go
 
 # Help command
 help:
@@ -35,8 +36,17 @@ help:
 	@echo "  make dev            - Start development environment"
 	@echo "  make logs           - View Docker logs"
 
-# Build the application
-build:
+# Swagger/OpenAPI Generation
+swagger:
+	@echo "Generating OpenAPI/Swagger documentation..."
+	$(GO) run ./tools/swaggergen -routes internal/gateway/routes.go -out internal/gateway/apidocs/openapi.yaml
+
+swagger-check:
+	@echo "Verifying OpenAPI/Swagger documentation freshness..."
+	$(GO) run ./tools/swaggergen -routes internal/gateway/routes.go -out internal/gateway/apidocs/openapi.yaml -check
+
+# Build the application (automatically regenerates Swagger)
+build: swagger
 	@echo "Building $(APP_NAME) API and worker..."
 	$(GO) build -o bin/$(APP_NAME) ./cmd/server
 	$(GO) build -o bin/$(APP_NAME)-worker ./cmd/worker

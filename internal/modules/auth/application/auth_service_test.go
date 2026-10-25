@@ -75,6 +75,14 @@ func (m *mockSessionRepository) Revoke(ctx context.Context, token string) error 
 func (m *mockSessionRepository) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	return m.Called(ctx, userID).Error(0)
 }
+func (m *mockSessionRepository) MarkRotated(ctx context.Context, token string, successorID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, token, successorID)
+	return args.Bool(0), args.Error(1)
+}
+func (m *mockSessionRepository) IsActive(ctx context.Context, id uuid.UUID) (bool, error) {
+	args := m.Called(ctx, id)
+	return args.Bool(0), args.Error(1)
+}
 
 type mockTokenRepository struct{ mock.Mock }
 

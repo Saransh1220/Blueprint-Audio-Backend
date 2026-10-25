@@ -38,26 +38,27 @@ func (c Currency) IsValid() bool {
 
 // User represents a user in the system
 type User struct {
-	ID              uuid.UUID  `json:"id" db:"id"`
-	Email           string     `json:"email" db:"email"`
-	PasswordHash    string     `json:"-" db:"password_hash"`
-	Name            string     `json:"name" db:"name"`
-	DisplayName     *string    `json:"display_name" db:"display_name"`
-	Role            UserRole   `json:"role" db:"role"`
-	SystemRole      SystemRole `json:"system_role" db:"system_role"`
-	Status          UserStatus `json:"status" db:"status"`
-	EmailVerified   bool       `json:"email_verified" db:"email_verified"`
-	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty" db:"email_verified_at"`
-	Bio             *string    `json:"bio" db:"bio"`
-	AvatarUrl       *string    `json:"avatar_url" db:"avatar_url"`
-	BannerURL       *string    `json:"banner_url" db:"banner_url"`
-	InstagramURL    *string    `json:"instagram_url" db:"instagram_url"`
-	TwitterURL      *string    `json:"twitter_url" db:"twitter_url"`
-	YoutubeURL      *string    `json:"youtube_url" db:"youtube_url"`
-	SpotifyURL      *string    `json:"spotify_url" db:"spotify_url"`
-	StoreCurrency   Currency   `json:"store_currency" db:"store_currency"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
+	ID                 uuid.UUID  `json:"id" db:"id"`
+	Email              string     `json:"email" db:"email"`
+	PasswordHash       string     `json:"-" db:"password_hash"`
+	Name               string     `json:"name" db:"name"`
+	DisplayName        *string    `json:"display_name" db:"display_name"`
+	Role               UserRole   `json:"role" db:"role"`
+	SystemRole         SystemRole `json:"system_role" db:"system_role"`
+	Status             UserStatus `json:"status" db:"status"`
+	EmailVerified      bool       `json:"email_verified" db:"email_verified"`
+	EmailVerifiedAt    *time.Time `json:"email_verified_at,omitempty" db:"email_verified_at"`
+	Bio                *string    `json:"bio" db:"bio"`
+	AvatarUrl          *string    `json:"avatar_url" db:"avatar_url"`
+	BannerURL          *string    `json:"banner_url" db:"banner_url"`
+	InstagramURL       *string    `json:"instagram_url" db:"instagram_url"`
+	TwitterURL         *string    `json:"twitter_url" db:"twitter_url"`
+	YoutubeURL         *string    `json:"youtube_url" db:"youtube_url"`
+	SpotifyURL         *string    `json:"spotify_url" db:"spotify_url"`
+	StoreCurrency      Currency   `json:"store_currency" db:"store_currency"`
+	RegistrationSource string     `json:"registration_source" db:"registration_source"` // "waveyard" | "sonically" | "blueprint" | "google"
+	CreatedAt          time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // UserRepository defines the contract for user data access

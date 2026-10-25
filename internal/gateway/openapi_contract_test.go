@@ -46,3 +46,15 @@ func TestOpenAPICoversGatewayRoutes(t *testing.T) {
 		require.True(t, exists, strings.ToUpper(operation.method)+" "+operation.path)
 	}
 }
+
+func TestOpenAPISpecFreshness(t *testing.T) {
+	// Ensures that the embedded openapi.yaml is valid YAML and non-empty
+	specYAML := apidocs.YAML()
+	require.NotEmpty(t, specYAML, "openapi.yaml should not be empty")
+
+	var parsed map[string]any
+	err := yaml.Unmarshal(specYAML, &parsed)
+	require.NoError(t, err, "openapi.yaml must be valid YAML")
+	require.Equal(t, "3.0.3", parsed["openapi"], "OpenAPI version must be 3.0.3")
+}
+

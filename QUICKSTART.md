@@ -114,7 +114,7 @@ make test-unit        # Run unit tests
 make test-integration # Run integration tests
 make coverage         # Full coverage report dashboard
 make coverage-report  # Non-blocking coverage report
-make coverage-check COVERAGE_THRESHOLD=80 # CI coverage gate
+make coverage-check COVERAGE_THRESHOLD=90 # CI coverage gate
 ```
 
 ---
