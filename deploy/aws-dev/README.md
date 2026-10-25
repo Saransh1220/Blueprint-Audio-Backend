@@ -71,7 +71,7 @@ EC2 console → select instance → **Connect → Session Manager**. Then:
 ```bash
 sudo -i
 # private repo: create a fine-grained GitHub token with read-only "Contents" on this repo
-git clone https://<TOKEN>@github.com/<you>/blueprint-backend.git /opt/blueprint-backend
+git clone -b dev https://<TOKEN>@github.com/Saransh1220/Blueprint-Audio-Backend.git /opt/blueprint-backend
 cd /opt/blueprint-backend
 cp deploy/aws-dev/.env.dev.example .env.dev
 nano .env.dev           # fill in every value (see notes below)
@@ -93,7 +93,7 @@ Open `https://api-dev.waveyard.studio/health` from your browser to confirm the t
 
 **Redeploy later:** Session Manager →
 ```bash
-cd /opt/blueprint-backend && git pull && docker compose -f deploy/aws-dev/docker-compose.dev.yml --env-file .env.dev up -d --build
+cd /opt/blueprint-backend && git pull origin dev && docker compose -f deploy/aws-dev/docker-compose.dev.yml --env-file .env.dev up -d --build
 ```
 
 ## Step 4 – UI on S3 + CloudFront
