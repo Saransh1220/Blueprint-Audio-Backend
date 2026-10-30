@@ -166,6 +166,30 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /admin/roles:
+    get:
+      tags:
+        - Admin
+      operationId: adminListRoles
+      summary: Admin list roles
+      description: Lists every role (business and system) with the permissions it grants
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /admin/specs:
     get:
       tags:
@@ -391,7 +415,7 @@ paths:
         - Admin
       operationId: adminUpdateUserSystemRole
       summary: Admin update user system role
-      description: Assigns super_admin or user role
+      description: Assigns a system-kind role from the roles table (for example super_admin or user)
       security:
         - bearerAuth: []
       parameters:
@@ -2666,8 +2690,8 @@ components:
         notes:
           type: object
           additionalProperties:
-            type: object
             additionalProperties: true
+            type: object
         provider:
           type: string
         provider_checkout_id:

@@ -58,7 +58,7 @@ func newRepoHandler(t *testing.T, repo *configurableRepo) (*AdminHandler, sqlmoc
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	return NewAdminHandler(sqlx.NewDb(db, "sqlmock"), repo), mock
+	return NewAdminHandler(sqlx.NewDb(db, "sqlmock"), repo).WithRoleStore(testRoleStore()), mock
 }
 
 func patchReq(id uuid.UUID, body string, actor *uuid.UUID) *http.Request {

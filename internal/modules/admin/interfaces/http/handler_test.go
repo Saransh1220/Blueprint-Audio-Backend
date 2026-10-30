@@ -37,7 +37,7 @@ func newHandler(t *testing.T) (*AdminHandler, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	return NewAdminHandler(sqlx.NewDb(db, "sqlmock"), userRepoStub{}), mock, func() { db.Close() }
+	return NewAdminHandler(sqlx.NewDb(db, "sqlmock"), userRepoStub{}).WithRoleStore(testRoleStore()), mock, func() { db.Close() }
 }
 
 func TestAdminHandlerInvalidIDs(t *testing.T) {

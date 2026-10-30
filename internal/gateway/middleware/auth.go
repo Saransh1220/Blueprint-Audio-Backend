@@ -27,6 +27,7 @@ const (
 // allowed to do right now.
 type AccountState struct {
 	Status     domain.UserStatus
+	Role       domain.UserRole
 	SystemRole domain.SystemRole
 }
 
@@ -40,6 +41,7 @@ type cachedAccount struct {
 
 type AuthMiddleWare struct {
 	jwtSecret string
+	roles     *RoleStore
 
 	lookup   AccountLookup
 	cacheTTL time.Duration
@@ -133,6 +135,7 @@ func (m *AuthMiddleWare) authenticate(r *http.Request, allowQueryToken bool) (co
 		return nil, &authFailure{http.StatusUnauthorized, `{"error": "invalid or expired token"}`}
 	}
 
+	role := claims.Role
 	systemRole := claims.SystemRole
 	if m.lookup != nil {
 		state, err := m.accountState(r.Context(), claims.UserID)
@@ -145,12 +148,13 @@ func (m *AuthMiddleWare) authenticate(r *http.Request, allowQueryToken bool) (co
 		if state.Status == domain.UserStatusSuspended {
 			return nil, &authFailure{http.StatusForbidden, `{"error": "account suspended"}`}
 		}
+		role = string(state.Role)
 		systemRole = string(state.SystemRole)
 	}
 
 	//  Inject Identity & Role into Context
 	ctx := context.WithValue(r.Context(), ContextKeyUserId, claims.UserID)
-	ctx = context.WithValue(ctx, ContextKeyRole, claims.Role)
+	ctx = context.WithValue(ctx, ContextKeyRole, role)
 	ctx = context.WithValue(ctx, ContextKeySystemRole, systemRole)
 	return ctx, nil
 }

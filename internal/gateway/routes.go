@@ -10,7 +10,6 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/gateway/openapi"
 	admin_http "github.com/saransh1220/blueprint-audio/internal/modules/admin/interfaces/http"
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
-	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
 	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
@@ -85,8 +84,9 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /auth/reset-password", emailActionLimiter(config.AuthHandler.ResetPassword))
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
-	// Producer-only routes require the producer business role, not just a login.
-	producerOnly := []authDomain.UserRole{authDomain.RoleProducer}
+	// authz authenticates, then requires the listed permissions. Which roles hold
+	// a permission is data in the roles table (see middleware/permissions.go).
+	authz := config.AuthMiddleware.Authorize
 
 	// Catalog/Spec Routes
 	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Home)))
@@ -94,12 +94,12 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
 	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.CreateGone)))
 	if config.SpecUploadHandler != nil {
-		mux.Handle("POST /spec-uploads", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Initiate)))
-		mux.Handle("PUT /spec-uploads/{id}/metadata", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.SaveMetadata)))
-		mux.Handle("POST /spec-uploads/{id}/files", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.PrepareFile)))
-		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.ConfirmFile)))
-		mux.Handle("POST /spec-uploads/{id}/complete", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Complete)))
-		mux.Handle("GET /spec-uploads/{id}", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Status)))
+		mux.Handle("POST /spec-uploads", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Initiate)))
+		mux.Handle("PUT /spec-uploads/{id}/metadata", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.SaveMetadata)))
+		mux.Handle("POST /spec-uploads/{id}/files", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.PrepareFile)))
+		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.ConfirmFile)))
+		mux.Handle("POST /spec-uploads/{id}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Complete)))
+		mux.Handle("GET /spec-uploads/{id}", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Status)))
 	}
 	mux.Handle("PATCH /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Update)))
 	mux.Handle("DELETE /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Delete)))
@@ -120,7 +120,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /webhooks/dodo", config.PaymentHandler.DodoWebhook)
 	mux.Handle("GET /licenses", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetLicenseDownloads)))
-	mux.Handle("GET /orders/producer", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.PaymentHandler.GetProducerOrders)))
+	mux.Handle("GET /orders/producer", authz(middleware.PermOrdersProducer)(http.HandlerFunc(config.PaymentHandler.GetProducerOrders)))
 
 	// Notification Routes
 	mux.Handle("GET /notifications", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.ListNotifications)))
@@ -132,23 +132,24 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	// Analytics Routes
 	mux.HandleFunc("POST /specs/{id}/play", config.AnalyticsHandler.TrackPlay)
 	mux.Handle("POST /specs/{id}/favorite", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.ToggleFavorite)))
-	mux.Handle("GET /specs/{id}/analytics", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
-	mux.Handle("GET /analytics/overview", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
-	mux.Handle("GET /analytics/top-specs", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetTopSpecs)))
+	mux.Handle("GET /specs/{id}/analytics", authz(middleware.PermAnalyticsView)(http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
+	mux.Handle("GET /analytics/overview", authz(middleware.PermAnalyticsView)(http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
+	mux.Handle("GET /analytics/top-specs", authz(middleware.PermAnalyticsView)(http.HandlerFunc(config.AnalyticsHandler.GetTopSpecs)))
 
 	if config.AdminHandler != nil {
-		// Super Admin Routes
-		mux.Handle("GET /admin/users", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListUsers)))
-		mux.Handle("GET /admin/users/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.GetUser)))
-		mux.Handle("PATCH /admin/users/{id}/system-role", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateUserSystemRole)))
-		mux.Handle("PATCH /admin/users/{id}/status", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateUserStatus)))
-		mux.Handle("GET /admin/specs", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListSpecs)))
-		mux.Handle("PATCH /admin/specs/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.UpdateSpec)))
-		mux.Handle("DELETE /admin/specs/{id}", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.DeleteSpec)))
-		mux.Handle("GET /admin/orders", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListOrders)))
-		mux.Handle("GET /admin/licenses", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListLicenses)))
-		mux.Handle("GET /admin/analytics/overview", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.AnalyticsOverview)))
-		mux.Handle("GET /admin/audit-log", config.AuthMiddleware.RequirePermission(middleware.PermissionSuperAdmin, http.HandlerFunc(config.AdminHandler.ListAuditLog)))
+		// Admin routes: each requires its own admin:* permission.
+		mux.Handle("GET /admin/roles", authz(middleware.PermAdminRolesRead)(http.HandlerFunc(config.AdminHandler.ListRoles)))
+		mux.Handle("GET /admin/users", authz(middleware.PermAdminUsersRead)(http.HandlerFunc(config.AdminHandler.ListUsers)))
+		mux.Handle("GET /admin/users/{id}", authz(middleware.PermAdminUsersRead)(http.HandlerFunc(config.AdminHandler.GetUser)))
+		mux.Handle("PATCH /admin/users/{id}/system-role", authz(middleware.PermAdminRolesAssign)(http.HandlerFunc(config.AdminHandler.UpdateUserSystemRole)))
+		mux.Handle("PATCH /admin/users/{id}/status", authz(middleware.PermAdminUsersWrite)(http.HandlerFunc(config.AdminHandler.UpdateUserStatus)))
+		mux.Handle("GET /admin/specs", authz(middleware.PermAdminSpecsRead)(http.HandlerFunc(config.AdminHandler.ListSpecs)))
+		mux.Handle("PATCH /admin/specs/{id}", authz(middleware.PermAdminSpecsWrite)(http.HandlerFunc(config.AdminHandler.UpdateSpec)))
+		mux.Handle("DELETE /admin/specs/{id}", authz(middleware.PermAdminSpecsWrite)(http.HandlerFunc(config.AdminHandler.DeleteSpec)))
+		mux.Handle("GET /admin/orders", authz(middleware.PermAdminOrdersRead)(http.HandlerFunc(config.AdminHandler.ListOrders)))
+		mux.Handle("GET /admin/licenses", authz(middleware.PermAdminLicensesRead)(http.HandlerFunc(config.AdminHandler.ListLicenses)))
+		mux.Handle("GET /admin/analytics/overview", authz(middleware.PermAdminAnalyticsRead)(http.HandlerFunc(config.AdminHandler.AnalyticsOverview)))
+		mux.Handle("GET /admin/audit-log", authz(middleware.PermAdminAuditRead)(http.HandlerFunc(config.AdminHandler.ListAuditLog)))
 	}
 
 	return mux

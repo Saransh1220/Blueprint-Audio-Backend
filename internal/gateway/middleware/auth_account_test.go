@@ -79,8 +79,8 @@ func TestAccountLookup(t *testing.T) {
 		rec := call(m.RequireAuth(next), "/x", tok)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "user", gotRole)
-		// And RequirePermission therefore denies the demoted admin.
-		rec = call(m.RequirePermission(PermissionSuperAdmin, next), "/admin", tok)
+		// And Authorize therefore denies the demoted admin.
+		rec = call(m.WithRoleStore(testRoles()).Authorize(PermAdminUsersRead)(next), "/admin", tok)
 		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
 

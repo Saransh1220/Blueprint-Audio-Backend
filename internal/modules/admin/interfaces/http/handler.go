@@ -19,6 +19,7 @@ import (
 type AdminHandler struct {
 	db       *sqlx.DB
 	userRepo authDomain.UserRepository
+	roles    *middleware.RoleStore
 }
 
 type adminUser struct {
@@ -50,6 +51,22 @@ type auditLog struct {
 
 func NewAdminHandler(db *sqlx.DB, userRepo authDomain.UserRepository) *AdminHandler {
 	return &AdminHandler{db: db, userRepo: userRepo}
+}
+
+// WithRoleStore gives the handler the role definitions used to validate role
+// assignments and to serve GET /admin/roles.
+func (h *AdminHandler) WithRoleStore(roles *middleware.RoleStore) *AdminHandler {
+	h.roles = roles
+	return h
+}
+
+// ListRoles returns every role and the permissions it grants.
+func (h *AdminHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
+	if h.roles == nil {
+		http.Error(w, `{"error":"roles unavailable"}`, http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"roles": h.roles.List()})
 }
 
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +132,9 @@ func (h *AdminHandler) UpdateUserSystemRole(w http.ResponseWriter, r *http.Reque
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
-	if req.SystemRole != authDomain.SystemRoleUser && req.SystemRole != authDomain.SystemRoleSuperAdmin {
+	// Any role of kind "system" in the roles table is assignable, so adding a
+	// role by migration needs no change here.
+	if h.roles == nil || !h.roles.HasRole(string(req.SystemRole), middleware.RoleKindSystem) {
 		http.Error(w, `{"error":"invalid system role"}`, http.StatusBadRequest)
 		return
 	}

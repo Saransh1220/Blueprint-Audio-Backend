@@ -769,7 +769,7 @@ func GetEndpointsRegistry() []EndpointDef {
 			Tags:        []string{"Admin"},
 			OperationID: "adminUpdateUserSystemRole",
 			Summary:     "Admin update user system role",
-			Description: "Assigns super_admin or user role",
+			Description: "Assigns a system-kind role from the roles table (for example super_admin or user)",
 			Auth:        "bearer",
 			PathParams: []ParamDef{
 				{Name: "id", Type: "string", Format: "uuid", Required: true, Description: "User UUID"},
@@ -884,6 +884,16 @@ func GetEndpointsRegistry() []EndpointDef {
 				{Name: "limit", Type: "integer", Description: "Page size"},
 				{Name: "offset", Type: "integer", Description: "Offset"},
 			},
+			SuccessCode: 200,
+		},
+		{
+			Method:      "GET",
+			Path:        "/admin/roles",
+			Tags:        []string{"Admin"},
+			OperationID: "adminListRoles",
+			Summary:     "Admin list roles",
+			Description: "Lists every role (business and system) with the permissions it grants",
+			Auth:        "bearer",
 			SuccessCode: 200,
 		},
 	}

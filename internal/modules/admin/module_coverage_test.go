@@ -3,7 +3,7 @@ package admin
 import "testing"
 
 func TestModuleConstructionAndHandlerAccess(t *testing.T) {
-	module := NewModule(nil, nil)
+	module := NewModule(nil, nil, nil)
 	if module == nil {
 		t.Fatal("expected module")
 	}

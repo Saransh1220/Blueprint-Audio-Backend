@@ -100,9 +100,19 @@ func main() {
 		log.Printf("Super admin bootstrap checked for configured email")
 	}
 
+	// Roles & permissions (database-driven RBAC)
+	// Roles and their permissions are data (the roles table). Load them now,
+	// refuse to start without them, and refresh periodically so a permission
+	// granted by migration applies without a restart.
+	roleStore := gatewayMiddleware.NewRoleStore(gatewayMiddleware.NewPgRoleLoader(db))
+	if err := roleStore.Reload(ctx); err != nil {
+		log.Fatalf("Failed to load roles: %v", err)
+	}
+	roleStore.Start(ctx, 30*time.Second)
+
 	// User Module
 	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service())
-	adminModule := admin.NewModule(db, authModule.UserRepository())
+	adminModule := admin.NewModule(db, authModule.UserRepository(), roleStore)
 
 	// Notification Module
 	notificationModule := notification.NewModule(db)
@@ -125,13 +135,14 @@ func main() {
 	// for a few seconds) so suspensions and demotions apply immediately
 	// instead of when the access token expires.
 	userRepo := authModule.UserRepository()
-	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret).WithAccountLookup(
+
+	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret).WithRoleStore(roleStore).WithAccountLookup(
 		func(ctx context.Context, id uuid.UUID) (gatewayMiddleware.AccountState, error) {
 			u, err := userRepo.GetByID(ctx, id)
 			if err != nil {
 				return gatewayMiddleware.AccountState{}, err
 			}
-			return gatewayMiddleware.AccountState{Status: u.Status, SystemRole: u.SystemRole}, nil
+			return gatewayMiddleware.AccountState{Status: u.Status, Role: u.Role, SystemRole: u.SystemRole}, nil
 		},
 		10*time.Second,
 	)

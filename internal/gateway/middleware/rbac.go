@@ -2,70 +2,39 @@ package middleware
 
 import (
 	"net/http"
-
-	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 )
 
-type Permission string
-
-const (
-	PermissionSuperAdmin Permission = "super_admin"
-)
-
-var rolePermissions = map[domain.SystemRole]map[Permission]bool{
-	domain.SystemRoleSuperAdmin: {
-		PermissionSuperAdmin: true,
-	},
+// WithRoleStore gives the middleware the role definitions Authorize checks
+// against. Without one, Authorize denies every request (fail closed).
+func (m *AuthMiddleWare) WithRoleStore(roles *RoleStore) *AuthMiddleWare {
+	m.roles = roles
+	return m
 }
 
-func HasPermission(systemRole string, permission Permission) bool {
-	permissions, ok := rolePermissions[domain.SystemRole(systemRole)]
-	if !ok {
-		return false
+// Authorize authenticates the request and then requires the caller to hold
+// every listed permission through their business role or system role.
+//
+// Authentication is RequireAuth; authorization is the permission check. When an
+// account lookup is configured both roles come from the database, so a role
+// change applies within the lookup cache TTL rather than at token expiry.
+//
+//	mux.Handle("GET /admin/users", authz(PermAdminUsersRead)(handler))
+func (m *AuthMiddleWare) Authorize(perms ...Permission) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if m.roles == nil {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			role, _ := r.Context().Value(ContextKeyRole).(string)
+			systemRole, _ := r.Context().Value(ContextKeySystemRole).(string)
+			for _, p := range perms {
+				if !m.roles.Can(p, role, systemRole) {
+					http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		}))
 	}
-	return permissions[permission]
-}
-
-// This function `RequirePermission` is a method of the `AuthMiddleWare` struct. It takes a
-// `Permission` type parameter called `permission` and an `http.Handler` called `next` as input
-// parameters.
-func (m *AuthMiddleWare) RequirePermission(permission Permission, next http.Handler) http.Handler {
-	return m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		systemRole, _ := r.Context().Value(ContextKeySystemRole).(string)
-		if !HasPermission(systemRole, permission) {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	}))
-}
-
-// This function `RequireSystemRole` is a method of the `AuthMiddleWare` struct. It takes in a slice of
-// strings `roles` and an `http.Handler` called `next` as parameters.
-func (m *AuthMiddleWare) RequireSystemRole(roles []string, next http.Handler) http.Handler {
-	return m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		systemRole, _ := r.Context().Value(ContextKeySystemRole).(string)
-		for _, role := range roles {
-			if systemRole == role {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-	}))
-}
-
-// RequireUserRole authenticates the request and permits only the requested
-// application roles (for example, producer rather than artist).
-func (m *AuthMiddleWare) RequireUserRole(roles []domain.UserRole, next http.Handler) http.Handler {
-	return m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role, _ := r.Context().Value(ContextKeyRole).(string)
-		for _, allowed := range roles {
-			if role == string(allowed) {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-	}))
 }
