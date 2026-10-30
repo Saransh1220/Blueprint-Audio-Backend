@@ -230,7 +230,7 @@ func TestPaymentService_VerifyPayment_LaterFailures(t *testing.T) {
 	t.Run("fetch error", func(t *testing.T) {
 		s, _, _, _, order, closeFn := setup("", false)
 		defer closeFn()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to fetch payment")
 	})
@@ -238,14 +238,14 @@ func TestPaymentService_VerifyPayment_LaterFailures(t *testing.T) {
 		s, or, _, _, order, closeFn := setup("authorized", true)
 		defer closeFn()
 		or.On("UpdateStatus", ctx, order.ID, domain.OrderStatusFailed).Return(errors.New("upd")).Once()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 		assert.ErrorContains(t, err, "payment not captured and status update failed")
 	})
 	t.Run("payment repo create fails", func(t *testing.T) {
 		s, _, pr, _, order, closeFn := setup("CAPTURED", true)
 		defer closeFn()
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(errors.New("pay db")).Once()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 		assert.EqualError(t, err, "pay db")
 	})
 	t.Run("mark paid fails", func(t *testing.T) {
@@ -253,7 +253,7 @@ func TestPaymentService_VerifyPayment_LaterFailures(t *testing.T) {
 		defer closeFn()
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
 		or.On("UpdateStatus", ctx, order.ID, domain.OrderStatusPaid).Return(errors.New("paid err")).Once()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 		assert.EqualError(t, err, "paid err")
 	})
 	t.Run("license creation fails", func(t *testing.T) {
@@ -262,14 +262,14 @@ func TestPaymentService_VerifyPayment_LaterFailures(t *testing.T) {
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
 		or.On("UpdateStatus", ctx, order.ID, domain.OrderStatusPaid).Return(nil).Once()
 		lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(errors.New("lic err")).Once()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 		assert.ErrorContains(t, err, "payment ok but license failed: lic err")
 	})
 	t.Run("order missing razorpay id", func(t *testing.T) {
 		s, or, _, _, _, _, _, _ := newPaymentSvc()
 		order := pendingOrder(nil)
 		or.On("GetByID", ctx, order.ID).Return(order, nil).Once()
-		_, err := s.VerifyPayment(ctx, order.ID, paymentID, "sig")
+		_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, "sig")
 		assert.EqualError(t, err, "invalid order state")
 	})
 }
@@ -296,7 +296,7 @@ func TestPaymentService_VerifyPayment_StoresMethodEmailAndSendsReceipt(t *testin
 		sent <- "ok"
 	}).Return(nil).Once()
 
-	_, err := s.VerifyPayment(ctx, order.ID, paymentID, s.generateSignature(rzp, paymentID))
+	_, err := s.VerifyPayment(ctx, order.ID, order.UserID, paymentID, s.generateSignature(rzp, paymentID))
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	require.NotNil(t, stored.Method)
@@ -510,12 +510,12 @@ func TestPaymentService_GetOrder(t *testing.T) {
 	id := uuid.New()
 	want := &domain.Order{ID: id}
 	or.On("GetByID", ctx, id).Return(want, nil).Once()
-	got, err := s.GetOrder(ctx, id)
+	got, err := s.GetOrder(ctx, id, uuid.Nil)
 	require.NoError(t, err)
 	assert.Same(t, want, got)
 
 	or.On("GetByID", ctx, id).Return(nil, errors.New("nf")).Once()
-	_, err = s.GetOrder(ctx, id)
+	_, err = s.GetOrder(ctx, id, uuid.Nil)
 	assert.EqualError(t, err, "nf")
 }
 

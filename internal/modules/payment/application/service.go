@@ -37,8 +37,8 @@ type FileService interface {
 
 type PaymentService interface {
 	CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error)
-	GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.Order, error)
-	VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error)
+	GetOrder(ctx context.Context, orderID, requesterID uuid.UUID) (*domain.Order, error)
+	VerifyPayment(ctx context.Context, orderID, userID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error)
 	HandleDodoWebhook(ctx context.Context, payload []byte, headers map[string]string) error
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
@@ -252,9 +252,14 @@ func (s *paymentService) createDodoCheckout(ctx context.Context, order *domain.O
 	return *decoded.CheckoutURL, decoded.SessionID, nil
 }
 
-func (s *paymentService) VerifyPayment(ctx context.Context, orderID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error) {
+func (s *paymentService) VerifyPayment(ctx context.Context, orderID, userID uuid.UUID, razorpayPaymentID, razorpaySignature string) (*domain.License, error) {
 	order, err := s.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
+		return nil, errors.New("order not found")
+	}
+	// Only the buyer may verify payment for an order; otherwise a bad signature
+	// from a stranger would mark the buyer's order as failed.
+	if order.UserID != userID {
 		return nil, errors.New("order not found")
 	}
 
@@ -480,8 +485,20 @@ func stringFromAny(value any) string {
 	return fmt.Sprintf("%v", value)
 }
 
-func (s *paymentService) GetOrder(ctx context.Context, orderID uuid.UUID) (*domain.Order, error) {
-	return s.orderRepo.GetByID(ctx, orderID)
+// GetOrder returns an order only to its buyer or to the producer who owns the
+// ordered spec. Anyone else gets the same "not found" error as a missing order.
+func (s *paymentService) GetOrder(ctx context.Context, orderID, requesterID uuid.UUID) (*domain.Order, error) {
+	order, err := s.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if order.UserID == requesterID {
+		return order, nil
+	}
+	if spec, specErr := s.specFinder.FindByIDIncludingDeleted(ctx, order.SpecID); specErr == nil && spec != nil && spec.ProducerID == requesterID {
+		return order, nil
+	}
+	return nil, errors.New("order not found")
 }
 
 func (s *paymentService) GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error) {

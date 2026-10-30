@@ -136,8 +136,8 @@ func TestPaymentHandler_ServiceErrorStatuses(t *testing.T) {
 	boom := errors.New("boom")
 	h := paymenthttp.NewPaymentHandler(mockPaymentService{
 		createOrderFn:   func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.Order, error) { return nil, boom },
-		verifyFn:        func(context.Context, uuid.UUID, string, string) (*domain.License, error) { return nil, boom },
-		getOrderFn:      func(context.Context, uuid.UUID) (*domain.Order, error) { return nil, boom },
+		verifyFn:        func(context.Context, uuid.UUID, uuid.UUID, string, string) (*domain.License, error) { return nil, boom },
+		getOrderFn:      func(context.Context, uuid.UUID, uuid.UUID) (*domain.Order, error) { return nil, boom },
 		getUserOrdersFn: func(context.Context, uuid.UUID, int) ([]domain.Order, error) { return nil, boom },
 		getUserLicensesFn: func(context.Context, uuid.UUID, int, string, string) ([]domain.License, int, error) {
 			return nil, 0, boom
@@ -175,7 +175,7 @@ func TestPaymentHandler_ServiceErrorStatuses(t *testing.T) {
 	w = httptest.NewRecorder()
 	h.GetProducerOrders(w, authedReq("GET", "/p", ""))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to fetch producer orders: boom")
+	assert.Contains(t, w.Body.String(), "failed to fetch producer orders")
 }
 
 func TestPaymentHandler_GetLicenseDownloads_ErrorMapping(t *testing.T) {

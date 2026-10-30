@@ -81,7 +81,7 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 func (h *PaymentHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	// Auth check
-	_, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -109,6 +109,7 @@ func (h *PaymentHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	license, err := h.service.VerifyPayment(
 		r.Context(),
 		orderID,
+		userID,
 		req.RazorpayPaymentID,
 		req.RazorpaySignature,
 	)
@@ -128,7 +129,7 @@ func (h *PaymentHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 
 func (h *PaymentHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	// Auth check
-	_, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -142,7 +143,7 @@ func (h *PaymentHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch order
-	order, err := h.service.GetOrder(r.Context(), orderID)
+	order, err := h.service.GetOrder(r.Context(), orderID, userID)
 	if err != nil {
 		http.Error(w, "order not found", http.StatusNotFound)
 		return
@@ -283,7 +284,7 @@ func (h *PaymentHandler) GetProducerOrders(w http.ResponseWriter, r *http.Reques
 	response, err := h.service.GetProducerOrders(r.Context(), producerID, page, limit)
 	if err != nil {
 		log.Printf("PaymentHandler.GetProducerOrders failed: %v", err)
-		http.Error(w, "failed to fetch producer orders: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to fetch producer orders", http.StatusInternalServerError)
 		return
 	}
 

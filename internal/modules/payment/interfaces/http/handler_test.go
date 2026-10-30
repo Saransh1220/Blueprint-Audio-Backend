@@ -20,8 +20,8 @@ import (
 type mockPaymentService struct {
 	createOrderFn       func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.Order, error)
 	dodoWebhookFn       func(context.Context, []byte, map[string]string) error
-	verifyFn            func(context.Context, uuid.UUID, string, string) (*domain.License, error)
-	getOrderFn          func(context.Context, uuid.UUID) (*domain.Order, error)
+	verifyFn            func(context.Context, uuid.UUID, uuid.UUID, string, string) (*domain.License, error)
+	getOrderFn          func(context.Context, uuid.UUID, uuid.UUID) (*domain.Order, error)
 	getUserOrdersFn     func(context.Context, uuid.UUID, int) ([]domain.Order, error)
 	getUserLicensesFn   func(context.Context, uuid.UUID, int, string, string) ([]domain.License, int, error)
 	getDownloadsFn      func(context.Context, uuid.UUID, uuid.UUID) (*application.LicenseDownloadsResponse, error)
@@ -31,8 +31,8 @@ type mockPaymentService struct {
 func (m mockPaymentService) CreateOrder(ctx context.Context, u, s, l uuid.UUID, c string) (*domain.Order, error) {
 	return m.createOrderFn(ctx, u, s, l)
 }
-func (m mockPaymentService) VerifyPayment(ctx context.Context, o uuid.UUID, p, sig string) (*domain.License, error) {
-	return m.verifyFn(ctx, o, p, sig)
+func (m mockPaymentService) VerifyPayment(ctx context.Context, o, u uuid.UUID, p, sig string) (*domain.License, error) {
+	return m.verifyFn(ctx, o, u, p, sig)
 }
 func (m mockPaymentService) HandleDodoWebhook(ctx context.Context, payload []byte, headers map[string]string) error {
 	if m.dodoWebhookFn != nil {
@@ -40,8 +40,8 @@ func (m mockPaymentService) HandleDodoWebhook(ctx context.Context, payload []byt
 	}
 	return nil
 }
-func (m mockPaymentService) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
-	return m.getOrderFn(ctx, id)
+func (m mockPaymentService) GetOrder(ctx context.Context, id, u uuid.UUID) (*domain.Order, error) {
+	return m.getOrderFn(ctx, id, u)
 }
 func (m mockPaymentService) GetUserOrders(ctx context.Context, u uuid.UUID, p int) ([]domain.Order, error) {
 	return m.getUserOrdersFn(ctx, u, p)
@@ -67,10 +67,10 @@ func TestPaymentHandler_BasicFlows(t *testing.T) {
 		createOrderFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.Order, error) {
 			return &domain.Order{ID: uuid.New()}, nil
 		},
-		verifyFn: func(context.Context, uuid.UUID, string, string) (*domain.License, error) {
+		verifyFn: func(context.Context, uuid.UUID, uuid.UUID, string, string) (*domain.License, error) {
 			return &domain.License{ID: uuid.New()}, nil
 		},
-		getOrderFn: func(context.Context, uuid.UUID) (*domain.Order, error) {
+		getOrderFn: func(context.Context, uuid.UUID, uuid.UUID) (*domain.Order, error) {
 			return &domain.Order{ID: uuid.New()}, nil
 		},
 		getUserOrdersFn: func(context.Context, uuid.UUID, int) ([]domain.Order, error) {
@@ -131,10 +131,10 @@ func TestPaymentHandler_ErrorBranches(t *testing.T) {
 		createOrderFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.Order, error) {
 			return nil, errors.New("x")
 		},
-		verifyFn: func(context.Context, uuid.UUID, string, string) (*domain.License, error) {
+		verifyFn: func(context.Context, uuid.UUID, uuid.UUID, string, string) (*domain.License, error) {
 			return nil, errors.New("bad")
 		},
-		getOrderFn:      func(context.Context, uuid.UUID) (*domain.Order, error) { return nil, errors.New("nf") },
+		getOrderFn:      func(context.Context, uuid.UUID, uuid.UUID) (*domain.Order, error) { return nil, errors.New("nf") },
 		getUserOrdersFn: func(context.Context, uuid.UUID, int) ([]domain.Order, error) { return nil, errors.New("x") },
 		getUserLicensesFn: func(context.Context, uuid.UUID, int, string, string) ([]domain.License, int, error) {
 			return nil, 0, errors.New("x")

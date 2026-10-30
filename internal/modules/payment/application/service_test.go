@@ -259,12 +259,12 @@ func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
 	orderID := uuid.New()
 
 	or.On("GetByID", ctx, orderID).Return(nil, errors.New("missing")).Once()
-	_, err := s.VerifyPayment(ctx, orderID, "pay_1", "sig")
+	_, err := s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
 	assert.EqualError(t, err, "order not found")
 
 	paid := &domain.Order{ID: orderID, Status: domain.OrderStatusPaid}
 	or.On("GetByID", ctx, orderID).Return(paid, nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay_1", "sig")
+	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
 	assert.EqualError(t, err, "order already processed")
 
 	expired := &domain.Order{
@@ -275,7 +275,7 @@ func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
 	}
 	or.On("GetByID", ctx, orderID).Return(expired, nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay_1", "sig")
+	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
 	assert.EqualError(t, err, "order expired")
 
 	pending := &domain.Order{
@@ -286,7 +286,7 @@ func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
 	}
 	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay_1", "wrong")
+	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "wrong")
 	assert.EqualError(t, err, "invalid signature")
 }
 
@@ -429,18 +429,18 @@ func TestPaymentService_VerifyPayment_StatusUpdateFailureBranches(t *testing.T) 
 	expired := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(-time.Hour), RazorpayOrderID: ptr("order_1")}
 	or.On("GetByID", ctx, orderID).Return(expired, nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd")).Once()
-	_, err := s.VerifyPayment(ctx, orderID, "pay", "sig")
+	_, err := s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "sig")
 	assert.EqualError(t, err, "order expired and status update failed: upd")
 
 	pending := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: nil}
 	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay", "sig")
+	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "sig")
 	assert.EqualError(t, err, "invalid order state")
 
 	pending = &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: ptr("order_1")}
 	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd2")).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay", "wrong")
+	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "wrong")
 	assert.EqualError(t, err, "invalid signature and status update failed: upd2")
 }
 
@@ -572,14 +572,14 @@ func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
 	uf.On("FindByID", mock.Anything, order.UserID).Return(&authDomain.User{ID: order.UserID, Email: "buyer@example.com", Name: "Buyer"}, nil).Once()
 	es.On("Send", mock.Anything, mock.AnythingOfType("email.Message")).Return(nil).Once()
 
-	license, err := s.VerifyPayment(ctx, orderID, paymentID, signature)
+	license, err := s.VerifyPayment(ctx, orderID, order.UserID, paymentID, signature)
 	assert.NoError(t, err)
 	assert.NotNil(t, license)
 
 	time.Sleep(50 * time.Millisecond)
 
 	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
+	_, err = s.VerifyPayment(ctx, orderID, order.UserID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
 	assert.EqualError(t, err, "payment not captured")
 }
 

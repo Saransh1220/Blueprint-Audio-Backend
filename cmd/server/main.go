@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/saransh1220/blueprint-audio/internal/gateway"
 	gatewayMiddleware "github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
@@ -119,7 +121,20 @@ func main() {
 	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentAppDodoConfig(cfg))
 
 	// 5. Middleware
-	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret)
+	// Re-check account status and system role against the database (cached
+	// for a few seconds) so suspensions and demotions apply immediately
+	// instead of when the access token expires.
+	userRepo := authModule.UserRepository()
+	authMiddleware := gatewayMiddleware.NewAuthMiddleware(cfg.JWT.Secret).WithAccountLookup(
+		func(ctx context.Context, id uuid.UUID) (gatewayMiddleware.AccountState, error) {
+			u, err := userRepo.GetByID(ctx, id)
+			if err != nil {
+				return gatewayMiddleware.AccountState{}, err
+			}
+			return gatewayMiddleware.AccountState{Status: u.Status, SystemRole: u.SystemRole}, nil
+		},
+		10*time.Second,
+	)
 
 	// Favorites strict server (OpenAPI-generated contract implementation)
 	favoritesServer := openapi.NewFavoritesServer(analyticsModule.AnalyticsService)

@@ -85,13 +85,15 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /auth/reset-password", emailActionLimiter(config.AuthHandler.ResetPassword))
 	mux.Handle("GET /me", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AuthHandler.Me)))
 
+	// Producer-only routes require the producer business role, not just a login.
+	producerOnly := []authDomain.UserRole{authDomain.RoleProducer}
+
 	// Catalog/Spec Routes
 	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Home)))
 	mux.Handle("GET /specs", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.List)))
 	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
 	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.CreateGone)))
 	if config.SpecUploadHandler != nil {
-		producerOnly := []authDomain.UserRole{authDomain.RoleProducer}
 		mux.Handle("POST /spec-uploads", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.Initiate)))
 		mux.Handle("PUT /spec-uploads/{id}/metadata", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.SaveMetadata)))
 		mux.Handle("POST /spec-uploads/{id}/files", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.SpecUploadHandler.PrepareFile)))
@@ -118,21 +120,21 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.HandleFunc("POST /webhooks/dodo", config.PaymentHandler.DodoWebhook)
 	mux.Handle("GET /licenses", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetLicenseDownloads)))
-	mux.Handle("GET /orders/producer", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetProducerOrders)))
+	mux.Handle("GET /orders/producer", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.PaymentHandler.GetProducerOrders)))
 
 	// Notification Routes
 	mux.Handle("GET /notifications", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.ListNotifications)))
 	mux.Handle("PATCH /notifications/{id}/read", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.MarkAsRead)))
 	mux.Handle("PATCH /notifications/read-all", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.MarkAllAsRead)))
 	mux.Handle("GET /notifications/unread-count", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.UnreadCount)))
-	mux.Handle("GET /ws", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.Subscribe)))
+	mux.Handle("GET /ws", config.AuthMiddleware.RequireAuthAllowQueryToken(http.HandlerFunc(config.NotificationHandler.Subscribe)))
 
 	// Analytics Routes
 	mux.HandleFunc("POST /specs/{id}/play", config.AnalyticsHandler.TrackPlay)
 	mux.Handle("POST /specs/{id}/favorite", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.ToggleFavorite)))
-	mux.Handle("GET /specs/{id}/analytics", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
-	mux.Handle("GET /analytics/overview", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
-	mux.Handle("GET /analytics/top-specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.GetTopSpecs)))
+	mux.Handle("GET /specs/{id}/analytics", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
+	mux.Handle("GET /analytics/overview", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
+	mux.Handle("GET /analytics/top-specs", config.AuthMiddleware.RequireUserRole(producerOnly, http.HandlerFunc(config.AnalyticsHandler.GetTopSpecs)))
 
 	if config.AdminHandler != nil {
 		// Super Admin Routes
