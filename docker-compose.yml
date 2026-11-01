@@ -92,6 +92,9 @@ services:
       # Currency fallback for generated USD prices
       INR_USD_RATE: ${INR_USD_RATE:-0.012}
 
+      # Media worker runs as the separate `worker` service by default
+      WORKER_ENABLED: ${WORKER_ENABLED:-false}
+
       # Redis
       REDIS_ENABLED: ${REDIS_ENABLED:-true}
       REDIS_HOST: redis
