@@ -66,16 +66,21 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: page
+          in: query
+          description: Page number, starting at 1
+          schema:
+            type: integer
         - name: limit
           in: query
-          description: Page size
+          description: Page size chosen by the client (default 50, capped at 100)
           schema:
             type: integer
-        - name: offset
+        - name: q
           in: query
-          description: Offset
+          description: Search text
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: OK
@@ -101,16 +106,21 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: page
+          in: query
+          description: Page number, starting at 1
+          schema:
+            type: integer
         - name: limit
           in: query
-          description: Page size
+          description: Page size chosen by the client (default 50, capped at 100)
           schema:
             type: integer
-        - name: offset
+        - name: q
           in: query
-          description: Offset
+          description: Search text
           schema:
-            type: integer
+            type: string
       responses:
         "200":
           description: OK
@@ -136,19 +146,19 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: page
+          in: query
+          description: Page number, starting at 1
+          schema:
+            type: integer
         - name: limit
           in: query
-          description: Page size
+          description: Page size chosen by the client (default 50, capped at 100)
           schema:
             type: integer
-        - name: offset
+        - name: q
           in: query
-          description: Offset
-          schema:
-            type: integer
-        - name: status
-          in: query
-          description: Status filter
+          description: Search text
           schema:
             type: string
       responses:
@@ -200,19 +210,19 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: page
+          in: query
+          description: Page number, starting at 1
+          schema:
+            type: integer
         - name: limit
           in: query
-          description: Page size
+          description: Page size chosen by the client (default 50, capped at 100)
           schema:
             type: integer
-        - name: offset
+        - name: q
           in: query
-          description: Offset
-          schema:
-            type: integer
-        - name: status
-          in: query
-          description: Filter by status
+          description: Search text
           schema:
             type: string
       responses:
@@ -309,19 +319,19 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: limit
+        - name: page
           in: query
-          description: Page size
+          description: Page number, starting at 1
           schema:
             type: integer
-        - name: offset
+        - name: limit
           in: query
-          description: Offset
+          description: Page size chosen by the client (default 50, capped at 100)
           schema:
             type: integer
         - name: q
           in: query
-          description: Search query
+          description: Search text
           schema:
             type: string
       responses:

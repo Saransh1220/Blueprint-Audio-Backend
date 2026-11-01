@@ -76,9 +76,11 @@ func (r *PgSessionRepository) Revoke(ctx context.Context, token string) error {
 
 func (r *PgSessionRepository) MarkRotated(ctx context.Context, token string, successorID uuid.UUID) (bool, error) {
 	now := time.Now()
-	query := `UPDATE user_sessions SET is_revoked = true, rotated_at = $1, replaced_by = $2, updated_at = $1
-			  WHERE refresh_token_digest = $3 AND is_revoked = false`
-	res, err := r.db.ExecContext(ctx, query, now, successorID, digestRefreshToken(token))
+	// rotated_at is TIMESTAMPTZ while updated_at is TIMESTAMP, so they need separate parameters;
+	// reusing one makes Postgres fail with "inconsistent types deduced for parameter".
+	query := `UPDATE user_sessions SET is_revoked = true, rotated_at = $1, replaced_by = $2, updated_at = $3
+			  WHERE refresh_token_digest = $4 AND is_revoked = false`
+	res, err := r.db.ExecContext(ctx, query, now, successorID, now, digestRefreshToken(token))
 	if err != nil {
 		return false, err
 	}

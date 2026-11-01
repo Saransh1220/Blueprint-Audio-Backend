@@ -70,7 +70,7 @@ func (h *AdminHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r, 50, 100)
+	limit, offset := listPage(r)
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 
 	query := `SELECT id, email, name, display_name, role, system_role, status, email_verified, created_at, updated_at FROM users`
@@ -199,26 +199,23 @@ func (h *AdminHandler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AdminHandler) ListSpecs(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r, 50, 100)
-	var specs []map[string]any
-	query := `SELECT s.id, s.producer_id, u.email AS producer_email, COALESCE(u.display_name, u.name) AS producer_name, s.title, s.category, s.base_price, s.processing_status, s.is_deleted, s.created_at, s.updated_at FROM specs s JOIN users u ON s.producer_id = u.id ORDER BY s.created_at DESC LIMIT $1 OFFSET $2`
-	rows, err := h.db.QueryxContext(r.Context(), query, limit, offset)
-	if err != nil {
+	limit, offset := listPage(r)
+	where, args := searchFilter(r, "s.title", "u.email", "COALESCE(u.display_name, u.name)")
+	const from = ` FROM specs s JOIN users u ON s.producer_id = u.id`
+
+	specs := []map[string]any{}
+	query := `SELECT s.id, s.producer_id, u.email AS producer_email, COALESCE(u.display_name, u.name) AS producer_name, s.title, s.category, s.base_price, s.processing_status, s.is_deleted, s.created_at, s.updated_at` +
+		from + where + ` ORDER BY s.created_at DESC, s.id` + pageClause(len(args))
+	if err := h.selectMaps(r.Context(), &specs, query, append(args, limit, offset)...); err != nil {
 		http.Error(w, `{"error":"failed to list specs"}`, http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		row := map[string]any{}
-		if err := rows.MapScan(row); err != nil {
-			http.Error(w, `{"error":"failed to scan specs"}`, http.StatusInternalServerError)
-			return
-		}
-		normalizeMap(row)
-		specs = append(specs, row)
-	}
+
 	var total int
-	_ = h.db.GetContext(r.Context(), &total, `SELECT COUNT(*) FROM specs`)
+	if err := h.db.GetContext(r.Context(), &total, `SELECT COUNT(*)`+from+where, args...); err != nil {
+		http.Error(w, `{"error":"failed to count specs"}`, http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, pageResponse(specs, total, limit, offset))
 }
 
@@ -308,28 +305,44 @@ func (h *AdminHandler) DeleteSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r, 50, 100)
+	limit, offset := listPage(r)
+	where, args := searchFilter(r, "u.email", "s.title")
+	const from = ` FROM orders o JOIN users u ON o.user_id = u.id JOIN specs s ON o.spec_id = s.id`
+
 	rows := []map[string]any{}
-	query := `SELECT o.id, o.user_id, u.email AS buyer_email, o.spec_id, s.title AS spec_title, o.license_type, o.amount, o.currency, o.status, o.created_at FROM orders o JOIN users u ON o.user_id = u.id JOIN specs s ON o.spec_id = s.id ORDER BY o.created_at DESC LIMIT $1 OFFSET $2`
-	if err := h.selectMaps(r.Context(), &rows, query, limit, offset); err != nil {
+	query := `SELECT o.id, o.user_id, u.email AS buyer_email, o.spec_id, s.title AS spec_title, o.license_type, o.amount, o.currency, o.status, o.created_at` +
+		from + where + ` ORDER BY o.created_at DESC, o.id` + pageClause(len(args))
+	if err := h.selectMaps(r.Context(), &rows, query, append(args, limit, offset)...); err != nil {
 		http.Error(w, `{"error":"failed to list orders"}`, http.StatusInternalServerError)
 		return
 	}
+
 	var total int
-	_ = h.db.GetContext(r.Context(), &total, `SELECT COUNT(*) FROM orders`)
+	if err := h.db.GetContext(r.Context(), &total, `SELECT COUNT(*)`+from+where, args...); err != nil {
+		http.Error(w, `{"error":"failed to count orders"}`, http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, pageResponse(rows, total, limit, offset))
 }
 
 func (h *AdminHandler) ListLicenses(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r, 50, 100)
+	limit, offset := listPage(r)
+	where, args := searchFilter(r, "u.email", "s.title")
+	const from = ` FROM licenses l JOIN users u ON l.user_id = u.id JOIN specs s ON l.spec_id = s.id`
+
 	rows := []map[string]any{}
-	query := `SELECT l.id, l.user_id, u.email AS user_email, l.spec_id, s.title AS spec_title, l.license_type, l.purchase_price, l.is_active, l.is_revoked, l.downloads_count, l.issued_at FROM licenses l JOIN users u ON l.user_id = u.id JOIN specs s ON l.spec_id = s.id ORDER BY l.issued_at DESC LIMIT $1 OFFSET $2`
-	if err := h.selectMaps(r.Context(), &rows, query, limit, offset); err != nil {
+	query := `SELECT l.id, l.user_id, u.email AS user_email, l.spec_id, s.title AS spec_title, l.license_type, l.purchase_price, l.is_active, l.is_revoked, l.downloads_count, l.issued_at` +
+		from + where + ` ORDER BY l.issued_at DESC, l.id` + pageClause(len(args))
+	if err := h.selectMaps(r.Context(), &rows, query, append(args, limit, offset)...); err != nil {
 		http.Error(w, `{"error":"failed to list licenses"}`, http.StatusInternalServerError)
 		return
 	}
+
 	var total int
-	_ = h.db.GetContext(r.Context(), &total, `SELECT COUNT(*) FROM licenses`)
+	if err := h.db.GetContext(r.Context(), &total, `SELECT COUNT(*)`+from+where, args...); err != nil {
+		http.Error(w, `{"error":"failed to count licenses"}`, http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, pageResponse(rows, total, limit, offset))
 }
 
@@ -353,15 +366,23 @@ func (h *AdminHandler) AnalyticsOverview(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *AdminHandler) ListAuditLog(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r, 50, 100)
-	var logs []auditLog
-	query := `SELECT a.id, a.actor_id, u.email AS actor_email, a.action, a.resource_type, a.resource_id, a.before_state, a.after_state, a.ip_address, a.user_agent, a.created_at FROM admin_audit_logs a LEFT JOIN users u ON a.actor_id = u.id ORDER BY a.created_at DESC LIMIT $1 OFFSET $2`
-	if err := h.db.SelectContext(r.Context(), &logs, query, limit, offset); err != nil {
+	limit, offset := listPage(r)
+	where, args := searchFilter(r, "a.action", "a.resource_type", "u.email")
+	const from = ` FROM admin_audit_logs a LEFT JOIN users u ON a.actor_id = u.id`
+
+	logs := []auditLog{}
+	query := `SELECT a.id, a.actor_id, u.email AS actor_email, a.action, a.resource_type, a.resource_id, a.before_state, a.after_state, a.ip_address, a.user_agent, a.created_at` +
+		from + where + ` ORDER BY a.created_at DESC, a.id` + pageClause(len(args))
+	if err := h.db.SelectContext(r.Context(), &logs, query, append(args, limit, offset)...); err != nil {
 		http.Error(w, `{"error":"failed to list audit logs"}`, http.StatusInternalServerError)
 		return
 	}
+
 	var total int
-	_ = h.db.GetContext(r.Context(), &total, `SELECT COUNT(*) FROM admin_audit_logs`)
+	if err := h.db.GetContext(r.Context(), &total, `SELECT COUNT(*)`+from+where, args...); err != nil {
+		http.Error(w, `{"error":"failed to count audit logs"}`, http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, http.StatusOK, pageResponse(logs, total, limit, offset))
 }
 
@@ -445,6 +466,41 @@ func pagination(r *http.Request, defaultLimit, maxLimit int) (int, int) {
 		}
 	}
 	return limit, (page - 1) * limit
+}
+
+const (
+	// defaultPageSize applies only when a client sends no ?limit=. Clients pick
+	// their own page size; the admin UI offers its own choices.
+	defaultPageSize = 50
+	// maxPageSize is a safety ceiling so a single request cannot pull a whole
+	// table. It is not a page size anyone should rely on.
+	maxPageSize = 100
+)
+
+// listPage reads ?page= and ?limit= and returns the SQL limit and offset.
+func listPage(r *http.Request) (limit, offset int) {
+	return pagination(r, defaultPageSize, maxPageSize)
+}
+
+// pageClause returns the LIMIT/OFFSET suffix for a query that already binds
+// argCount positional arguments.
+func pageClause(argCount int) string {
+	return ` LIMIT $` + strconv.Itoa(argCount+1) + ` OFFSET $` + strconv.Itoa(argCount+2)
+}
+
+// searchFilter turns ?q= into a WHERE clause matching any of the columns, plus
+// its single bound argument. Without a search term it returns no filter. Build
+// the matching COUNT query from the same clause so totals respect the search.
+func searchFilter(r *http.Request, columns ...string) (string, []any) {
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	if search == "" {
+		return "", nil
+	}
+	conditions := make([]string, len(columns))
+	for i, column := range columns {
+		conditions[i] = column + ` ILIKE $1`
+	}
+	return ` WHERE (` + strings.Join(conditions, ` OR `) + `)`, []any{"%" + search + "%"}
 }
 
 func pageResponse(data any, total, limit, offset int) map[string]any {

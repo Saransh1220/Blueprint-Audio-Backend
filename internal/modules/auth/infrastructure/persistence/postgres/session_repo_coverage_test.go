@@ -46,20 +46,20 @@ func TestPgSessionRepositoryMarkRotatedAndIsActive(t *testing.T) {
 	ctx := context.Background()
 	successor := uuid.New()
 
-	mockDB.ExpectExec(`UPDATE user_sessions SET is_revoked = true, rotated_at = \$1, replaced_by = \$2, updated_at = \$1\s+WHERE refresh_token_digest = \$3 AND is_revoked = false`).
-		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mockDB.ExpectExec(`UPDATE user_sessions SET is_revoked = true, rotated_at = \$1, replaced_by = \$2, updated_at = \$3\s+WHERE refresh_token_digest = \$4 AND is_revoked = false`).
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	rotated, err := repo.MarkRotated(ctx, "old", successor)
 	require.NoError(t, err)
 	require.True(t, rotated)
 
 	mockDB.ExpectExec("UPDATE user_sessions SET is_revoked = true, rotated_at").
-		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
 	rotated, err = repo.MarkRotated(ctx, "old", successor)
 	require.NoError(t, err)
 	require.False(t, rotated, "already-revoked session must not be rotated twice")
 
 	mockDB.ExpectExec("UPDATE user_sessions SET is_revoked = true, rotated_at").
-		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg()).WillReturnError(errors.New("write failed"))
+		WithArgs(sqlmock.AnyArg(), successor, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnError(errors.New("write failed"))
 	_, err = repo.MarkRotated(ctx, "old", successor)
 	require.EqualError(t, err, "write failed")
 
