@@ -28,13 +28,15 @@ const (
 )
 
 type Order struct {
-	ID                 uuid.UUID      `json:"id" db:"id"`
-	UserID             uuid.UUID      `json:"user_id" db:"user_id"`
-	SpecID             uuid.UUID      `json:"spec_id" db:"spec_id"`
-	LicenseType        string         `json:"license_type" db:"license_type"`
-	Amount             int            `json:"amount" db:"amount"`
-	Currency           string         `json:"currency" db:"currency"`
-	RazorpayOrderID    *string        `json:"razorpay_order_id,omitempty" db:"razorpay_order_id"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	UserID      uuid.UUID `json:"user_id" db:"user_id"`
+	SpecID      uuid.UUID `json:"spec_id" db:"spec_id"`
+	LicenseType string    `json:"license_type" db:"license_type"`
+	Amount      int       `json:"amount" db:"amount"`
+	Currency    string    `json:"currency" db:"currency"`
+	// RazorpayOrderID is derived from ProviderCheckoutID for Razorpay orders so
+	// the browser checkout keeps working. It is not stored.
+	RazorpayOrderID    *string        `json:"razorpay_order_id,omitempty" db:"-"`
 	Provider           string         `json:"provider" db:"provider"`
 	ProviderCheckoutID *string        `json:"provider_checkout_id,omitempty" db:"provider_checkout_id"`
 	ProviderPaymentID  *string        `json:"provider_payment_id,omitempty" db:"provider_payment_id"`
@@ -44,6 +46,15 @@ type Order struct {
 	CreatedAt          time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at" db:"updated_at"`
 	ExpiresAt          time.Time      `json:"expires_at" db:"expires_at"`
+}
+
+// FillClientFields sets the derived fields the frontend expects.
+func (o *Order) FillClientFields() {
+	o.RazorpayOrderID = nil
+	if o.Provider == ProviderRazorpay && o.ProviderCheckoutID != nil && *o.ProviderCheckoutID != "" {
+		id := *o.ProviderCheckoutID
+		o.RazorpayOrderID = &id
+	}
 }
 
 type OrderWithBuyer struct {
@@ -56,8 +67,9 @@ type OrderWithBuyer struct {
 type Payment struct {
 	ID                uuid.UUID     `json:"id" db:"id"`
 	OrderID           uuid.UUID     `json:"order_id" db:"order_id"`
-	RazorpayPaymentID string        `json:"razorpay_payment_id" db:"razorpay_payment_id"`
-	RazorpaySignature string        `json:"razorpay_signature" db:"razorpay_signature"`
+	Provider          string        `json:"provider" db:"provider"`
+	ProviderPaymentID string        `json:"provider_payment_id" db:"provider_payment_id"`
+	ProviderSignature string        `json:"provider_signature" db:"provider_signature"`
 	Amount            int           `json:"amount" db:"amount"`
 	Currency          string        `json:"currency" db:"currency"`
 	Status            PaymentStatus `json:"status" db:"status"`
@@ -106,7 +118,7 @@ type License struct {
 type OrderRepository interface {
 	Create(ctx context.Context, order *Order) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
-	GetByRazorpayID(ctx context.Context, razorpayOrderID string) (*Order, error)
+	GetByProviderCheckoutID(ctx context.Context, provider, checkoutID string) (*Order, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status OrderStatus) error
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]Order, error)
 	ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]OrderWithBuyer, int, error)
@@ -116,7 +128,7 @@ type PaymentRepository interface {
 	Create(ctx context.Context, payment *Payment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Payment, error)
 	GetByOrderID(ctx context.Context, orderID uuid.UUID) (*Payment, error)
-	GetByRazorpayID(ctx context.Context, razorpayPaymentID string) (*Payment, error)
+	GetByProviderPaymentID(ctx context.Context, provider, providerPaymentID string) (*Payment, error)
 }
 
 type LicenseRepository interface {

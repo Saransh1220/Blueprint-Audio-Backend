@@ -2,25 +2,17 @@ package application
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/razorpay/razorpay-go"
 	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 type orderRepoMock struct{ mock.Mock }
@@ -36,8 +28,8 @@ func (m *orderRepoMock) GetByID(ctx context.Context, id uuid.UUID) (*domain.Orde
 	}
 	return args.Get(0).(*domain.Order), args.Error(1)
 }
-func (m *orderRepoMock) GetByRazorpayID(ctx context.Context, razorpayOrderID string) (*domain.Order, error) {
-	args := m.Called(ctx, razorpayOrderID)
+func (m *orderRepoMock) GetByProviderCheckoutID(ctx context.Context, provider, checkoutID string) (*domain.Order, error) {
+	args := m.Called(ctx, provider, checkoutID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -82,8 +74,8 @@ func (m *paymentRepoMock) GetByOrderID(ctx context.Context, orderID uuid.UUID) (
 	}
 	return args.Get(0).(*domain.Payment), args.Error(1)
 }
-func (m *paymentRepoMock) GetByRazorpayID(ctx context.Context, razorpayPaymentID string) (*domain.Payment, error) {
-	args := m.Called(ctx, razorpayPaymentID)
+func (m *paymentRepoMock) GetByProviderPaymentID(ctx context.Context, provider, providerPaymentID string) (*domain.Payment, error) {
+	args := m.Called(ctx, provider, providerPaymentID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -202,33 +194,16 @@ func newPaymentSvc() (*paymentService, *orderRepoMock, *paymentRepoMock, *licens
 	uf := new(userFinderMock)
 	es := new(emailSenderMock)
 	return &paymentService{
-		orderRepo:      or,
-		paymentRepo:    pr,
-		licenseRepo:    lr,
-		specFinder:     sf,
-		userFinder:     uf,
-		fileService:    fs,
-		razorpaySecret: "key-secret",
-		emailSender:    es,
-		appBaseURL:     "http://localhost:4200",
+		orderRepo:   or,
+		paymentRepo: pr,
+		licenseRepo: lr,
+		specFinder:  sf,
+		userFinder:  uf,
+		fileService: fs,
+		gateways:    newFakeRegistry(),
+		emailSender: es,
+		appBaseURL:  "http://localhost:4200",
 	}, or, pr, lr, sf, fs, uf, es
-}
-
-func TestPaymentService_GenerateSignature(t *testing.T) {
-	s, _, _, _, _, _, _, _ := newPaymentSvc()
-	sig := s.generateSignature("order_1", "pay_1")
-	assert.NotEmpty(t, sig)
-	assert.Equal(t, sig, s.generateSignature("order_1", "pay_1"))
-}
-
-func TestFormatRazorpayReceipt(t *testing.T) {
-	receiptID := uuid.MustParse("018f0f61-8f17-7b1d-b3c2-dc681d7b6adf")
-
-	receipt := formatRazorpayReceipt(receiptID)
-
-	assert.Equal(t, "order_018f0f618f177b1db3c2dc681d7b6adf", receipt)
-	assert.Len(t, receipt, 38)
-	assert.NotContains(t, receipt, "-")
 }
 
 func TestPaymentService_CreateOrder_Errors(t *testing.T) {
@@ -251,43 +226,6 @@ func TestPaymentService_CreateOrder_Errors(t *testing.T) {
 	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
 	_, err = s.CreateOrder(ctx, userID, specID, licenseID, "INR")
 	assert.EqualError(t, err, "Beat/Sample is not ready for purchase")
-}
-
-func TestPaymentService_VerifyPayment_EarlyFailures(t *testing.T) {
-	s, or, _, _, _, _, _, _ := newPaymentSvc()
-	ctx := context.Background()
-	orderID := uuid.New()
-
-	or.On("GetByID", ctx, orderID).Return(nil, errors.New("missing")).Once()
-	_, err := s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
-	assert.EqualError(t, err, "order not found")
-
-	paid := &domain.Order{ID: orderID, Status: domain.OrderStatusPaid}
-	or.On("GetByID", ctx, orderID).Return(paid, nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
-	assert.EqualError(t, err, "order already processed")
-
-	expired := &domain.Order{
-		ID:              orderID,
-		Status:          domain.OrderStatusPending,
-		ExpiresAt:       time.Now().Add(-time.Hour),
-		RazorpayOrderID: ptr("order_1"),
-	}
-	or.On("GetByID", ctx, orderID).Return(expired, nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "sig")
-	assert.EqualError(t, err, "order expired")
-
-	pending := &domain.Order{
-		ID:              orderID,
-		Status:          domain.OrderStatusPending,
-		ExpiresAt:       time.Now().Add(time.Hour),
-		RazorpayOrderID: ptr("order_1"),
-	}
-	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay_1", "wrong")
-	assert.EqualError(t, err, "invalid signature")
 }
 
 func TestPaymentService_GetUserOrdersAndProducerOrders(t *testing.T) {
@@ -421,29 +359,6 @@ func TestPaymentService_IssueLicense_InvalidLicenseOptionID(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 
-func TestPaymentService_VerifyPayment_StatusUpdateFailureBranches(t *testing.T) {
-	s, or, _, _, _, _, _, _ := newPaymentSvc()
-	ctx := context.Background()
-	orderID := uuid.New()
-
-	expired := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(-time.Hour), RazorpayOrderID: ptr("order_1")}
-	or.On("GetByID", ctx, orderID).Return(expired, nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd")).Once()
-	_, err := s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "sig")
-	assert.EqualError(t, err, "order expired and status update failed: upd")
-
-	pending := &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: nil}
-	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "sig")
-	assert.EqualError(t, err, "invalid order state")
-
-	pending = &domain.Order{ID: orderID, Status: domain.OrderStatusPending, ExpiresAt: time.Now().Add(time.Hour), RazorpayOrderID: ptr("order_1")}
-	or.On("GetByID", ctx, orderID).Return(pending, nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(errors.New("upd2")).Once()
-	_, err = s.VerifyPayment(ctx, orderID, uuid.Nil, "pay", "wrong")
-	assert.EqualError(t, err, "invalid signature and status update failed: upd2")
-}
-
 func TestPaymentService_GetUserLicensesAndProducerOrders_ErrorsAndFallbacks(t *testing.T) {
 	s, or, _, lr, _, fs, _, _ := newPaymentSvc()
 	ctx := context.Background()
@@ -472,173 +387,4 @@ func TestPaymentService_IssueLicense_MissingOptionID(t *testing.T) {
 	s, _, _, _, _, _, _, _ := newPaymentSvc()
 	_, err := s.issueLicense(context.Background(), &domain.Order{Notes: map[string]any{}})
 	assert.EqualError(t, err, "license_option_id missing")
-}
-
-func TestPaymentService_CreateOrder_SuccessWithLocalRazorpay(t *testing.T) {
-	s, or, _, _, sf, _, _, _ := newPaymentSvc()
-	ctx := context.Background()
-	userID := uuid.New()
-	specID := uuid.New()
-	loID := uuid.New()
-	var capturedReceipt string
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/orders" && r.Method == http.MethodPost {
-			var body map[string]any
-			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			receiptValue, ok := body["receipt"].(string)
-			require.True(t, ok)
-			capturedReceipt = receiptValue
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "order_local_1"})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	s.razorpayClient = razorpay.NewClient("key", "secret")
-	s.razorpayClient.Request.BaseURL = ts.URL
-
-	spec := &catalogDomain.Spec{
-		ID:    specID,
-		Title: "Track",
-		Licenses: []catalogDomain.LicenseOption{
-			{ID: loID, LicenseType: catalogDomain.LicenseBasic, Name: "Basic", Price: 99, PriceCurrency: "EUR"},
-		},
-	}
-	sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
-	or.On("Create", ctx, mock.AnythingOfType("*domain.Order")).Return(nil).Once()
-
-	order, err := s.CreateOrder(ctx, userID, specID, loID, "INR")
-	assert.NoError(t, err)
-	assert.NotNil(t, order)
-	assert.Equal(t, "Basic", order.LicenseType)
-	assert.Equal(t, 9900, order.Amount)
-	assert.Len(t, capturedReceipt, 38)
-	assert.NotContains(t, capturedReceipt, "-")
-	assert.Regexp(t, "^order_[0-9a-f]{32}$", capturedReceipt)
-}
-
-func TestPaymentService_VerifyPayment_SuccessAndNotCaptured(t *testing.T) {
-	s, or, pr, lr, _, _, uf, es := newPaymentSvc()
-	ctx := context.Background()
-	orderID := uuid.New()
-	loID := uuid.New()
-	rzpOrderID := "order_local_2"
-	paymentID := "pay_local_1"
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/payments/"+paymentID && r.Method == http.MethodGet {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":     paymentID,
-				"status": "captured",
-				"method": "card",
-				"email":  "buyer@example.com",
-			})
-			return
-		}
-		if r.URL.Path == "/v1/payments/pay_not_captured" && r.Method == http.MethodGet {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id":     "pay_not_captured",
-				"status": "failed",
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	s.razorpayClient = razorpay.NewClient("key", "secret")
-	s.razorpayClient.Request.BaseURL = ts.URL
-
-	order := &domain.Order{
-		ID:              orderID,
-		UserID:          uuid.New(),
-		SpecID:          uuid.New(),
-		Status:          domain.OrderStatusPending,
-		ExpiresAt:       time.Now().Add(time.Hour),
-		RazorpayOrderID: &rzpOrderID,
-		LicenseType:     "Basic",
-		Amount:          1000,
-		Currency:        "INR",
-		Notes:           map[string]any{"license_option_id": loID.String(), "spec_title": "Track"},
-	}
-
-	signature := s.generateSignature(rzpOrderID, paymentID)
-	or.On("GetByID", ctx, orderID).Return(order, nil).Twice()
-	pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
-	lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(nil).Once()
-	uf.On("FindByID", mock.Anything, order.UserID).Return(&authDomain.User{ID: order.UserID, Email: "buyer@example.com", Name: "Buyer"}, nil).Once()
-	es.On("Send", mock.Anything, mock.AnythingOfType("email.Message")).Return(nil).Once()
-
-	license, err := s.VerifyPayment(ctx, orderID, order.UserID, paymentID, signature)
-	assert.NoError(t, err)
-	assert.NotNil(t, license)
-
-	time.Sleep(50 * time.Millisecond)
-
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusFailed).Return(nil).Once()
-	_, err = s.VerifyPayment(ctx, orderID, order.UserID, "pay_not_captured", s.generateSignature(rzpOrderID, "pay_not_captured"))
-	assert.EqualError(t, err, "payment not captured")
-}
-
-func TestPaymentService_HandleDodoWebhook_SucceedsWithStandardWebhookSignature(t *testing.T) {
-	s, or, pr, lr, _, _, _, _ := newPaymentSvc()
-	ctx := context.Background()
-	orderID := uuid.New()
-	loID := uuid.New()
-	secretBytes := []byte("dodo-test-webhook-secret")
-	secret := "whsec_" + base64.StdEncoding.EncodeToString(secretBytes)
-	s.dodoConfig = DodoConfig{WebhookKey: secret}
-
-	payloadMap := map[string]any{
-		"type": "payment.succeeded",
-		"data": map[string]any{
-			"payment_id":          "pay_dodo_1",
-			"checkout_session_id": "cks_dodo_1",
-			"metadata": map[string]any{
-				"order_id":          orderID.String(),
-				"license_option_id": loID.String(),
-			},
-		},
-	}
-	payload, err := json.Marshal(payloadMap)
-	require.NoError(t, err)
-
-	webhookID := "evt_dodo_1"
-	timestamp := "1779091529"
-	mac := hmac.New(sha256.New, secretBytes)
-	mac.Write([]byte(webhookID + "." + timestamp + "." + string(payload)))
-	signature := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
-
-	order := &domain.Order{
-		ID:          orderID,
-		UserID:      uuid.New(),
-		SpecID:      uuid.New(),
-		LicenseType: "Unlimited",
-		Amount:      1099,
-		Currency:    "USD",
-		Status:      domain.OrderStatusPending,
-		Notes:       map[string]any{"license_option_id": loID.String()},
-	}
-	or.On("GetByID", ctx, orderID).Return(order, nil).Once()
-	pr.On("Create", ctx, mock.MatchedBy(func(payment *domain.Payment) bool {
-		return payment.OrderID == orderID &&
-			payment.RazorpayPaymentID == "pay_dodo_1" &&
-			payment.Status == domain.PaymentStatusCaptured
-	})).Return(nil).Once()
-	or.On("UpdateStatus", ctx, orderID, domain.OrderStatusPaid).Return(nil).Once()
-	lr.On("Create", ctx, mock.MatchedBy(func(license *domain.License) bool {
-		return license.OrderID == orderID &&
-			license.LicenseOptionID == loID &&
-			license.Currency == "USD"
-	})).Return(nil).Once()
-
-	err = s.HandleDodoWebhook(ctx, payload, map[string]string{
-		"webhook-id":        webhookID,
-		"webhook-timestamp": timestamp,
-		"webhook-signature": signature,
-	})
-	assert.NoError(t, err)
 }

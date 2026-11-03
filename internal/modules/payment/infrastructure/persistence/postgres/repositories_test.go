@@ -33,13 +33,13 @@ func TestPgOrderRepository_CreateAndList(t *testing.T) {
 	userID := uuid.New()
 	specID := uuid.New()
 	razor := "order_1"
-	order := &domain.Order{ID: id, UserID: userID, SpecID: specID, LicenseType: "Basic", Amount: 1000, Currency: "INR", RazorpayOrderID: &razor, Provider: "razorpay", Status: domain.OrderStatusPending, Notes: map[string]any{"k": "v"}, ExpiresAt: time.Now().Add(time.Hour)}
+	order := &domain.Order{ID: id, UserID: userID, SpecID: specID, LicenseType: "Basic", Amount: 1000, Currency: "INR", Provider: "razorpay", ProviderCheckoutID: &razor, Status: domain.OrderStatusPending, Notes: map[string]any{"k": "v"}, ExpiresAt: time.Now().Add(time.Hour)}
 
 	mock.ExpectExec("INSERT INTO orders").WillReturnResult(sqlmock.NewResult(1, 1))
 	require.NoError(t, repo.Create(ctx, order))
 
 	notes, _ := json.Marshal(order.Notes)
-	rows := sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "razorpay_order_id", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at"}).AddRow(id, userID, specID, "Basic", 1000, "INR", razor, "razorpay", nil, nil, "pending", notes, time.Now(), time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at"}).AddRow(id, userID, specID, "Basic", 1000, "INR", "razorpay", nil, nil, "pending", notes, time.Now(), time.Now(), time.Now())
 	mock.ExpectQuery("SELECT id, user_id, spec_id, license_type").WithArgs(id).WillReturnRows(rows)
 	got, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
@@ -48,12 +48,12 @@ func TestPgOrderRepository_CreateAndList(t *testing.T) {
 	mock.ExpectExec(`UPDATE orders SET status = \$1, updated_at = NOW\(\) WHERE id = \$2`).WithArgs(domain.OrderStatusPaid, id).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, repo.UpdateStatus(ctx, id, domain.OrderStatusPaid))
 
-	mock.ExpectQuery(`SELECT \* FROM orders WHERE user_id = \$1 ORDER BY created_at DESC LIMIT \$2 OFFSET \$3`).WithArgs(userID, 20, 0).WillReturnError(sql.ErrConnDone)
+	mock.ExpectQuery(`FROM orders WHERE user_id = \$1 ORDER BY created_at DESC LIMIT \$2 OFFSET \$3`).WithArgs(userID, 20, 0).WillReturnError(sql.ErrConnDone)
 	_, err = repo.ListByUser(ctx, userID, 20, 0)
 	require.Error(t, err)
 
-	mock.ExpectQuery(`SELECT \* FROM orders WHERE razorpay_order_id = \$1`).WithArgs(razor).WillReturnError(sql.ErrNoRows)
-	_, err = repo.GetByRazorpayID(ctx, razor)
+	mock.ExpectQuery(`FROM orders WHERE provider = \$1 AND provider_checkout_id = \$2`).WithArgs("razorpay", razor).WillReturnError(sql.ErrNoRows)
+	_, err = repo.GetByProviderCheckoutID(ctx, "razorpay", razor)
 	require.Error(t, err)
 }
 
@@ -70,8 +70,8 @@ func TestPgOrderRepository_ListByProducerAndErrors(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).WithArgs(producerID).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	notes, _ := json.Marshal(map[string]any{"x": 1})
-	rows := sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "razorpay_order_id", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at", "buyer_name", "buyer_email", "spec_title"}).
-		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1000, "INR", nil, "razorpay", nil, nil, "paid", notes, time.Now(), time.Now(), time.Now(), "Buyer", "buyer@example.com", "Spec")
+	rows := sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at", "buyer_name", "buyer_email", "spec_title"}).
+		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1000, "INR", "razorpay", nil, nil, "paid", notes, time.Now(), time.Now(), time.Now(), "Buyer", "buyer@example.com", "Spec")
 	mock.ExpectQuery(`SELECT\s+o\.id`).WithArgs(producerID, 50, 0).WillReturnRows(rows)
 	orders, total, err := repo.ListByProducer(ctx, producerID, 50, 0)
 	require.NoError(t, err)
@@ -87,24 +87,24 @@ func TestPgPaymentRepository_Basic(t *testing.T) {
 	id := uuid.New()
 	orderID := uuid.New()
 
-	p := &domain.Payment{ID: id, OrderID: orderID, RazorpayPaymentID: "pay_1", RazorpaySignature: "sig", Amount: 1000, Currency: "INR", Status: domain.PaymentStatusCaptured}
+	p := &domain.Payment{ID: id, OrderID: orderID, Provider: "razorpay", ProviderPaymentID: "pay_1", ProviderSignature: "sig", Amount: 1000, Currency: "INR", Status: domain.PaymentStatusCaptured}
 	mock.ExpectExec("INSERT INTO payments").WillReturnResult(sqlmock.NewResult(1, 1))
 	require.NoError(t, repo.Create(ctx, p))
 
-	rows := sqlmock.NewRows([]string{"id", "order_id", "razorpay_payment_id", "razorpay_signature", "amount", "currency", "status", "created_at", "updated_at"}).
-		AddRow(id, orderID, "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "order_id", "provider", "provider_payment_id", "provider_signature", "amount", "currency", "status", "created_at", "updated_at"}).
+		AddRow(id, orderID, "razorpay", "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
 	mock.ExpectQuery(`SELECT \* FROM payments WHERE id = \$1`).WithArgs(id).WillReturnRows(rows)
 	_, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
-	rowsByOrder := sqlmock.NewRows([]string{"id", "order_id", "razorpay_payment_id", "razorpay_signature", "amount", "currency", "status", "created_at", "updated_at"}).
-		AddRow(id, orderID, "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
+	rowsByOrder := sqlmock.NewRows([]string{"id", "order_id", "provider", "provider_payment_id", "provider_signature", "amount", "currency", "status", "created_at", "updated_at"}).
+		AddRow(id, orderID, "razorpay", "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
 	mock.ExpectQuery(`SELECT \* FROM payments WHERE order_id = \$1`).WithArgs(orderID).WillReturnRows(rowsByOrder)
 	_, err = repo.GetByOrderID(ctx, orderID)
 	require.NoError(t, err)
-	rowsByRzp := sqlmock.NewRows([]string{"id", "order_id", "razorpay_payment_id", "razorpay_signature", "amount", "currency", "status", "created_at", "updated_at"}).
-		AddRow(id, orderID, "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
-	mock.ExpectQuery(`SELECT \* FROM payments WHERE razorpay_payment_id = \$1`).WithArgs("pay_1").WillReturnRows(rowsByRzp)
-	_, err = repo.GetByRazorpayID(ctx, "pay_1")
+	rowsByRzp := sqlmock.NewRows([]string{"id", "order_id", "provider", "provider_payment_id", "provider_signature", "amount", "currency", "status", "created_at", "updated_at"}).
+		AddRow(id, orderID, "razorpay", "pay_1", "sig", 1000, "INR", "captured", time.Now(), time.Now())
+	mock.ExpectQuery(`SELECT \* FROM payments WHERE provider = \$1 AND provider_payment_id = \$2`).WithArgs("razorpay", "pay_1").WillReturnRows(rowsByRzp)
+	_, err = repo.GetByProviderPaymentID(ctx, "razorpay", "pay_1")
 	require.NoError(t, err)
 }
 

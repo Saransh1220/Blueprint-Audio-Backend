@@ -1,0 +1,63 @@
+package domain
+
+import (
+	"context"
+	"errors"
+
+	"github.com/google/uuid"
+)
+
+// Names stored in orders.provider and payments.provider.
+const (
+	ProviderRazorpay = "razorpay"
+	ProviderDodo     = "dodo"
+)
+
+var (
+	ErrInvalidSignature   = errors.New("invalid signature")
+	ErrPaymentNotCaptured = errors.New("payment not captured")
+)
+
+// Gateway is the strategy every payment provider implements: how to start a
+// checkout. How a payment is later confirmed differs per provider, so that
+// lives in the optional ClientConfirmer and WebhookConfirmer interfaces.
+type Gateway interface {
+	Name() string
+	CreateCheckout(ctx context.Context, req CheckoutRequest) (CheckoutSession, error)
+}
+
+type CheckoutRequest struct {
+	Order       *Order
+	SpecTitle   string
+	LicenseName string
+}
+
+type CheckoutSession struct {
+	// ProviderRef is the gateway's id for this checkout (Razorpay order id,
+	// Dodo checkout session id). It is stored in orders.provider_checkout_id.
+	ProviderRef string
+	// CheckoutURL is set by gateways that host the checkout page.
+	CheckoutURL string
+}
+
+// PaymentConfirmation is the provider-neutral result of a successful payment.
+type PaymentConfirmation struct {
+	OrderID           uuid.UUID
+	ProviderPaymentID string
+	Signature         string
+	Method            *string
+	Email             *string
+}
+
+// ClientConfirmer is implemented by gateways where the browser reports the
+// payment back to us (Razorpay: payment id plus signature).
+type ClientConfirmer interface {
+	ConfirmClientPayment(ctx context.Context, order *Order, providerPaymentID, signature string) (*PaymentConfirmation, error)
+}
+
+// WebhookConfirmer is implemented by gateways that call us when a payment
+// completes (Dodo). A nil confirmation with a nil error means the event is
+// valid but needs no action.
+type WebhookConfirmer interface {
+	ParseWebhook(payload []byte, headers map[string]string) (*PaymentConfirmation, error)
+}

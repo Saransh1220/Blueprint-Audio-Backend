@@ -24,7 +24,8 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
-	paymentApplication "github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
+	"github.com/saransh1220/blueprint-audio/internal/modules/payment/infrastructure/dodo"
+	"github.com/saransh1220/blueprint-audio/internal/modules/payment/infrastructure/razorpay"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/config"
 	"github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/database"
@@ -128,7 +129,7 @@ func main() {
 	catalogModule := catalog.NewModule(db, specRepo, fsModule.Service(), analyticsModule.AnalyticsService, notificationModule.Service(), redisClient)
 
 	// Payment Module
-	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentAppDodoConfig(cfg))
+	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentGatewayConfig(cfg))
 
 	// 5. Middleware
 	// Re-check account status and system role against the database (cached
@@ -187,12 +188,18 @@ func main() {
 	}
 }
 
-func paymentAppDodoConfig(cfg config.Config) paymentApplication.DodoConfig {
-	return paymentApplication.DodoConfig{
-		APIKey:     cfg.Dodo.APIKey,
-		ProductID:  cfg.Dodo.ProductID,
-		WebhookKey: cfg.Dodo.WebhookKey,
-		APIURL:     cfg.Dodo.APIURL,
+func paymentGatewayConfig(cfg config.Config) payment.GatewayConfig {
+	return payment.GatewayConfig{
+		Razorpay: razorpay.Config{
+			KeyID:     cfg.Razorpay.KeyID,
+			KeySecret: cfg.Razorpay.KeySecret,
+		},
+		Dodo: dodo.Config{
+			APIKey:     cfg.Dodo.APIKey,
+			ProductID:  cfg.Dodo.ProductID,
+			WebhookKey: cfg.Dodo.WebhookKey,
+			APIURL:     cfg.Dodo.APIURL,
+		},
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var orderCols = []string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "razorpay_order_id", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at"}
+var orderCols = []string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at"}
 
 func TestPgOrderRepository_Create_GeneratesDefaultsAndErrors(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
@@ -49,14 +49,14 @@ func TestPgOrderRepository_GetByID_Branches(t *testing.T) {
 
 	// success with notes
 	mock.ExpectQuery(`FROM orders\s+WHERE id = \$1`).WithArgs(id).WillReturnRows(
-		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", nil, "razorpay", nil, nil, "pending", []byte(`{"k":"v"}`), time.Now(), time.Now(), time.Now()))
+		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", "razorpay", nil, nil, "pending", []byte(`{"k":"v"}`), time.Now(), time.Now(), time.Now()))
 	got, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, "v", got.Notes["k"])
 
 	// success without notes
 	mock.ExpectQuery(`FROM orders\s+WHERE id = \$1`).WithArgs(id).WillReturnRows(
-		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", nil, "razorpay", nil, nil, "pending", []byte{}, time.Now(), time.Now(), time.Now()))
+		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", "razorpay", nil, nil, "pending", []byte{}, time.Now(), time.Now(), time.Now()))
 	got, err = repo.GetByID(ctx, id)
 	require.NoError(t, err)
 	assert.Nil(t, got.Notes)
@@ -75,7 +75,7 @@ func TestPgOrderRepository_GetByID_Branches(t *testing.T) {
 
 	// invalid notes JSON
 	mock.ExpectQuery(`FROM orders\s+WHERE id = \$1`).WithArgs(id).WillReturnRows(
-		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", nil, "razorpay", nil, nil, "pending", []byte(`{not json`), time.Now(), time.Now(), time.Now()))
+		sqlmock.NewRows(orderCols).AddRow(id, uuid.New(), uuid.New(), "Basic", 1000, "INR", "razorpay", nil, nil, "pending", []byte(`{not json`), time.Now(), time.Now(), time.Now()))
 	got, err = repo.GetByID(ctx, id)
 	assert.Nil(t, got)
 	assert.Error(t, err)
@@ -105,8 +105,8 @@ func TestPgOrderRepository_ListByProducer_Branches(t *testing.T) {
 	cols := append(append([]string{}, orderCols...), "buyer_name", "buyer_email", "spec_title")
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).WithArgs(pid).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 	mock.ExpectQuery(`SELECT\s+o\.id`).WithArgs(pid, 10, 0).WillReturnRows(sqlmock.NewRows(cols).
-		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1, "INR", nil, "razorpay", nil, nil, "paid", []byte{}, time.Now(), time.Now(), time.Now(), "A", "a@x.com", "S1").
-		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1, "INR", nil, "razorpay", nil, nil, "paid", []byte(`oops`), time.Now(), time.Now(), time.Now(), "B", "b@x.com", "S2"))
+		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1, "INR", "razorpay", nil, nil, "paid", []byte{}, time.Now(), time.Now(), time.Now(), "A", "a@x.com", "S1").
+		AddRow(uuid.New(), uuid.New(), uuid.New(), "Basic", 1, "INR", "razorpay", nil, nil, "paid", []byte(`oops`), time.Now(), time.Now(), time.Now(), "B", "b@x.com", "S2"))
 	orders, total, err := repo.ListByProducer(ctx, pid, 10, 0)
 	require.NoError(t, err)
 	assert.Equal(t, 2, total)

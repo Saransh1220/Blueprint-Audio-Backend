@@ -34,7 +34,7 @@ func (m mockPaymentService) CreateOrder(ctx context.Context, u, s, l uuid.UUID, 
 func (m mockPaymentService) VerifyPayment(ctx context.Context, o, u uuid.UUID, p, sig string) (*domain.License, error) {
 	return m.verifyFn(ctx, o, u, p, sig)
 }
-func (m mockPaymentService) HandleDodoWebhook(ctx context.Context, payload []byte, headers map[string]string) error {
+func (m mockPaymentService) HandleWebhook(ctx context.Context, _ string, payload []byte, headers map[string]string) error {
 	if m.dodoWebhookFn != nil {
 		return m.dodoWebhookFn(ctx, payload, headers)
 	}

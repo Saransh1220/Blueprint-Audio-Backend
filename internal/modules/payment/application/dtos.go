@@ -27,6 +27,7 @@ type ProducerOrderDto struct {
 	BuyerName       string             `json:"buyer_name"`
 	BuyerEmail      string             `json:"buyer_email"`
 	SpecTitle       string             `json:"spec_title"`
+	Provider        string             `json:"provider"`
 	RazorpayOrderID *string            `json:"razorpay_order_id,omitempty"`
 }
 

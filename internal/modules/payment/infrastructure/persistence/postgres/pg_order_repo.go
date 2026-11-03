@@ -42,10 +42,10 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 	query := `
 		INSERT INTO orders (
 			id, user_id, spec_id, license_type, amount, currency,
-			razorpay_order_id, provider, provider_checkout_id, provider_payment_id,
+			provider, provider_checkout_id, provider_payment_id,
 			status, notes, created_at, updated_at, expires_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 		)`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -55,7 +55,6 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 		order.LicenseType,
 		order.Amount,
 		order.Currency,
-		order.RazorpayOrderID,
 		order.Provider,
 		order.ProviderCheckoutID,
 		order.ProviderPaymentID,
@@ -74,7 +73,7 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 
 	query := `
 		SELECT id, user_id, spec_id, license_type, amount, currency,
-		       razorpay_order_id, provider, provider_checkout_id, provider_payment_id,
+		       provider, provider_checkout_id, provider_payment_id,
 		       status, notes, created_at, updated_at, expires_at
 		FROM orders 
 		WHERE id = $1
@@ -87,7 +86,6 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 		&order.LicenseType,
 		&order.Amount,
 		&order.Currency,
-		&order.RazorpayOrderID,
 		&order.Provider,
 		&order.ProviderCheckoutID,
 		&order.ProviderPaymentID,
@@ -115,11 +113,35 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	return order, nil
 }
 
-func (r *PgOrderRepository) GetByRazorpayID(ctx context.Context, razorpayOrderID string) (*domain.Order, error) {
+// orderColumns lists the columns scanOrder reads, in order. notes is JSONB, so
+// rows are scanned by hand rather than with SELECT * into the struct.
+const orderColumns = `id, user_id, spec_id, license_type, amount, currency,
+	provider, provider_checkout_id, provider_payment_id,
+	status, notes, created_at, updated_at, expires_at`
+
+type rowScanner interface{ Scan(dest ...any) error }
+
+func scanOrder(row rowScanner) (*domain.Order, error) {
 	order := &domain.Order{}
-	query := `SELECT * FROM orders WHERE razorpay_order_id = $1`
-	err := r.db.GetContext(ctx, order, query, razorpayOrderID)
-	return order, err
+	var notesJSON []byte
+	if err := row.Scan(
+		&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
+		&order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
+		&order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
+	); err != nil {
+		return nil, err
+	}
+	if len(notesJSON) > 0 {
+		if err := json.Unmarshal(notesJSON, &order.Notes); err != nil {
+			return nil, err
+		}
+	}
+	return order, nil
+}
+
+func (r *PgOrderRepository) GetByProviderCheckoutID(ctx context.Context, provider, checkoutID string) (*domain.Order, error) {
+	query := `SELECT ` + orderColumns + ` FROM orders WHERE provider = $1 AND provider_checkout_id = $2`
+	return scanOrder(r.db.QueryRowContext(ctx, query, provider, checkoutID))
 }
 
 func (r *PgOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
@@ -129,10 +151,22 @@ func (r *PgOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 }
 
 func (r *PgOrderRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Order, error) {
-	var orders []domain.Order
-	query := `SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-	err := r.db.SelectContext(ctx, &orders, query, userID, limit, offset)
-	return orders, err
+	query := `SELECT ` + orderColumns + ` FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	orders := []domain.Order{}
+	for rows.Next() {
+		order, err := scanOrder(rows)
+		if err != nil {
+			return nil, err
+		}
+		orders = append(orders, *order)
+	}
+	return orders, rows.Err()
 }
 
 func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.OrderWithBuyer, int, error) {
@@ -160,7 +194,6 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 			o.license_type,
 			o.amount,
 			o.currency,
-			o.razorpay_order_id,
 			o.provider,
 			o.provider_checkout_id,
 			o.provider_payment_id,
@@ -193,7 +226,7 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 		// We need to scan manually because of the JSON field and embedded struct
 		err := rows.Scan(
 			&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
-			&order.RazorpayOrderID, &order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
+			&order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
 			&order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
 			&order.BuyerName, &order.BuyerEmail, &order.SpecTitle,
 		)

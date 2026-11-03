@@ -31,13 +31,13 @@ func (r *PgPaymentRepository) Create(ctx context.Context, payment *domain.Paymen
 	payment.UpdatedAt = time.Now()
 	query := `
 		INSERT INTO payments (
-			id, order_id, razorpay_payment_id, razorpay_signature,
+			id, order_id, provider, provider_payment_id, provider_signature,
 			amount, currency, status, method, bank, wallet, vpa,
 			card_network, card_last4, email, contact,
 			error_code, error_description, captured_at,
 			created_at, updated_at
 		) VALUES (
-			:id, :order_id, :razorpay_payment_id, :razorpay_signature,
+			:id, :order_id, :provider, :provider_payment_id, :provider_signature,
 			:amount, :currency, :status, :method, :bank, :wallet, :vpa,
 			:card_network, :card_last4, :email, :contact,
 			:error_code, :error_description, :captured_at,
@@ -61,9 +61,9 @@ func (r *PgPaymentRepository) GetByOrderID(ctx context.Context, orderID uuid.UUI
 	return payment, err
 }
 
-func (r *PgPaymentRepository) GetByRazorpayID(ctx context.Context, razorpayPaymentID string) (*domain.Payment, error) {
+func (r *PgPaymentRepository) GetByProviderPaymentID(ctx context.Context, provider, providerPaymentID string) (*domain.Payment, error) {
 	payment := &domain.Payment{}
-	query := `SELECT * FROM payments WHERE razorpay_payment_id = $1`
-	err := r.db.GetContext(ctx, payment, query, razorpayPaymentID)
+	query := `SELECT * FROM payments WHERE provider = $1 AND provider_payment_id = $2`
+	err := r.db.GetContext(ctx, payment, query, provider, providerPaymentID)
 	return payment, err
 }

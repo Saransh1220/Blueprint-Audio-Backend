@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
+	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
@@ -29,7 +30,7 @@ func (h *PaymentHandler) DodoWebhook(w http.ResponseWriter, r *http.Request) {
 		"webhook-timestamp": r.Header.Get("webhook-timestamp"),
 		"webhook-signature": r.Header.Get("webhook-signature"),
 	}
-	if err := h.service.HandleDodoWebhook(r.Context(), payload, headers); err != nil {
+	if err := h.service.HandleWebhook(r.Context(), domain.ProviderDodo, payload, headers); err != nil {
 		log.Printf("PaymentHandler.DodoWebhook failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
