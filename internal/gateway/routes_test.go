@@ -91,8 +91,8 @@ func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for metrics, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated metrics, got %d", w.Code)
 	}
 }
 

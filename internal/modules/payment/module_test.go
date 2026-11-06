@@ -47,4 +47,5 @@ func TestModuleAccessors(t *testing.T) {
 	m := NewModule(&sqlx.DB{}, nilSpecFinder{}, nilUserFinder{}, nilFileService{}, sharedemail.NewSender(sharedemail.Config{}), "http://localhost:4200", GatewayConfig{})
 	require.NotNil(t, m)
 	require.NotNil(t, m.HTTPHandler())
+	require.Equal(t, map[string]string{"INR": "razorpay", "USD": "dodo"}, m.CurrencyGatewayNames())
 }

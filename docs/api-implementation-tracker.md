@@ -1,6 +1,6 @@
-# Cult Beats API Implementation Tracker
+# Historical API contract checklist
 
-Use this file as the working checklist while upgrading the backend to match the redesigned UI and newer frontend data requirements.
+This older checklist is retained as contract-design history, not a current completion report. Some entries predate the implemented APIs. Use [Phase 0 implementation notes](phase0-quick-fixes.md) and the working `Redwave-Project-Tracker.html` in the shared workspace for current task status.
 
 ## Specs / Beats API
 - [x] DB columns added

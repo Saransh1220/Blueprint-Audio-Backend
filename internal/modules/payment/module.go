@@ -22,8 +22,9 @@ type GatewayConfig struct {
 
 // Module represents the Payment module
 type Module struct {
-	service application.PaymentService
-	handler *paymentHttp.PaymentHandler
+	service  application.PaymentService
+	handler  *paymentHttp.PaymentHandler
+	gateways application.GatewayResolver
 }
 
 // NewModule creates and initializes the Payment module
@@ -60,12 +61,25 @@ func NewModule(
 	handler := paymentHttp.NewPaymentHandler(service)
 
 	return &Module{
-		service: service,
-		handler: handler,
+		service:  service,
+		handler:  handler,
+		gateways: registry,
 	}
 }
 
 // HTTPHandler returns the HTTP handler
 func (m *Module) HTTPHandler() *paymentHttp.PaymentHandler {
 	return m.handler
+}
+
+// CurrencyGatewayNames exposes the registry's actual routing without provider secrets.
+func (m *Module) CurrencyGatewayNames() map[string]string {
+	names := make(map[string]string)
+	for _, currency := range sharedmoney.SupportedCurrencies() {
+		gateway, err := m.gateways.ForCurrency(currency.Code)
+		if err == nil {
+			names[currency.Code] = gateway.Name()
+		}
+	}
+	return names
 }

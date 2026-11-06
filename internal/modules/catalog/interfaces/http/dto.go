@@ -13,6 +13,7 @@ type SpecResponse struct {
 	ID                uuid.UUID         `json:"id"`
 	ProducerID        uuid.UUID         `json:"producer_id"`
 	ProducerName      string            `json:"producer_name"`
+	ProducerHandle    string            `json:"producer_handle"`
 	Title             string            `json:"title"`
 	Category          string            `json:"category"`
 	Type              string            `json:"type"`
@@ -108,6 +109,7 @@ func ToSpecResponseForCurrency(spec *domain.Spec, displayCurrency string) *SpecR
 		ID:                spec.ID,
 		ProducerID:        spec.ProducerID,
 		ProducerName:      spec.ProducerName,
+		ProducerHandle:    spec.ProducerHandle,
 		Title:             spec.Title,
 		Category:          string(spec.Category),
 		Type:              spec.Type,

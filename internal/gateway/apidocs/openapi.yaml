@@ -537,6 +537,215 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /api/v1/admin/legal/audits:
+    get:
+      tags:
+        - Admin
+      operationId: listLegalPublicationAudits
+      summary: Admin list legal publication audits
+      description: Returns publication audit history for legal policies
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/admin/legal/documents/{key}/drafts:
+    post:
+      tags:
+        - Admin
+      operationId: createLegalDraft
+      summary: Admin create legal draft version
+      description: Uploads a new draft revision for review and preview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Document key
+          schema:
+            type: string
+      responses:
+        "201":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/admin/legal/documents/{key}/publish:
+    post:
+      tags:
+        - Admin
+      operationId: publishLegalVersion
+      summary: Admin publish legal document version
+      description: Atomically activates a legal version and supersedes previous versions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Document key
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/legal/acceptances:
+    post:
+      tags:
+        - Legal
+      operationId: recordLegalAcceptance
+      summary: Record legal document acceptance
+      description: Records affirmative user acceptance against exact document hash
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/legal/documents/{key}:
+    get:
+      tags:
+        - Legal
+      operationId: getLegalDocument
+      summary: Get current legal document
+      description: Returns effective version and metadata for the specified legal document key
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Document key (terms, privacy, licensing)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/legal/documents/{key}/versions:
+    get:
+      tags:
+        - Legal
+      operationId: listLegalDocumentVersions
+      summary: List published legal document versions
+      description: Returns revision history and change summaries for the legal document
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Document key
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/legal/documents/{key}/versions/{version}:
+    get:
+      tags:
+        - Legal
+      operationId: getLegalDocumentVersion
+      summary: Get specific historical legal document version
+      description: Returns immutable historical text and sections for archival reference
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Document key
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          description: Display version (e.g. 1.0.0)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /api/v1/legal/requirements:
+    get:
+      tags:
+        - Legal
+      operationId: getLegalRequirements
+      summary: Get user legal requirements
+      description: Returns required documents and current user acceptance state
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /auth/forgot-password:
     post:
       tags:
@@ -737,6 +946,22 @@ paths:
         "403":
           description: ""
           $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /config/currencies:
+    get:
+      tags:
+        - Configuration
+      operationId: getCurrencyConfiguration
+      summary: Get currency configurations
+      description: Returns active supported currencies and minor-unit metadata
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
@@ -1261,6 +1486,29 @@ paths:
         "403":
           description: ""
           $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /producers/{handle}:
+    get:
+      tags:
+        - Catalog
+      operationId: getProducerByHandle
+      summary: Get producer profile by handle
+      description: Retrieves public producer profile and catalog metrics
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          description: Producer username/handle
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
@@ -2042,6 +2290,30 @@ paths:
       responses:
         "101":
           description: Switching Protocols (WebSocket upgrade)
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /ws/ticket:
+    post:
+      tags:
+        - Notifications
+      operationId: createWebSocketTicket
+      summary: Create single-use WebSocket ticket
+      description: Exchanges bearer auth for short-lived ticket
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
         "400":
           description: ""
           $ref: '#/components/responses/BadRequest'

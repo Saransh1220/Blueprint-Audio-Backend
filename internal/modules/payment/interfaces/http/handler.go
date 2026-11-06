@@ -31,7 +31,8 @@ func (h *PaymentHandler) DodoWebhook(w http.ResponseWriter, r *http.Request) {
 		"webhook-signature": r.Header.Get("webhook-signature"),
 	}
 	if err := h.service.HandleWebhook(r.Context(), domain.ProviderDodo, payload, headers); err != nil {
-		log.Printf("PaymentHandler.DodoWebhook failed: %v", err)
+		traceID := middleware.GetRequestID(r.Context())
+		log.Printf("[ALERT][PAYMENT_FAILURE] trace_id=%s provider=%s error=%v", traceID, domain.ProviderDodo, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -115,6 +116,8 @@ func (h *PaymentHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		req.RazorpaySignature,
 	)
 	if err != nil {
+		traceID := middleware.GetRequestID(r.Context())
+		log.Printf("[ALERT][PAYMENT_FAILURE] trace_id=%s order_id=%s user_id=%s error=%v", traceID, orderID, userID, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

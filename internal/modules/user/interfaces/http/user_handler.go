@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	"image"
 	"io"
 	"mime/multipart"
@@ -246,4 +248,26 @@ func (h *UserHandler) sanitizeUserProfile(profile *application.PublicUserRespons
 			*field = presignedURL
 		}
 	}
+}
+
+func (h *UserHandler) GetPublicProfileByHandle(w http.ResponseWriter, r *http.Request) {
+	finder, ok := h.service.(interface {
+		GetPublicProfileByHandle(context.Context, string) (*application.PublicUserResponse, error)
+	})
+	if !ok {
+		http.Error(w, "profile not found", http.StatusNotFound)
+		return
+	}
+	profile, err := finder.GetPublicProfileByHandle(r.Context(), r.PathValue("handle"))
+	if errors.Is(err, authDomain.ErrUserNotFound) {
+		http.Error(w, "profile not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to fetch profile", http.StatusInternalServerError)
+		return
+	}
+	h.sanitizeUserProfile(profile)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profile)
 }

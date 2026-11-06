@@ -156,7 +156,7 @@ func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1 AND s.is_deleted = FALSE
@@ -187,7 +187,7 @@ func (r *PgSpecRepository) GetBySlug(ctx context.Context, slug string) (*domain.
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.slug = $1 AND s.is_deleted = FALSE
@@ -218,7 +218,7 @@ func (r *PgSpecRepository) GetBySlug(ctx context.Context, slug string) (*domain.
 func (r *PgSpecRepository) GetByShortCode(ctx context.Context, shortCode string) (*domain.Spec, error) {
 	spec := &domain.Spec{}
 
-	query := `SELECT s.*, u.display_name as producer_name, '' as producer_handle
+	query := `SELECT s.*, u.display_name as producer_name, u.name as producer_handle
 		FROM specs s 
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.short_code = $1 AND s.is_deleted = FALSE`
@@ -253,7 +253,7 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle, COUNT(*) OVER() as total_count
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.is_deleted = FALSE
@@ -484,7 +484,7 @@ func (r *PgSpecRepository) GetNewestBeats(ctx context.Context, limit int) ([]dom
 	specs := []domain.Spec{}
 	log.Printf("[CatalogRepo.Home] querying newest beats limit=%d", limit)
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.category = 'beat'
@@ -522,7 +522,7 @@ func (r *PgSpecRepository) GetRankedSpecs(ctx context.Context, section, period s
 
 	query := `
 		SELECT
-			s.*, u.display_name as producer_name, '' as producer_handle,
+			s.*, u.display_name as producer_name, u.name as producer_handle,
 			br.rank, br.score, br.previous_rank, br.metrics, br.calculated_at
 		FROM beat_rankings br
 		JOIN specs s ON s.id = br.spec_id
@@ -1250,7 +1250,7 @@ func (r *PgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 	}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle, COUNT(*) OVER() as total_count 
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle, COUNT(*) OVER() as total_count
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.producer_id = $1
@@ -1337,7 +1337,7 @@ func (r *PgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*do
 	spec := &domain.Spec{}
 
 	query := `
-		SELECT s.*, u.display_name as producer_name, '' as producer_handle
+		SELECT s.*, u.display_name as producer_name, u.name as producer_handle
 		FROM specs s
 		JOIN users u ON s.producer_id = u.id
 		WHERE s.id = $1

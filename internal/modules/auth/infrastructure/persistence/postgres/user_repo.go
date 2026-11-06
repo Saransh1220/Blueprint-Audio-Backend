@@ -283,3 +283,16 @@ func (r *PgUserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, bio 
 	_, err := r.db.ExecContext(ctx, query, args...)
 	return err
 }
+
+// GetByHandle resolves the exact stored username without deriving it from a display name.
+func (r *PgUserRepository) GetByHandle(ctx context.Context, handle string) (*domain.User, error) {
+	var users []domain.User
+	err := r.db.SelectContext(ctx, &users, `SELECT * FROM users WHERE lower(name) = lower($1) AND status = 'active' LIMIT 2`, handle)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) != 1 {
+		return nil, domain.ErrUserNotFound
+	}
+	return &users[0], nil
+}

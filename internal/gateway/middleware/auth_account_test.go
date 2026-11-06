@@ -40,7 +40,7 @@ func TestRequireAuth_QueryToken(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	assert.Equal(t, http.StatusUnauthorized, call(m.RequireAuth(ok), "/x?token="+tok, "").Code, "RequireAuth must ignore ?token=")
-	assert.Equal(t, http.StatusOK, call(m.RequireAuthAllowQueryToken(ok), "/ws?token="+tok, "").Code, "websocket variant accepts ?token=")
+	assert.Equal(t, http.StatusUnauthorized, call(m.RequireAuth(ok), "/ws?token="+tok, "").Code, "legacy query bearer tokens are rejected")
 	assert.Equal(t, http.StatusOK, call(m.RequireAuth(ok), "/x", tok).Code)
 }
 

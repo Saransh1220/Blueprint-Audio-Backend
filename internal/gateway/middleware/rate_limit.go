@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,20 +69,20 @@ func RateLimitMiddleware(maxReq int, window time.Duration) func(http.HandlerFunc
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			ip := r.Header.Get("X-Forwarded-For")
-			if ip == "" {
-				ip = r.RemoteAddr
-			} else {
-				ip = strings.Split(ip, ",")[0]
+			ip := r.RemoteAddr
+			if host, _, err := net.SplitHostPort(ip); err == nil {
+				ip = host
 			}
-			
-			// Quick strip of port if it exists (like 127.0.0.1:12345)
-			if idx := strings.LastIndex(ip, ":"); idx != -1 {
-				ip = ip[:idx]
+			// Enable only behind a trusted proxy that overwrites forwarded headers.
+			if os.Getenv("TRUST_PROXY_HEADERS") == "true" {
+				if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+					ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+				}
 			}
 
 			if !limiter.Allow(ip) {
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", strconv.Itoa(max(1, int(window.Seconds()))))
 				w.WriteHeader(http.StatusTooManyRequests)
 				w.Write([]byte(`{"error":"too many requests"}`))
 				return

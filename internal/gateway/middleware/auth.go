@@ -108,9 +108,8 @@ type authFailure struct {
 }
 
 // authenticate validates the token and returns a request context carrying the
-// caller's identity. allowQueryToken additionally accepts ?token=, which is
-// only meant for browser WebSockets that cannot set an Authorization header.
-func (m *AuthMiddleWare) authenticate(r *http.Request, allowQueryToken bool) (context.Context, *authFailure) {
+// caller's identity. Only Authorization headers carry access tokens.
+func (m *AuthMiddleWare) authenticate(r *http.Request) (context.Context, *authFailure) {
 	tokenStr := ""
 	authHeader := r.Header.Get("Authorization")
 
@@ -119,10 +118,6 @@ func (m *AuthMiddleWare) authenticate(r *http.Request, allowQueryToken bool) (co
 		if len(parts) == 2 && parts[0] == "Bearer" {
 			tokenStr = parts[1]
 		}
-	}
-
-	if tokenStr == "" && allowQueryToken {
-		tokenStr = r.URL.Query().Get("token")
 	}
 
 	if tokenStr == "" {
@@ -168,18 +163,12 @@ func (m *AuthMiddleWare) authenticate(r *http.Request, allowQueryToken bool) (co
 // the user context enriched with identity and role information for RBAC purposes.
 // Tokens in the query string are NOT accepted; they leak into logs and history.
 func (m *AuthMiddleWare) RequireAuth(next http.Handler) http.Handler {
-	return m.require(next, false)
+	return m.require(next)
 }
 
-// RequireAuthAllowQueryToken is RequireAuth that also accepts ?token=. Use it
-// only for endpoints a browser must open without custom headers (WebSocket).
-func (m *AuthMiddleWare) RequireAuthAllowQueryToken(next http.Handler) http.Handler {
-	return m.require(next, true)
-}
-
-func (m *AuthMiddleWare) require(next http.Handler, allowQueryToken bool) http.Handler {
+func (m *AuthMiddleWare) require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, fail := m.authenticate(r, allowQueryToken)
+		ctx, fail := m.authenticate(r)
 		if fail != nil {
 			http.Error(w, fail.body, fail.status)
 			return
@@ -198,7 +187,7 @@ func (m *AuthMiddleWare) FlexibleAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, fail := m.authenticate(r, false)
+		ctx, fail := m.authenticate(r)
 		if fail != nil {
 			next.ServeHTTP(w, r)
 			return

@@ -101,3 +101,21 @@ func validateProfile(req UpdateProfileRequest) error {
 	}
 	return nil
 }
+
+// GetPublicProfileByHandle depends only on the optional public-directory capability.
+func (s *UserService) GetPublicProfileByHandle(ctx context.Context, handle string) (*PublicUserResponse, error) {
+	finder, ok := s.repo.(interface {
+		GetByHandle(context.Context, string) (*authDomain.User, error)
+	})
+	if !ok {
+		return nil, authDomain.ErrUserNotFound
+	}
+	user, err := finder.GetByHandle(ctx, strings.TrimPrefix(strings.TrimSpace(handle), "@"))
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, authDomain.ErrUserNotFound
+	}
+	return s.GetPublicProfile(ctx, user.ID)
+}

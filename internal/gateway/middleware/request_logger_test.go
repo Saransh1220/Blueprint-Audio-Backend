@@ -129,3 +129,29 @@ func (w requestLoggerHijackableWriter) Hijack() (net.Conn, *bufio.ReadWriter, er
 	_ = client.Close()
 	return server, bufio.NewReadWriter(bufio.NewReader(server), bufio.NewWriter(server)), nil
 }
+
+func TestRequestLoggerMiddleware_IncludesTraceIDWhenPresent(t *testing.T) {
+	var output bytes.Buffer
+	times := []time.Time{
+		time.Date(2026, time.July, 20, 11, 22, 33, 0, time.UTC),
+		time.Date(2026, time.July, 20, 11, 22, 33, int(1000*time.Microsecond), time.UTC),
+	}
+	now := func() time.Time {
+		current := times[0]
+		times = times[1:]
+		return current
+	}
+
+	traceID := "trace-xyz-999"
+	handler := TraceMiddleware(newRequestLoggerMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), &output, false, now))
+
+	req := httptest.NewRequest(http.MethodGet, "/catalog", nil)
+	req.Header.Set(HeaderRequestID, traceID)
+	req.RemoteAddr = "127.0.0.1:8080"
+
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, output.String(), "["+traceID+"]")
+}

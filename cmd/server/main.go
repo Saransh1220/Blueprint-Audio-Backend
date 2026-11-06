@@ -22,6 +22,7 @@ import (
 	catalogApplication "github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	catalogPersistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
+	"github.com/saransh1220/blueprint-audio/internal/modules/legal"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/infrastructure/dodo"
@@ -131,6 +132,9 @@ func main() {
 	// Payment Module
 	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentGatewayConfig(cfg))
 
+	// Legal Module
+	legalModule := legal.NewModule(db)
+
 	// 5. Middleware
 	// Re-check account status and system role against the database (cached
 	// for a few seconds) so suspensions and demotions apply immediately
@@ -153,23 +157,26 @@ func main() {
 
 	// 6. Setup Routes
 	mux := gateway.SetupRoutes(gateway.RouterConfig{
-		AuthHandler:         authModule.HTTPHandler(),
-		AuthMiddleware:      authMiddleware,
-		SpecHandler:         catalogModule.HTTPHandler(),
-		SpecUploadHandler:   catalogModule.UploadHTTPHandler(),
-		UserHandler:         userModule.HTTPHandler(),
-		PaymentHandler:      paymentModule.HTTPHandler(),
-		AnalyticsHandler:    analyticsModule.AnalyticsHandler,
-		NotificationHandler: notificationModule.HTTPHandler(),
-		AdminHandler:        adminModule.HTTPHandler(),
-		FavoritesServer:     favoritesServer,
-		DisableAPIDocs:      !cfg.Server.APIDocsEnabled,
+		AuthHandler:          authModule.HTTPHandler(),
+		AuthMiddleware:       authMiddleware,
+		SpecHandler:          catalogModule.HTTPHandler(),
+		SpecUploadHandler:    catalogModule.UploadHTTPHandler(),
+		UserHandler:          userModule.HTTPHandler(),
+		PaymentHandler:       paymentModule.HTTPHandler(),
+		CurrencyGatewayNames: paymentModule.CurrencyGatewayNames(),
+		AnalyticsHandler:     analyticsModule.AnalyticsHandler,
+		NotificationHandler:  notificationModule.HTTPHandler(),
+		AdminHandler:         adminModule.HTTPHandler(),
+		LegalHandler:         legalModule.HTTPHandler(),
+		FavoritesServer:      favoritesServer,
+		DisableAPIDocs:       !cfg.Server.APIDocsEnabled,
 	})
 
 	// 7. Apply Middleware
 	handler := gatewayMiddleware.CORSMiddleware(mux, cfg.Server.AllowedOrigins)
 	handler = gatewayMiddleware.PrometheusMiddleware(handler)
 	handler = gatewayMiddleware.RequestLoggerMiddleware(handler)
+	handler = gatewayMiddleware.TraceMiddleware(handler)
 
 	// 8. Start Embedded Worker (if enabled)
 	workerCtx, cancelWorker := context.WithCancel(context.Background())

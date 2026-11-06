@@ -51,6 +51,7 @@ func TestRateLimitMiddleware_Allow(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_XForwardedFor(t *testing.T) {
+	t.Setenv("TRUST_PROXY_HEADERS", "true")
 	middleware := RateLimitMiddleware(1, time.Second)
 
 	handler := middleware(func(w http.ResponseWriter, r *http.Request) {
@@ -88,9 +89,9 @@ func TestRateLimiter_Cleanup(t *testing.T) {
 
 	// Wait for expiration
 	time.Sleep(20 * time.Millisecond)
-	
+
 	rl.cleanup()
-	
+
 	assert.Equal(t, 0, len(rl.ipRequests))
 	assert.Equal(t, 0, len(rl.ipResets))
 }

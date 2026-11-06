@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../red-wave-app"
+		},
+		{
+			"path": "../redwave-project-tracker"
+		}
+	],
+	"settings": {}
+}

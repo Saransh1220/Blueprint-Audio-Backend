@@ -15,6 +15,7 @@ import (
 	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
 	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
+	legal_http "github.com/saransh1220/blueprint-audio/internal/modules/legal/interfaces/http"
 )
 
 // RouterConfig holds all the handlers and middleware needed for routing
@@ -28,14 +29,17 @@ type RouterConfig struct {
 	AnalyticsHandler    *analytics_http.AnalyticsHandler
 	NotificationHandler *notification_http.NotificationHandler
 	AdminHandler        *admin_http.AdminHandler
+	LegalHandler        *legal_http.LegalHandler
 	// FavoritesServer implements the oapi-codegen StrictServerInterface for /me/favorites.
-	FavoritesServer *openapi.FavoritesServer
-	DisableAPIDocs  bool
+	FavoritesServer      *openapi.FavoritesServer
+	DisableAPIDocs       bool
+	CurrencyGatewayNames map[string]string
 }
 
 // SetupRoutes creates and configures all application routes
 func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /config/currencies", currencyConfiguration(config.CurrencyGatewayNames))
 
 	// Health Check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +48,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	})
 
 	// Prometheus Metrics Endpoint
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("GET /metrics", config.AuthMiddleware.Authorize(middleware.PermAdminAnalyticsRead)(promhttp.Handler()))
 
 	if !config.DisableAPIDocs {
 		apidocs.Register(mux)
@@ -71,12 +75,18 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	}
 
 	// Auth Routes
+	loginLimiter := middleware.RateLimitMiddleware(20, 15*time.Minute)
+	registerLimiter := middleware.RateLimitMiddleware(5, 15*time.Minute)
+	refreshLimiter := middleware.RateLimitMiddleware(60, time.Minute)
+	playLimiter := middleware.RateLimitMiddleware(120, time.Minute)
+	uploadLimiter := middleware.RateLimitMiddleware(60, time.Minute)
+	tickets := middleware.NewWebSocketTickets(config.AuthMiddleware)
 	emailActionLimiter := middleware.RateLimitMiddleware(3, 15*time.Minute)
 
-	mux.HandleFunc("POST /register", config.AuthHandler.Register)
-	mux.HandleFunc("POST /login", config.AuthHandler.Login)
-	mux.HandleFunc("POST /auth/google", config.AuthHandler.GoogleLogin)
-	mux.HandleFunc("POST /auth/refresh", config.AuthHandler.Refresh)
+	mux.HandleFunc("POST /register", registerLimiter(config.AuthHandler.Register))
+	mux.HandleFunc("POST /login", loginLimiter(config.AuthHandler.Login))
+	mux.HandleFunc("POST /auth/google", loginLimiter(config.AuthHandler.GoogleLogin))
+	mux.HandleFunc("POST /auth/refresh", refreshLimiter(config.AuthHandler.Refresh))
 	mux.HandleFunc("POST /auth/logout", config.AuthHandler.Logout)
 	mux.HandleFunc("POST /auth/verify-email", emailActionLimiter(config.AuthHandler.VerifyEmail))
 	mux.HandleFunc("POST /auth/resend-verification", emailActionLimiter(config.AuthHandler.ResendVerification))
@@ -94,18 +104,19 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
 	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.CreateGone)))
 	if config.SpecUploadHandler != nil {
-		mux.Handle("POST /spec-uploads", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Initiate)))
-		mux.Handle("PUT /spec-uploads/{id}/metadata", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.SaveMetadata)))
-		mux.Handle("POST /spec-uploads/{id}/files", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.PrepareFile)))
-		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.ConfirmFile)))
-		mux.Handle("POST /spec-uploads/{id}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Complete)))
-		mux.Handle("GET /spec-uploads/{id}", authz(middleware.PermSpecUpload)(http.HandlerFunc(config.SpecUploadHandler.Status)))
+		mux.Handle("POST /spec-uploads", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Initiate))))
+		mux.Handle("PUT /spec-uploads/{id}/metadata", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.SaveMetadata))))
+		mux.Handle("POST /spec-uploads/{id}/files", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.PrepareFile))))
+		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.ConfirmFile))))
+		mux.Handle("POST /spec-uploads/{id}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Complete))))
+		mux.Handle("GET /spec-uploads/{id}", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Status))))
 	}
 	mux.Handle("PATCH /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Update)))
 	mux.Handle("DELETE /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Delete)))
 	mux.Handle("POST /specs/{id}/download-free", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.DownloadFree)))
 
 	// User Routes
+	mux.HandleFunc("GET /producers/{handle}", config.UserHandler.GetPublicProfileByHandle)
 	mux.Handle("PATCH /users/profile", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.UserHandler.UpdateProfile)))
 	mux.Handle("POST /users/profile/avatar", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.UserHandler.UploadAvatar)))
 	mux.Handle("POST /users/profile/banner", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.UserHandler.UploadBanner)))
@@ -127,10 +138,11 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("PATCH /notifications/{id}/read", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.MarkAsRead)))
 	mux.Handle("PATCH /notifications/read-all", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.MarkAllAsRead)))
 	mux.Handle("GET /notifications/unread-count", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.NotificationHandler.UnreadCount)))
-	mux.Handle("GET /ws", config.AuthMiddleware.RequireAuthAllowQueryToken(http.HandlerFunc(config.NotificationHandler.Subscribe)))
+	mux.Handle("POST /ws/ticket", config.AuthMiddleware.RequireAuth(http.HandlerFunc(refreshLimiter(tickets.Issue))))
+	mux.Handle("GET /ws", tickets.Authenticate(http.HandlerFunc(config.NotificationHandler.Subscribe)))
 
 	// Analytics Routes
-	mux.HandleFunc("POST /specs/{id}/play", config.AnalyticsHandler.TrackPlay)
+	mux.HandleFunc("POST /specs/{id}/play", playLimiter(config.AnalyticsHandler.TrackPlay))
 	mux.Handle("POST /specs/{id}/favorite", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.AnalyticsHandler.ToggleFavorite)))
 	mux.Handle("GET /specs/{id}/analytics", authz(middleware.PermAnalyticsView)(http.HandlerFunc(config.AnalyticsHandler.GetProducerAnalytics)))
 	mux.Handle("GET /analytics/overview", authz(middleware.PermAnalyticsView)(http.HandlerFunc(config.AnalyticsHandler.GetOverview)))
@@ -150,6 +162,20 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 		mux.Handle("GET /admin/licenses", authz(middleware.PermAdminLicensesRead)(http.HandlerFunc(config.AdminHandler.ListLicenses)))
 		mux.Handle("GET /admin/analytics/overview", authz(middleware.PermAdminAnalyticsRead)(http.HandlerFunc(config.AdminHandler.AnalyticsOverview)))
 		mux.Handle("GET /admin/audit-log", authz(middleware.PermAdminAuditRead)(http.HandlerFunc(config.AdminHandler.ListAuditLog)))
+	}
+
+	// Legal Routes
+	if config.LegalHandler != nil {
+		mux.HandleFunc("GET /api/v1/legal/documents/{key}", config.LegalHandler.GetDocument)
+		mux.HandleFunc("GET /api/v1/legal/documents/{key}/versions", config.LegalHandler.GetDocumentVersions)
+		mux.HandleFunc("GET /api/v1/legal/documents/{key}/versions/{version}", config.LegalHandler.GetDocumentVersion)
+		if config.AuthMiddleware != nil {
+			mux.Handle("GET /api/v1/legal/requirements", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.LegalHandler.GetRequirements)))
+			mux.Handle("POST /api/v1/legal/acceptances", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.LegalHandler.RecordAcceptance)))
+			mux.Handle("POST /api/v1/admin/legal/documents/{key}/drafts", authz(middleware.PermAdminSpecsWrite)(http.HandlerFunc(config.LegalHandler.CreateDraft)))
+			mux.Handle("POST /api/v1/admin/legal/documents/{key}/publish", authz(middleware.PermAdminSpecsWrite)(http.HandlerFunc(config.LegalHandler.PublishVersion)))
+			mux.Handle("GET /api/v1/admin/legal/audits", authz(middleware.PermAdminAuditRead)(http.HandlerFunc(config.LegalHandler.GetAudits)))
+		}
 	}
 
 	return mux

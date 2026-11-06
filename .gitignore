@@ -39,3 +39,6 @@ minio_data/
 
 # Temporary files
 tmp/
+
+# Local application logs
+*.log

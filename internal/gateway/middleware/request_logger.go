@@ -51,14 +51,21 @@ func newRequestLoggerMiddleware(
 				method = methodColor(r.Method) + method + ansiReset
 			}
 
+			traceID := GetRequestID(r.Context())
+			traceSuffix := ""
+			if traceID != "" {
+				traceSuffix = " [" + traceID + "]"
+			}
+
 			logger.Printf(
-				"[API] %s | %s | %10s | %-15s | %s %s",
+				"[API] %s | %s | %10s | %-15s | %s %s%s",
 				start.Format("2006/01/02 - 15:04:05"),
 				status,
 				formatRequestLatency(now().Sub(start)),
 				requestRemoteIP(r.RemoteAddr),
 				method,
 				safeRequestTarget(r),
+				traceSuffix,
 			)
 		}()
 
@@ -81,7 +88,7 @@ func safeRequestTarget(r *http.Request) string {
 func isSensitiveQueryKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
 	switch normalized {
-	case "token", "access_token", "refresh_token", "id_token", "api_key", "authorization",
+	case "ticket", "token", "access_token", "refresh_token", "id_token", "api_key", "authorization",
 		"signature", "credential", "x_amz_signature", "x_amz_credential", "x_amz_security_token":
 		return true
 	default:
