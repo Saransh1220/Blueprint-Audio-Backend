@@ -10,6 +10,7 @@ import (
 	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
+	sharedmoney "github.com/saransh1220/blueprint-audio/internal/shared/money"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +28,12 @@ func (nilSpecFinder) FindWithLicenses(_ context.Context, _ uuid.UUID) (*catalogD
 func (nilSpecFinder) Exists(_ context.Context, _ uuid.UUID) (bool, error) { return false, nil }
 func (nilSpecFinder) GetLicenseByID(_ context.Context, _ uuid.UUID) (*catalogDomain.LicenseOption, error) {
 	return nil, nil
+}
+func (nilSpecFinder) GetLicensePrices(_ context.Context, _ uuid.UUID) ([]sharedmoney.StoredPrice, error) {
+	return nil, nil
+}
+func (nilSpecFinder) UpsertLicensePrices(_ context.Context, _ uuid.UUID, _ []sharedmoney.StoredPrice) error {
+	return nil
 }
 
 type nilFileService struct{}

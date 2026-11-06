@@ -175,6 +175,7 @@ func TestPGSpecRepository_ListWithRelationsAndUpdateNotFound(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name", "price", "features", "file_types", "is_deleted"}).
 			AddRow(licenseID, specID, "Basic", "Basic", 10.0, pq.StringArray{"f1"}, pq.StringArray{"mp3"}, false))
 
+	expectEmptyLicensePrices(mock)
 	out, total, err := repo.List(ctx, domain.SpecFilter{Limit: 20, Offset: 0, MinPrice: -1, Sort: "price_asc"})
 	require.NoError(t, err)
 	require.Len(t, out, 1)
@@ -390,6 +391,7 @@ func TestPGSpecRepository_ListByUserID_WithRowsAndRelations(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name", "price", "features", "file_types", "is_deleted"}).
 			AddRow(licenseID, specID, "Basic", "Basic", 10.0, pq.StringArray{"f1"}, pq.StringArray{"mp3"}, false))
 
+	expectEmptyLicensePrices(mock)
 	out, total, err := repo.ListByUserID(ctx, producerID, 10, 0)
 	require.NoError(t, err)
 	require.Len(t, out, 1)

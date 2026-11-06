@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -67,7 +68,7 @@ func (h *SpecHandler) cacheDel(ctx context.Context, key string) {
 }
 
 func (h *SpecHandler) cacheDelSpec(ctx context.Context, specID uuid.UUID) {
-	baseKey := "spec:" + specID.String()
+	baseKey := "spec:prices-v2:" + specID.String()
 	h.cacheDel(ctx, baseKey)
 	h.cacheDel(ctx, baseKey+":"+money.CurrencyINR)
 	h.cacheDel(ctx, baseKey+":"+money.CurrencyUSD)
@@ -108,7 +109,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Try Cache
 	displayCurrency := money.ResolveCurrencyFromRequest(r)
-	cacheKey := "spec:" + spec.ID.String() + ":" + displayCurrency // Normalize cache key to always use UUID and currency
+	cacheKey := "spec:prices-v2:" + spec.ID.String() + ":" + displayCurrency // Normalize cache key to always use UUID and currency
 	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
 		var cached struct {
 			ProcessingStatus domain.ProcessingStatus `json:"processing_status"`
@@ -196,8 +197,29 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	minDuration, _ := strconv.Atoi(q.Get("min_duration"))
 	maxDuration, _ := strconv.Atoi(q.Get("max_duration"))
 
-	minPrice, _ := strconv.ParseFloat(q.Get("min_price"), 64)
-	maxPrice, _ := strconv.ParseFloat(q.Get("max_price"), 64)
+	minPrice := -1.0
+	maxPrice := 0.0
+	for _, entry := range []struct {
+		key    string
+		target *float64
+	}{{"min_price", &minPrice}, {"max_price", &maxPrice}} {
+		if raw := q.Get(entry.key); raw != "" {
+			value, err := strconv.ParseFloat(raw, 64)
+			if err != nil {
+				http.Error(w, "invalid price filter", http.StatusBadRequest)
+				return
+			}
+			if _, err := money.MajorToMinor(value); err != nil {
+				http.Error(w, "invalid price filter", http.StatusBadRequest)
+				return
+			}
+			*entry.target = value
+		}
+	}
+	if maxPrice > 0 && minPrice > maxPrice {
+		http.Error(w, "invalid price range", http.StatusBadRequest)
+		return
+	}
 
 	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
@@ -213,6 +235,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := domain.SpecFilter{
+		Currency:    money.ResolveCurrencyFromRequest(r),
 		Category:    category,
 		Genres:      genres,
 		Tags:        tags,
@@ -395,6 +418,10 @@ func (h *SpecHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Delete from DB
 	if err := h.service.DeleteSpec(r.Context(), id, producerID); err != nil {
+		if errors.Is(err, money.ErrStalePrice) {
+			http.Error(w, "prices changed; reload before saving", http.StatusConflict)
+			return
+		}
 		if err == domain.ErrSpecProcessing {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -603,6 +630,10 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.UpdateSpec(r.Context(), existingSpec, producerID); err != nil {
 		if newUploadedKey != "" {
 			_ = h.fileService.Delete(context.Background(), newUploadedKey)
+		}
+		if errors.Is(err, money.ErrStalePrice) {
+			http.Error(w, "prices changed; reload before saving", http.StatusConflict)
+			return
 		}
 		if err == domain.ErrSpecProcessing {
 			http.Error(w, err.Error(), http.StatusConflict)

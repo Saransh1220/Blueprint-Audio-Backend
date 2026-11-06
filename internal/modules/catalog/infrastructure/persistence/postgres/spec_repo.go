@@ -16,6 +16,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 var errRankingRefreshSkipped = errors.New("ranking refresh skipped because another worker holds the lock")
@@ -147,8 +148,51 @@ func createSpecTx(ctx context.Context, tx *sqlx.Tx, spec *domain.Spec) error {
 		if err != nil {
 			return err
 		}
+
+		if err := saveLicensePricesTx(ctx, tx, license.ID, license.Prices); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+func (r *PgSpecRepository) hydrateLicenseOptionsPrices(ctx context.Context, licenses []domain.LicenseOption) error {
+	if len(licenses) == 0 {
+		return nil
+	}
+	licenseIDs := make([]uuid.UUID, len(licenses))
+	for i, lic := range licenses {
+		licenseIDs[i] = lic.ID
+	}
+
+	query, args, err := sqlx.In(`
+		SELECT id, license_option_id, currency, amount_minor, amount_major, source, fx_rate_snapshot, revision, is_active, created_at, updated_at
+		FROM license_option_prices
+		WHERE license_option_id IN (?)
+		ORDER BY currency ASC
+	`, licenseIDs)
+	if err != nil {
+		return err
+	}
+	query = r.db.Rebind(query)
+
+	var prices []money.StoredPrice
+	err = r.db.SelectContext(ctx, &prices, query, args...)
+	if err != nil {
+		return fmt.Errorf("load license prices: %w", err)
+	}
+
+	priceMap := make(map[uuid.UUID][]money.StoredPrice)
+	for _, p := range prices {
+		priceMap[p.LicenseOptionID] = append(priceMap[p.LicenseOptionID], p)
+	}
+
+	for i := range licenses {
+		if pList, ok := priceMap[licenses[i].ID]; ok {
+			licenses[i].Prices = pList
+		}
+	}
 	return nil
 }
 
@@ -170,6 +214,9 @@ func (r *PgSpecRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.S
 	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.hydrateLicenseOptionsPrices(ctx, spec.Licenses); err != nil {
 		return nil, err
 	}
 
@@ -203,6 +250,9 @@ func (r *PgSpecRepository) GetBySlug(ctx context.Context, slug string) (*domain.
 	if err != nil {
 		return nil, err
 	}
+	if err := r.hydrateLicenseOptionsPrices(ctx, spec.Licenses); err != nil {
+		return nil, err
+	}
 
 	//fetch genres
 	genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
@@ -233,6 +283,9 @@ func (r *PgSpecRepository) GetByShortCode(ctx context.Context, shortCode string)
 	if err != nil {
 		return nil, err
 	}
+	if err := r.hydrateLicenseOptionsPrices(ctx, spec.Licenses); err != nil {
+		return nil, err
+	}
 
 	//fetch genres
 	genreQuery := `SELECT g.* FROM genres g JOIN spec_genres sg ON g.id = sg.genre_id WHERE sg.spec_id = $1`
@@ -261,6 +314,21 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	`
 	args := []interface{}{}
 	argId := 1
+	priceColumn := "s.base_price"
+	if filter.Currency != "" {
+		currency, ok := money.LookupCurrency(filter.Currency)
+		if !ok {
+			return nil, 0, money.ErrInvalidCurrency
+		}
+		query = strings.Replace(query, "WHERE s.is_deleted", `LEFT JOIN LATERAL (
+   SELECT MIN(p.amount_minor)::numeric / 100 AS amount FROM license_options lo
+   JOIN license_option_prices p ON p.license_option_id=lo.id
+   WHERE lo.spec_id=s.id AND lo.is_deleted=FALSE AND p.is_active=TRUE AND p.currency=$1
+  ) selected_price ON TRUE WHERE s.is_deleted`, 1)
+		args = append(args, currency.Code)
+		argId++
+		priceColumn = "selected_price.amount"
+	}
 
 	if filter.Category != "" {
 		query += fmt.Sprintf(" AND s.category = $%d", argId)
@@ -310,13 +378,13 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	}
 
 	if filter.MinPrice >= 0 {
-		query += fmt.Sprintf(" AND s.base_price >= $%d", argId)
+		query += fmt.Sprintf(" AND %s >= $%d", priceColumn, argId)
 		args = append(args, filter.MinPrice)
 		argId++
 	}
 
 	if filter.MaxPrice > 0 {
-		query += fmt.Sprintf(" AND s.base_price <= $%d", argId)
+		query += fmt.Sprintf(" AND %s <= $%d", priceColumn, argId)
 		args = append(args, filter.MaxPrice)
 		argId++
 	}
@@ -359,9 +427,9 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 	case "oldest":
 		orderBy = "s.created_at ASC"
 	case "price_asc":
-		orderBy = "s.base_price ASC"
+		orderBy = priceColumn + " ASC NULLS LAST"
 	case "price_desc":
-		orderBy = "s.base_price DESC"
+		orderBy = priceColumn + " DESC NULLS LAST"
 	case "bpm_asc":
 		orderBy = "s.bpm ASC"
 	case "bpm_desc":
@@ -436,6 +504,9 @@ func (r *PgSpecRepository) List(ctx context.Context, filter domain.SpecFilter) (
 		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
 	}
 
+	if err := r.hydrateLicenseOptionsPrices(ctx, licenses); err != nil {
+		return nil, 0, err
+	}
 	for _, lic := range licenses {
 		if spec, ok := specMap[lic.SpecID]; ok {
 			spec.Licenses = append(spec.Licenses, lic)
@@ -979,6 +1050,9 @@ func (r *PgSpecRepository) hydrateSpecRelations(ctx context.Context, specs []dom
 	if err := r.db.SelectContext(ctx, &licenses, licenseQuery, args...); err != nil {
 		return fmt.Errorf("failed to fetch licenses: %w", err)
 	}
+	if err := r.hydrateLicenseOptionsPrices(ctx, licenses); err != nil {
+		return err
+	}
 	for _, lic := range licenses {
 		if spec, ok := specMap[lic.SpecID]; ok {
 			spec.Licenses = append(spec.Licenses, lic)
@@ -1138,7 +1212,7 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 				file_types = :file_types,
 				is_deleted = FALSE,
 				updated_at = NOW()
-			WHERE id = :id
+			WHERE id = :id AND spec_id = :spec_id
 		`
 
 		// B. Upsert (Insert or Update)
@@ -1194,6 +1268,9 @@ func (r *PgSpecRepository) Update(ctx context.Context, spec *domain.Spec) error 
 					}
 					processedIDs[license.ID] = true
 				}
+			}
+			if err := saveLicensePricesTx(ctx, tx, license.ID, license.Prices); err != nil {
+				return err
 			}
 		}
 
@@ -1323,6 +1400,9 @@ func (r *PgSpecRepository) ListByUserID(ctx context.Context, producerID uuid.UUI
 		return nil, 0, fmt.Errorf("failed to fetch licenses: %w", err)
 	}
 
+	if err := r.hydrateLicenseOptionsPrices(ctx, licenses); err != nil {
+		return nil, 0, err
+	}
 	for _, lic := range licenses {
 		if spec, ok := specMap[lic.SpecID]; ok {
 			spec.Licenses = append(spec.Licenses, lic)
@@ -1351,6 +1431,9 @@ func (r *PgSpecRepository) GetByIDSystem(ctx context.Context, id uuid.UUID) (*do
 	licenseQuery := `SELECT * FROM license_options WHERE spec_id = $1 AND is_deleted = FALSE`
 	err = r.db.SelectContext(ctx, &spec.Licenses, licenseQuery, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.hydrateLicenseOptionsPrices(ctx, spec.Licenses); err != nil {
 		return nil, err
 	}
 

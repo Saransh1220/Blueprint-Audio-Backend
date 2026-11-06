@@ -12,6 +12,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	paymenthttp "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
+	sharedmoney "github.com/saransh1220/blueprint-audio/internal/shared/money"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -253,4 +254,47 @@ func TestPaymentHandler_PaginationParsing(t *testing.T) {
 	h.GetProducerOrders(httptest.NewRecorder(), authedReq("GET", "/p?page=2&limit=25", ""))
 	assert.Equal(t, 2, gotProdPage)
 	assert.Equal(t, 25, gotProdLimit)
+}
+
+func TestPaymentHandler_CreateOrder_PricingResponses(t *testing.T) {
+	specID := uuid.New()
+	loID := uuid.New()
+	priceID := uuid.New()
+
+	t.Run("returns 409 with PRICE_CHANGED and current offer when price mismatches", func(t *testing.T) {
+		h := paymenthttp.NewPaymentHandler(mockPaymentService{
+			createOrderFn: func(ctx context.Context, u, s, l uuid.UUID) (*domain.Order, error) {
+				return nil, &application.PriceMismatchError{
+					Message: "price changed",
+					CurrentOffer: sharedmoney.SelectedPriceOffer{
+						PriceID:       &priceID,
+						Revision:      3,
+						AmountMinor:   2000,
+						AmountMajor:   20.00,
+						Currency:      "USD",
+						Selection:     sharedmoney.SelectionExact,
+						IsPurchasable: true,
+					},
+				}
+			},
+		})
+		body := `{"spec_id":"` + specID.String() + `","license_option_id":"` + loID.String() + `","currency":"USD","expected_amount_minor":1500}`
+		w := httptest.NewRecorder()
+		h.CreateOrder(w, authedReq("POST", "/orders", body))
+		require.Equal(t, http.StatusConflict, w.Code)
+		assert.Contains(t, w.Body.String(), `"PRICE_CHANGED"`)
+		assert.Contains(t, w.Body.String(), `"amount_minor":2000`)
+	})
+
+	t.Run("returns 400 for unsupported currency", func(t *testing.T) {
+		h := paymenthttp.NewPaymentHandler(mockPaymentService{
+			createOrderFn: func(ctx context.Context, u, s, l uuid.UUID) (*domain.Order, error) {
+				return nil, sharedmoney.ErrInvalidCurrency
+			},
+		})
+		body := `{"spec_id":"` + specID.String() + `","license_option_id":"` + loID.String() + `","currency":"EUR"}`
+		w := httptest.NewRecorder()
+		h.CreateOrder(w, authedReq("POST", "/orders", body))
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }

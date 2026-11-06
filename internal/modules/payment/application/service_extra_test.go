@@ -11,6 +11,7 @@ import (
 	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
+	sharedmoney "github.com/saransh1220/blueprint-audio/internal/shared/money"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -19,12 +20,35 @@ import (
 func strp(s string) *string { return &s }
 
 func specWithLicense(loID uuid.UUID, status catalogDomain.ProcessingStatus, currency string) *catalogDomain.Spec {
+	if currency == "" {
+		currency = sharedmoney.CurrencyINR
+	}
+	priceID := uuid.New()
+	minor, _ := sharedmoney.MajorToMinor(10)
 	return &catalogDomain.Spec{
 		ID:               uuid.New(),
 		Title:            "Track",
 		ProcessingStatus: status,
+		PriceCurrency:    currency,
 		Licenses: []catalogDomain.LicenseOption{
-			{ID: loID, LicenseType: catalogDomain.LicenseBasic, Name: "Basic", Price: 10, PriceCurrency: currency},
+			{
+				ID:            loID,
+				LicenseType:   catalogDomain.LicenseBasic,
+				Name:          "Basic",
+				Price:         10,
+				PriceCurrency: currency,
+				Prices: []sharedmoney.StoredPrice{
+					{
+						ID:              priceID,
+						LicenseOptionID: loID,
+						Currency:        currency,
+						AmountMinor:     minor,
+						AmountMajor:     10.0,
+						Revision:        1,
+						IsActive:        true,
+					},
+				},
+			},
 		},
 	}
 }
@@ -246,4 +270,118 @@ func TestFormatMoney(t *testing.T) {
 	assert.Equal(t, "INR 12.34", formatMoney(1234, "inr"))
 	assert.Equal(t, "USD 5.00", formatMoney(500, "usd"))
 	assert.Equal(t, "EUR 0.99", formatMoney(99, "Eur"))
+}
+
+func TestPaymentService_CreateOrderWithOffer_ExplicitPricing(t *testing.T) {
+	ctx := context.Background()
+	s, or, _, _, sf, _, _, _ := newPaymentSvc()
+	specID, loID := uuid.New(), uuid.New()
+	priceID := uuid.New()
+
+	spec := &catalogDomain.Spec{
+		ID:               specID,
+		Title:            "Explicit Beat",
+		ProcessingStatus: catalogDomain.ProcessingStatusCompleted,
+		Licenses: []catalogDomain.LicenseOption{
+			{
+				ID:            loID,
+				LicenseType:   catalogDomain.LicenseBasic,
+				Name:          "Basic",
+				Price:         15.00,
+				PriceCurrency: "USD",
+				Prices: []sharedmoney.StoredPrice{
+					{
+						ID:              priceID,
+						LicenseOptionID: loID,
+						Currency:        "USD",
+						AmountMinor:     1500,
+						AmountMajor:     15.00,
+						Revision:        2,
+						IsActive:        true,
+					},
+					{
+						ID:              uuid.New(),
+						LicenseOptionID: loID,
+						Currency:        "INR",
+						AmountMinor:     100000,
+						AmountMajor:     1000.00,
+						Revision:        1,
+						IsActive:        true,
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("Unsupported currency is rejected and never converted", func(t *testing.T) {
+		sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+		_, err := s.CreateOrderWithOffer(ctx, CreateOrderInput{
+			UserID:          uuid.New(),
+			SpecID:          specID,
+			LicenseOptionID: loID,
+			Currency:        "EUR",
+		})
+		assert.ErrorIs(t, err, sharedmoney.ErrInvalidCurrency)
+	})
+
+	t.Run("Stale amount returns PriceMismatchError with current offer", func(t *testing.T) {
+		sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+		staleAmount := 1499
+		_, err := s.CreateOrderWithOffer(ctx, CreateOrderInput{
+			UserID:              uuid.New(),
+			SpecID:              specID,
+			LicenseOptionID:     loID,
+			Currency:            "USD",
+			ExpectedAmountMinor: &staleAmount,
+		})
+		var mismatch *PriceMismatchError
+		require.True(t, errors.As(err, &mismatch))
+		assert.Equal(t, 1500, mismatch.CurrentOffer.AmountMinor)
+		assert.Equal(t, "USD", mismatch.CurrentOffer.Currency)
+	})
+
+	t.Run("Stale revision returns PriceMismatchError", func(t *testing.T) {
+		sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+		oldRev := int64(1)
+		_, err := s.CreateOrderWithOffer(ctx, CreateOrderInput{
+			UserID:           uuid.New(),
+			SpecID:           specID,
+			LicenseOptionID:  loID,
+			Currency:         "USD",
+			ExpectedRevision: &oldRev,
+		})
+		var mismatch *PriceMismatchError
+		require.True(t, errors.As(err, &mismatch))
+		assert.Equal(t, int64(2), mismatch.CurrentOffer.Revision)
+	})
+
+	t.Run("Matching evidence succeeds, freezes exact amount and pricing snapshot", func(t *testing.T) {
+		sf.On("FindWithLicenses", ctx, specID).Return(spec, nil).Once()
+		or.On("Create", ctx, mock.Anything).Return(nil).Once()
+
+		expectedMinor := 1500
+		expectedRev := int64(2)
+		expectedCurr := "USD"
+		order, err := s.CreateOrderWithOffer(ctx, CreateOrderInput{
+			UserID:              uuid.New(),
+			SpecID:              specID,
+			LicenseOptionID:     loID,
+			Currency:            "USD",
+			ExpectedPriceID:     &priceID,
+			ExpectedAmountMinor: &expectedMinor,
+			ExpectedRevision:    &expectedRev,
+			ExpectedCurrency:    &expectedCurr,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1500, order.Amount)
+		assert.Equal(t, "USD", order.Currency)
+		assert.Equal(t, "dodo", order.Provider)
+
+		snapshot, ok := order.Notes["pricing_snapshot"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, priceID.String(), snapshot["price_id"])
+		assert.Equal(t, int64(2), snapshot["revision"])
+		assert.Equal(t, 1500, snapshot["amount_minor"])
+		assert.Equal(t, "USD", snapshot["currency"])
+	})
 }

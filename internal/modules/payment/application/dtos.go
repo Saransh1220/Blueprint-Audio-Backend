@@ -5,7 +5,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
+
+type CreateOrderInput struct {
+	UserID              uuid.UUID  `json:"user_id"`
+	SpecID              uuid.UUID  `json:"spec_id"`
+	LicenseOptionID     uuid.UUID  `json:"license_option_id"`
+	Currency            string     `json:"currency"`
+	ExpectedPriceID     *uuid.UUID `json:"expected_price_id,omitempty"`
+	ExpectedRevision    *int64     `json:"expected_revision,omitempty"`
+	ExpectedAmountMinor *int       `json:"expected_amount_minor,omitempty"`
+	ExpectedCurrency    *string    `json:"expected_currency,omitempty"`
+}
+
+type PriceMismatchError struct {
+	Message      string                   `json:"message"`
+	CurrentOffer money.SelectedPriceOffer `json:"current_offer"`
+}
+
+func (e *PriceMismatchError) Error() string {
+	return e.Message
+}
 
 type LicenseDownloadsResponse struct {
 	LicenseID   string  `json:"license_id"`

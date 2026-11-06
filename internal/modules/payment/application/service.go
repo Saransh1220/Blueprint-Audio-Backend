@@ -23,6 +23,7 @@ type FileService interface {
 
 type PaymentService interface {
 	CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error)
+	CreateOrderWithOffer(ctx context.Context, input CreateOrderInput) (*domain.Order, error)
 	GetOrder(ctx context.Context, orderID, requesterID uuid.UUID) (*domain.Order, error)
 	// VerifyPayment confirms a payment the browser reported back, for gateways
 	// that work that way (Razorpay).
@@ -77,17 +78,47 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 	if err != nil {
 		return nil, errors.New("Beat/Sample not found")
 	}
-	// Processing uploads are not purchasable. The empty value is tolerated for
-	// legacy/test records created before processing_status was introduced; real
-	// database rows default to completed.
-	if spec.ProcessingStatus != "" &&
-		spec.ProcessingStatus != catalogDomain.ProcessingStatusCompleted {
+	if spec.ProcessingStatus != "" && spec.ProcessingStatus != catalogDomain.ProcessingStatusCompleted {
+		return nil, errors.New("Beat/Sample is not ready for purchase")
+	}
+	var lo *catalogDomain.LicenseOption
+	for _, l := range spec.Licenses {
+		if l.ID == licenseOptionID {
+			lo = &l
+			break
+		}
+	}
+	if lo == nil {
+		return nil, errors.New("license option not found")
+	}
+	offer := sharedmoney.SelectPriceOffer(lo.Prices, lo.PriceCurrency, currency)
+	if !offer.IsPurchasable || offer.PriceID == nil {
+		return nil, sharedmoney.ErrPriceUnavailable
+	}
+	return s.createOrderFromSpec(ctx, spec, lo, offer, CreateOrderInput{
+		UserID:              userID,
+		SpecID:              specID,
+		LicenseOptionID:     licenseOptionID,
+		Currency:            currency,
+		ExpectedPriceID:     offer.PriceID,
+		ExpectedRevision:    &offer.Revision,
+		ExpectedAmountMinor: &offer.AmountMinor,
+		ExpectedCurrency:    &offer.Currency,
+	})
+}
+
+func (s *paymentService) CreateOrderWithOffer(ctx context.Context, input CreateOrderInput) (*domain.Order, error) {
+	spec, err := s.specFinder.FindWithLicenses(ctx, input.SpecID)
+	if err != nil {
+		return nil, errors.New("Beat/Sample not found")
+	}
+	if spec.ProcessingStatus != "" && spec.ProcessingStatus != catalogDomain.ProcessingStatusCompleted {
 		return nil, errors.New("Beat/Sample is not ready for purchase")
 	}
 
 	var licenseOption *catalogDomain.LicenseOption
 	for _, lo := range spec.Licenses {
-		if lo.ID == licenseOptionID {
+		if lo.ID == input.LicenseOptionID {
 			licenseOption = &lo
 			break
 		}
@@ -97,42 +128,100 @@ func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licens
 		return nil, errors.New("license option not found")
 	}
 
-	requestedCurrency := strings.ToUpper(strings.TrimSpace(currency))
-	if requestedCurrency != sharedmoney.CurrencyUSD {
+	requestedCurrency := strings.ToUpper(strings.TrimSpace(input.Currency))
+	if requestedCurrency == "" {
 		requestedCurrency = sharedmoney.CurrencyINR
 	}
 
-	// Resolve the stored currency for this license — fall back to INR for legacy records
-	storedCurrency := strings.ToUpper(strings.TrimSpace(licenseOption.PriceCurrency))
-	if storedCurrency != sharedmoney.CurrencyINR && storedCurrency != sharedmoney.CurrencyUSD {
-		storedCurrency = sharedmoney.CurrencyINR
+	// Validate currency
+	if _, ok := sharedmoney.LookupCurrency(requestedCurrency); !ok {
+		return nil, sharedmoney.ErrInvalidCurrency
 	}
 
-	displayMoney := sharedmoney.DisplayPrice(licenseOption.Price, storedCurrency, requestedCurrency)
+	// Exact stored price selection
+	offer := sharedmoney.SelectPriceOffer(licenseOption.Prices, licenseOption.PriceCurrency, requestedCurrency)
+	if !offer.IsPurchasable || offer.Selection == sharedmoney.SelectionUnavailable {
+		return nil, sharedmoney.ErrPriceUnavailable
+	}
+
+	// Verify expected evidence is completely provided
+	if input.ExpectedPriceID == nil || input.ExpectedRevision == nil || input.ExpectedAmountMinor == nil || input.ExpectedCurrency == nil {
+		return nil, &PriceMismatchError{
+			Message:      "missing required price evidence: expected_price_id, expected_revision, expected_amount_minor, and expected_currency are required",
+			CurrentOffer: offer,
+		}
+	}
+
+	// Verify currency matches current offer (guards against unconfirmed fallback)
+	expectedCurr := strings.ToUpper(strings.TrimSpace(*input.ExpectedCurrency))
+	if expectedCurr != offer.Currency {
+		return nil, &PriceMismatchError{
+			Message:      fmt.Sprintf("currency mismatch or unconfirmed fallback: expected %s, current offer is %s", expectedCurr, offer.Currency),
+			CurrentOffer: offer,
+		}
+	}
+
+	if offer.PriceID == nil || *input.ExpectedPriceID != *offer.PriceID {
+		return nil, &PriceMismatchError{
+			Message:      fmt.Sprintf("price changed: expected %s, current %v", input.ExpectedPriceID, offer.PriceID),
+			CurrentOffer: offer,
+		}
+	}
+	if *input.ExpectedRevision != offer.Revision {
+		return nil, &PriceMismatchError{
+			Message:      fmt.Sprintf("price revision changed: expected %d, current %d", *input.ExpectedRevision, offer.Revision),
+			CurrentOffer: offer,
+		}
+	}
+	if *input.ExpectedAmountMinor != offer.AmountMinor {
+		return nil, &PriceMismatchError{
+			Message:      fmt.Sprintf("price amount changed: expected %d, current %d", *input.ExpectedAmountMinor, offer.AmountMinor),
+			CurrentOffer: offer,
+		}
+	}
+
+	return s.createOrderFromSpec(ctx, spec, licenseOption, offer, input)
+}
+
+func (s *paymentService) createOrderFromSpec(ctx context.Context, spec *catalogDomain.Spec, licenseOption *catalogDomain.LicenseOption, offer sharedmoney.SelectedPriceOffer, input CreateOrderInput) (*domain.Order, error) {
 
 	receiptID, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
 	}
 
+	priceIDStr := ""
+	if offer.PriceID != nil {
+		priceIDStr = offer.PriceID.String()
+	}
+
 	order := &domain.Order{
 		ID:          receiptID,
-		UserID:      userID,
-		SpecID:      specID,
+		UserID:      input.UserID,
+		SpecID:      input.SpecID,
 		LicenseType: string(licenseOption.LicenseType),
-		Amount:      displayMoney.AmountMinor,
-		Currency:    requestedCurrency,
+		Amount:      offer.AmountMinor,
+		Currency:    offer.Currency,
 		Status:      domain.OrderStatusPending,
 		Notes: map[string]any{
-			"license_option_id": licenseOptionID.String(),
+			"license_option_id": input.LicenseOptionID.String(),
 			"spec_title":        spec.Title,
 			"license_name":      licenseOption.Name,
-			"display_currency":  requestedCurrency,
+			"display_currency":  offer.Currency,
+			"pricing_snapshot": map[string]any{
+				"price_id":     priceIDStr,
+				"revision":     offer.Revision,
+				"currency":     offer.Currency,
+				"amount_minor": offer.AmountMinor,
+				"amount_major": offer.AmountMajor,
+				"selection":    string(offer.Selection),
+				"validated_at": time.Now().UTC().Format(time.RFC3339),
+			},
 		},
 		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 
-	gateway, err := s.gateways.ForCurrency(requestedCurrency)
+	gateway, err := s.gateways.ForCurrency(order.Currency)
 	if err != nil {
 		return nil, err
 	}
