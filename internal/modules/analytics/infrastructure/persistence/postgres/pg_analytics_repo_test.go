@@ -100,15 +100,15 @@ func TestPGAnalyticsRepository_OverviewQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10, plays)
 
-	mock.ExpectQuery("SELECT o\\.license_type, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
-		WithArgs(producerID, 30).
+	mock.ExpectQuery("SELECT o\\.license_type, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / \\$4::numeric as revenue.*o\\.status = 'paid' AND o\\.currency = \\$3").
+		WithArgs(producerID, 30, "INR", 100).
 		WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("Basic", 10.5))
 	rev, err := repo.GetRevenueByLicenseGlobal(ctx, producerID, 30)
 	require.NoError(t, err)
 	assert.Equal(t, 10.5, rev["Basic"])
 
-	mock.ExpectQuery("SELECT s\\.id as spec_id, s\\.title, COALESCE\\(sa\\.play_count, 0\\) as plays, COALESCE\\(sa\\.free_download_count, 0\\) as downloads, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
-		WithArgs(producerID, 5).
+	mock.ExpectQuery("SELECT s\\.id as spec_id, s\\.title, COALESCE\\(sa\\.play_count, 0\\) as plays, COALESCE\\(sa\\.free_download_count, 0\\) as downloads, COALESCE\\(SUM\\(o\\.amount\\), 0\\) / \\$4::numeric as revenue.*o\\.status = 'paid' AND o\\.currency = \\$3").
+		WithArgs(producerID, 5, "INR", 100).
 		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).AddRow(specID.String(), "Track", 9, 5, 20.0))
 	top, err := repo.GetTopSpecs(ctx, producerID, 5, "plays")
 	require.NoError(t, err)
@@ -144,8 +144,8 @@ func TestPGAnalyticsRepository_AdditionalCoverage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 4, v)
 
-	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(amount\\), 0\\) / 100\\.0").
-		WithArgs(producerID, 30).
+	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(amount\\), 0\\) / \\$4::numeric.*o\\.status = 'paid' AND o\\.currency = \\$3").
+		WithArgs(producerID, 30, "INR", 100).
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(12.5))
 	rev, err := repo.GetTotalRevenue(ctx, producerID, 0)
 	require.NoError(t, err)
@@ -167,16 +167,16 @@ func TestPGAnalyticsRepository_AdditionalCoverage(t *testing.T) {
 	require.Len(t, downloads, 1)
 	assert.Equal(t, 5, downloads[0].Count)
 
-	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', o\\.created_at\\), 'YYYY-MM-DD'\\) as date,\\s+COALESCE\\(SUM\\(o\\.amount\\), 0\\) / 100\\.0 as revenue").
-		WithArgs(producerID, 30).
-		WillReturnRows(sqlmock.NewRows([]string{"date", "revenue"}).AddRow("2026-02-15", 33.3))
+	mock.ExpectQuery("SELECT\\s+to_char\\(date_trunc\\('day', o\\.created_at AT TIME ZONE 'UTC'\\), 'YYYY-MM-DD'\\) as date,\\s+COALESCE\\(SUM\\(o\\.amount\\), 0\\) / \\$4::numeric as revenue.*o\\.status = 'paid' AND o\\.currency = \\$3").
+		WithArgs(producerID, 30, "INR", 100).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "revenue", "sales"}).AddRow("2026-02-15", 33.3, 2))
 	revenueByDay, err := repo.GetRevenueByDay(ctx, producerID, 0)
 	require.NoError(t, err)
 	require.Len(t, revenueByDay, 1)
 	assert.Equal(t, 33.3, revenueByDay[0].Revenue)
 
 	mock.ExpectQuery("SELECT\\s+s\\.id as spec_id,\\s+s\\.title").
-		WithArgs(producerID, 2).
+		WithArgs(producerID, 2, "INR", 100).
 		WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}).AddRow(specID.String(), "Track", 2, 1, 9.9))
 	top, err := repo.GetTopSpecs(ctx, producerID, 2, "downloads")
 	require.NoError(t, err)

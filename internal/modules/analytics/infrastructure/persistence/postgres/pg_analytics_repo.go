@@ -424,22 +424,24 @@ func (r *PgAnalyticsRepository) GetTotalDownloads(ctx context.Context, producerI
 }
 
 func (r *PgAnalyticsRepository) GetTotalRevenue(ctx context.Context, producerID uuid.UUID, days int) (float64, error) {
+	currency := domain.ReportCurrency(ctx)
 	if days <= 0 {
 		days = 30
 	}
 	var total float64
 	query := `
-		SELECT COALESCE(SUM(amount), 0) / 100.0
+		SELECT COALESCE(SUM(amount), 0) / $4::numeric
 		FROM orders o
 		JOIN specs s ON o.spec_id = s.id
 		WHERE s.producer_id = $1 
-		  AND o.status = 'paid'
-		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL`
-	err := r.db.GetContext(ctx, &total, query, producerID, days)
+		  AND o.status = 'paid' AND o.currency = $3
+		  AND o.created_at >= ((NOW() AT TIME ZONE 'UTC')::date - ($2::int - 1))::timestamp AT TIME ZONE 'UTC'`
+	err := r.db.GetContext(ctx, &total, query, producerID, days, currency.Code, currency.MinorUnitScale)
 	return total, err
 }
 
 func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, producerID uuid.UUID, days int) (map[string]float64, error) {
+	currency := domain.ReportCurrency(ctx)
 	if days <= 0 {
 		days = 30
 	}
@@ -448,15 +450,15 @@ func (r *PgAnalyticsRepository) GetRevenueByLicenseGlobal(ctx context.Context, p
 		Revenue     float64 `db:"revenue"`
 	}
 	query := `
-		SELECT o.license_type, COALESCE(SUM(o.amount), 0) / 100.0 as revenue
+		SELECT o.license_type, COALESCE(SUM(o.amount), 0) / $4::numeric as revenue
 		FROM orders o
 		JOIN specs s ON o.spec_id = s.id
 		WHERE s.producer_id = $1 
-		  AND o.status = 'paid'
-		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL
+		  AND o.status = 'paid' AND o.currency = $3
+		  AND o.created_at >= ((NOW() AT TIME ZONE 'UTC')::date - ($2::int - 1))::timestamp AT TIME ZONE 'UTC'
 		GROUP BY o.license_type`
 	var rows []licenseRev
-	err := r.db.SelectContext(ctx, &rows, query, producerID, days)
+	err := r.db.SelectContext(ctx, &rows, query, producerID, days, currency.Code, currency.MinorUnitScale)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get global revenue by license: %w", err)
 	}
@@ -533,6 +535,7 @@ func (r *PgAnalyticsRepository) GetDownloadsByDay(ctx context.Context, producerI
 }
 
 func (r *PgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID uuid.UUID, days int) ([]domain.DailyRevenueStat, error) {
+	currency := domain.ReportCurrency(ctx)
 	log.Printf("[Analytics Repo] GetRevenueByDay: ProducerID=%s, Days=%d (raw)", producerID, days)
 
 	if days <= 0 {
@@ -543,19 +546,19 @@ func (r *PgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID 
 	log.Printf("[Analytics Repo] GetRevenueByDay: Using days=%d for query", days)
 	query := `
 		SELECT 
-			to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') as date,
-			COALESCE(SUM(o.amount), 0) / 100.0 as revenue
+			to_char(date_trunc('day', o.created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') as date,
+			COALESCE(SUM(o.amount), 0) / $4::numeric as revenue, COUNT(*) as sales
 		FROM orders o
 		JOIN specs s ON o.spec_id = s.id
 		WHERE s.producer_id = $1
-		  AND o.status = 'paid'
-		  AND o.created_at > NOW() - ($2 || ' days')::INTERVAL
+		  AND o.status = 'paid' AND o.currency = $3
+		  AND o.created_at >= ((NOW() AT TIME ZONE 'UTC')::date - ($2::int - 1))::timestamp AT TIME ZONE 'UTC'
 		GROUP BY 1
 		ORDER BY 1 ASC
 	`
 	log.Printf("[Analytics Repo] GetRevenueByDay: Executing query with producerID=%s, days=%d", producerID, days)
 	var stats []domain.DailyRevenueStat
-	err := r.db.SelectContext(ctx, &stats, query, producerID, days)
+	err := r.db.SelectContext(ctx, &stats, query, producerID, days, currency.Code, currency.MinorUnitScale)
 	if err != nil {
 		log.Printf("[Analytics Repo] GetRevenueByDay: Query error: %v", err)
 		return nil, fmt.Errorf("failed to get revenue by day: %w", err)
@@ -565,6 +568,7 @@ func (r *PgAnalyticsRepository) GetRevenueByDay(ctx context.Context, producerID 
 }
 
 func (r *PgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid.UUID, limit int, sortBy string) ([]domain.TopSpecStat, error) {
+	currency := domain.ReportCurrency(ctx)
 	var stats []domain.TopSpecStat
 
 	orderBy := "sa.play_count DESC"
@@ -583,16 +587,16 @@ func (r *PgAnalyticsRepository) GetTopSpecs(ctx context.Context, producerID uuid
 			s.title, 
 			COALESCE(sa.play_count, 0) as plays,
 			COALESCE(sa.free_download_count, 0) as downloads,
-			COALESCE(SUM(o.amount), 0) / 100.0 as revenue
+			COALESCE(SUM(o.amount), 0) / $4::numeric as revenue
 		FROM specs s
 		left JOIN spec_analytics sa ON s.id = sa.spec_id
-		left JOIN orders o ON s.id = o.spec_id AND o.status = 'paid'
+		left JOIN orders o ON s.id = o.spec_id AND o.status = 'paid' AND o.currency = $3
 		WHERE s.producer_id = $1
 		GROUP BY s.id, s.title, sa.play_count, sa.free_download_count
 		ORDER BY %s
 		LIMIT $2`, orderBy)
 
-	err := r.db.SelectContext(ctx, &stats, query, producerID, limit)
+	err := r.db.SelectContext(ctx, &stats, query, producerID, limit, currency.Code, currency.MinorUnitScale)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top specs: %w", err)
 	}

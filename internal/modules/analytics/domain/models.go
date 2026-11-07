@@ -37,6 +37,7 @@ type DailyStat struct {
 type DailyRevenueStat struct {
 	Date    string  `json:"date" db:"date"`
 	Revenue float64 `json:"revenue" db:"revenue"`
+	Sales   int     `json:"sales" db:"sales"`
 }
 
 type TopSpecStat struct {
@@ -63,6 +64,7 @@ type ProducerAnalytics struct {
 }
 
 type AnalyticsOverviewResponse struct {
+	RevenueCurrency  string             `json:"revenue_currency"`
 	TotalPlays       int                `json:"total_plays"`
 	TotalFavorites   int                `json:"total_favorites"`
 	TotalRevenue     float64            `json:"total_revenue"`

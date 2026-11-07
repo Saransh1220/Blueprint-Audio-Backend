@@ -208,6 +208,7 @@ func (s *analyticsService) GetStatsOverview(ctx context.Context, producerID uuid
 	return &domain.AnalyticsOverviewResponse{
 		TotalPlays:       totalPlays,
 		TotalFavorites:   totalFavorites,
+		RevenueCurrency:  domain.ReportCurrency(ctx).Code,
 		TotalRevenue:     totalRevenue,
 		TotalDownloads:   totalDownloads,
 		PlaysByDay:       playsByDay,

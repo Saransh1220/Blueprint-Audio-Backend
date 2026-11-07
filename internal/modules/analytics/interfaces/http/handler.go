@@ -13,7 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/analytics/application"
+	"github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type AnalyticsHandler struct {
@@ -137,7 +139,11 @@ func (h *AnalyticsHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	sortBy := r.URL.Query().Get("sortBy")
 	log.Printf("[Analytics Handler] GetOverview: ProducerID=%s, Days=%d, SortBy=%s", producerID, days, sortBy)
 
-	stats, err := h.service.GetStatsOverview(r.Context(), producerID, days, sortBy)
+	ctx, ok := reportContext(w, r)
+	if !ok {
+		return
+	}
+	stats, err := h.service.GetStatsOverview(ctx, producerID, days, sortBy)
 	if err != nil {
 		log.Printf("[Analytics Handler] GetOverview: Error from service: %v", err)
 		http.Error(w, "failed to fetch analytics overview", http.StatusInternalServerError)
@@ -157,9 +163,16 @@ func (h *AnalyticsHandler) GetTopSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := 5
+	if requested, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && requested > 0 && requested <= 50 {
+		limit = requested
+	}
 	sortBy := r.URL.Query().Get("sortBy")
 
-	stats, err := h.service.GetTopSpecs(r.Context(), producerID, limit, sortBy)
+	ctx, ok := reportContext(w, r)
+	if !ok {
+		return
+	}
+	stats, err := h.service.GetTopSpecs(ctx, producerID, limit, sortBy)
 	if err != nil {
 		http.Error(w, "failed to fetch top specs", http.StatusInternalServerError)
 		return
@@ -167,4 +180,17 @@ func (h *AnalyticsHandler) GetTopSpecs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+func reportContext(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
+	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("currency")))
+	if code == "" {
+		code = money.CurrencyINR
+	}
+	currency, ok := money.LookupCurrency(code)
+	if !ok {
+		http.Error(w, "unsupported reporting currency", http.StatusBadRequest)
+		return nil, false
+	}
+	return domain.WithReportCurrency(r.Context(), currency), true
 }

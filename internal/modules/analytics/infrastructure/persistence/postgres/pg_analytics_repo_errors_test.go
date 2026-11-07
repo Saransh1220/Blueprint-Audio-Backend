@@ -252,14 +252,14 @@ func TestPGAnalyticsRepository_DaysDefaultsAndRevenueByLicense(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 9, n)
 
-	mock.ExpectQuery(`o\.license_type, COALESCE`).WithArgs(pid, 30).
+	mock.ExpectQuery(`o\.license_type, COALESCE`).WithArgs(pid, 30, "INR", 100).
 		WillReturnRows(sqlmock.NewRows([]string{"license_type", "revenue"}).AddRow("basic", 10.5).AddRow("premium", 40.0))
 	m, err := repo.GetRevenueByLicenseGlobal(ctx, pid, 0)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]float64{"basic": 10.5, "premium": 40.0}, m)
 
 	for _, sortBy := range []string{"revenue", "plays", ""} {
-		mock.ExpectQuery(`FROM specs s`).WithArgs(pid, 3).
+		mock.ExpectQuery(`FROM specs s`).WithArgs(pid, 3, "INR", 100).
 			WillReturnRows(sqlmock.NewRows([]string{"spec_id", "title", "plays", "downloads", "revenue"}))
 		_, err = repo.GetTopSpecs(ctx, pid, 3, sortBy)
 		require.NoError(t, err, sortBy)

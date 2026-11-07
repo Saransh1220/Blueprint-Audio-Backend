@@ -220,3 +220,29 @@ func TestAnalyticsHandler_GetProducerAnalytics_ErrorMapping(t *testing.T) {
 	h.GetProducerAnalytics(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestAnalyticsOverviewUsesExplicitReportingCurrency(t *testing.T) {
+	as := &mockAnalyticsService{}
+	h := analyticsHTTP.NewAnalyticsHandler(as, nil, nil)
+	userID := uuid.New()
+	as.On("GetStatsOverview", mock.MatchedBy(func(ctx context.Context) bool {
+		return analyticsDomain.ReportCurrency(ctx).Code == "USD"
+	}), userID, 365, "revenue").Return(&analyticsDomain.AnalyticsOverviewResponse{
+		RevenueCurrency: "USD", TotalRevenue: 19.99,
+	}, nil).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/analytics/overview?days=365&sortBy=revenue&currency=USD", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+	w := httptest.NewRecorder()
+	h.GetOverview(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"revenue_currency":"USD"`)
+	assert.Contains(t, w.Body.String(), `"total_revenue":19.99`)
+	as.AssertExpectations(t)
+
+	req = httptest.NewRequest(http.MethodGet, "/analytics/overview?currency=invalid", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+	w = httptest.NewRecorder()
+	h.GetOverview(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
