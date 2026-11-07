@@ -169,7 +169,7 @@ func TestListMyFavorites_SuccessMapping(t *testing.T) {
 	assert.Equal(t, "Beat", got.Spec.Title)
 	assert.Equal(t, "WAV", got.Spec.Type)
 	assert.Equal(t, "USD", got.Spec.PriceMoney.Currency)
-	assert.Equal(t, "INR", got.Spec.DisplayPriceMoney.Currency)
+	assert.Equal(t, "USD", got.Spec.DisplayPriceMoney.Currency)
 	require.NotNil(t, got.Spec.Moods)
 	assert.Equal(t, []string{"dark"}, *got.Spec.Moods)
 	require.NotNil(t, got.Spec.Instruments)
@@ -180,7 +180,7 @@ func TestListMyFavorites_SuccessMapping(t *testing.T) {
 	require.Len(t, *got.Spec.Licenses, 1)
 	lic := (*got.Spec.Licenses)[0]
 	assert.Equal(t, "Basic", lic.Name)
-	assert.Equal(t, "INR", lic.DisplayPriceMoney.Currency)
+	assert.Equal(t, "USD", lic.DisplayPriceMoney.Currency)
 	assert.Equal(t, "USD", lic.PriceMoney.Currency)
 	assert.Equal(t, []string{"mp3"}, lic.FileTypes)
 	require.NotNil(t, got.Spec.Genres)

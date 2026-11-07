@@ -39,7 +39,8 @@ func TestPgOrderRepository_CreateAndList(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, order))
 
 	notes, _ := json.Marshal(order.Notes)
-	rows := sqlmock.NewRows([]string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at"}).AddRow(id, userID, specID, "Basic", 1000, "INR", "razorpay", nil, nil, "pending", notes, time.Now(), time.Now(), time.Now())
+	orderCols := []string{"id", "user_id", "spec_id", "license_type", "amount", "currency", "provider", "provider_checkout_id", "provider_payment_id", "status", "notes", "created_at", "updated_at", "expires_at", "report_currency", "report_fx_rate", "report_fx_as_of", "report_fx_fetched_at", "report_fx_rate_id"}
+	rows := sqlmock.NewRows(orderCols).AddRow(id, userID, specID, "Basic", 1000, "INR", "razorpay", nil, nil, "pending", notes, time.Now(), time.Now(), time.Now(), nil, nil, nil, nil, nil)
 	mock.ExpectQuery("SELECT id, user_id, spec_id, license_type").WithArgs(id).WillReturnRows(rows)
 	got, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)

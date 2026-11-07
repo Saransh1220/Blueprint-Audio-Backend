@@ -444,7 +444,14 @@ The application reads configuration from environment variables (or automatically
 | **`DODO_PAYMENTS_API_KEY`** | No | *empty* | Dodo Payments API key for global USD checkout. |
 | **`DODO_PAYMENTS_PRODUCT_ID`**| No | *empty* | Dodo Payments product ID. |
 | **`DODO_PAYMENTS_WEBHOOK_KEY`**| No | *empty* | Dodo Payments webhook signing secret. |
-| **`INR_USD_RATE`** | No | `0.012` | Fallback exchange rate used to suggest USD prices from catalog INR prices. |
+| **`FX_ENABLED`** | No | `false` | Enable automated daily FX rate refresh job. |
+| **`FX_PROVIDER_URL`** | No | `https://api.frankfurter.dev/v1/latest` | Public or authenticated FX rates provider API URL. |
+| **`FX_API_KEY`** | No | *empty* | Optional provider API key. |
+| **`FX_REFRESH_INTERVAL`** | No | `24h` | Refresh frequency for exchange rates. |
+| **`FX_STALE_AFTER`** | No | `36h` | Duration after fetch before rates are considered stale. |
+| **`FX_MAX_AGE`** | No | `168h` | Maximum allowed rate age (7 days) before rate is unusable. |
+| **`FX_MAX_DAILY_MOVE`** | No | `0.20` | Sanity band threshold (20%) beyond which rates are quarantined. |
+| **`FX_REPORTING_CURRENCY`** | No | `INR` | Base currency used for financial reporting. |
 | **`REDIS_ENABLED`** | No | `true` | Set `false` to run without Redis caching (zero-cost production setup). |
 | **`REDIS_HOST`** | No | `localhost` | Redis server hostname. |
 | **`REDIS_PORT`** | No | `6379` | Redis server port. |

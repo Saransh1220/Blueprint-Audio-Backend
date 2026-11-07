@@ -118,13 +118,20 @@ func TestLoad_PresignEndpointDefaultsToStorageEndpoint(t *testing.T) {
 	assert.Equal(t, "https://storage.example", cfg.FileStorage.S3PresignEndpoint)
 }
 
-func TestLoad_DodoAndCurrencyConfig(t *testing.T) {
+func TestLoad_DodoAndFXConfig(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DODO_PAYMENTS_API_KEY", "dodo_key")
 	os.Setenv("DODO_PAYMENTS_PRODUCT_ID", "pdt_123")
 	os.Setenv("DODO_PAYMENTS_WEBHOOK_KEY", "whsec_123")
 	os.Setenv("DODO_PAYMENTS_API_URL", "https://test.dodopayments.com")
-	os.Setenv("INR_USD_RATE", "0.0119")
+	os.Setenv("FX_ENABLED", "true")
+	os.Setenv("FX_PROVIDER_URL", "https://api.frankfurter.dev/v1/latest")
+	os.Setenv("FX_API_KEY", "fx-key")
+	os.Setenv("FX_REFRESH_INTERVAL", "12h")
+	os.Setenv("FX_STALE_AFTER", "48h")
+	os.Setenv("FX_MAX_AGE", "72h")
+	os.Setenv("FX_MAX_DAILY_MOVE", "0.15")
+	os.Setenv("FX_REPORTING_CURRENCY", "usd")
 
 	cfg := Load()
 
@@ -132,7 +139,14 @@ func TestLoad_DodoAndCurrencyConfig(t *testing.T) {
 	assert.Equal(t, "pdt_123", cfg.Dodo.ProductID)
 	assert.Equal(t, "whsec_123", cfg.Dodo.WebhookKey)
 	assert.Equal(t, "https://test.dodopayments.com", cfg.Dodo.APIURL)
-	assert.Equal(t, "0.0119", cfg.Currency.INRUSDRate)
+	assert.True(t, cfg.FX.Enabled)
+	assert.Equal(t, "https://api.frankfurter.dev/v1/latest", cfg.FX.ProviderURL)
+	assert.Equal(t, "fx-key", cfg.FX.APIKey)
+	assert.Equal(t, 12*time.Hour, cfg.FX.RefreshInterval)
+	assert.Equal(t, 48*time.Hour, cfg.FX.StaleAfter)
+	assert.Equal(t, 72*time.Hour, cfg.FX.MaxAge)
+	assert.Equal(t, 0.15, cfg.FX.MaxDailyMove)
+	assert.Equal(t, "USD", cfg.FX.ReportingCurrency)
 }
 
 func TestLoad_JWTExpirationParsing(t *testing.T) {

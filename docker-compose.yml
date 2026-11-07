@@ -90,7 +90,15 @@ services:
       DODO_PAYMENTS_API_URL: ${DODO_PAYMENTS_API_URL:-}
 
       # Currency fallback for generated USD prices
-      INR_USD_RATE: ${INR_USD_RATE:-0.012}
+      # FX rates
+      FX_ENABLED: ${FX_ENABLED:-false}
+      FX_PROVIDER_URL: ${FX_PROVIDER_URL:-https://api.frankfurter.dev/v1/latest}
+      FX_API_KEY: ${FX_API_KEY:-}
+      FX_REFRESH_INTERVAL: ${FX_REFRESH_INTERVAL:-24h}
+      FX_STALE_AFTER: ${FX_STALE_AFTER:-36h}
+      FX_MAX_AGE: ${FX_MAX_AGE:-168h}
+      FX_MAX_DAILY_MOVE: ${FX_MAX_DAILY_MOVE:-0.20}
+      FX_REPORTING_CURRENCY: ${FX_REPORTING_CURRENCY:-INR}
 
       # Media worker runs as the separate `worker` service by default
       WORKER_ENABLED: ${WORKER_ENABLED:-false}

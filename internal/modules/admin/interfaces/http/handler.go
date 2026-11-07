@@ -350,6 +350,12 @@ func (h *AdminHandler) ListLicenses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pageResponse(rows, total, limit, offset))
 }
 
+type CurrencyRevenue struct {
+	Currency    string `db:"currency" json:"currency"`
+	AmountMinor int64  `db:"amount_minor" json:"amount_minor"`
+	OrderCount  int    `db:"order_count" json:"order_count"`
+}
+
 func (h *AdminHandler) AnalyticsOverview(w http.ResponseWriter, r *http.Request) {
 	stats := map[string]any{}
 	var users, producers, specs, orders, paidOrders int
@@ -358,14 +364,28 @@ func (h *AdminHandler) AnalyticsOverview(w http.ResponseWriter, r *http.Request)
 	_ = h.db.GetContext(r.Context(), &specs, `SELECT COUNT(*) FROM specs`)
 	_ = h.db.GetContext(r.Context(), &orders, `SELECT COUNT(*) FROM orders`)
 	_ = h.db.GetContext(r.Context(), &paidOrders, `SELECT COUNT(*) FROM orders WHERE status = 'paid'`)
-	var revenue int
-	_ = h.db.GetContext(r.Context(), &revenue, `SELECT COALESCE(SUM(amount), 0) FROM orders WHERE status = 'paid'`)
+
+	var revByCurrency []CurrencyRevenue
+	_ = h.db.SelectContext(r.Context(), &revByCurrency, `SELECT currency, COALESCE(SUM(amount), 0) AS amount_minor, COUNT(*) AS order_count FROM orders WHERE status = 'paid' GROUP BY currency ORDER BY currency`)
+	if revByCurrency == nil {
+		revByCurrency = []CurrencyRevenue{}
+	}
+
+	var convertedRevenue int64
+	_ = h.db.GetContext(r.Context(), &convertedRevenue, `SELECT COALESCE(SUM(ROUND(amount * report_fx_rate)), 0) FROM orders WHERE status = 'paid' AND report_fx_rate IS NOT NULL`)
+
+	var unconvertedPaidOrders int
+	_ = h.db.GetContext(r.Context(), &unconvertedPaidOrders, `SELECT COUNT(*) FROM orders WHERE status = 'paid' AND report_fx_rate IS NULL`)
+
 	stats["users"] = users
 	stats["producers"] = producers
 	stats["specs"] = specs
 	stats["orders"] = orders
 	stats["paid_orders"] = paidOrders
-	stats["revenue"] = revenue
+	stats["revenue"] = convertedRevenue
+	stats["converted_revenue"] = convertedRevenue
+	stats["unconverted_paid_orders"] = unconvertedPaidOrders
+	stats["revenue_by_currency"] = revByCurrency
 	writeJSON(w, http.StatusOK, stats)
 }
 

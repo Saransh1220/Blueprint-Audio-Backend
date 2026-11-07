@@ -22,6 +22,7 @@ import (
 	catalogApplication "github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	catalogPersistence "github.com/saransh1220/blueprint-audio/internal/modules/catalog/infrastructure/persistence/postgres"
 	"github.com/saransh1220/blueprint-audio/internal/modules/filestorage"
+	"github.com/saransh1220/blueprint-audio/internal/modules/fx"
 	"github.com/saransh1220/blueprint-audio/internal/modules/legal"
 	"github.com/saransh1220/blueprint-audio/internal/modules/notification"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment"
@@ -132,6 +133,11 @@ func main() {
 	// Payment Module
 	paymentModule := payment.NewModule(db, catalogModule.SpecFinder(), authModule.UserFinder(), fsModule.Service(), emailSender, cfg.AppBaseURL, paymentGatewayConfig(cfg))
 
+	// FX Module
+	fxModule := fx.NewModule(db, cfg.FX, adminModule.AuditWriter())
+	paymentModule.SetSnapshotter(fxModule.Snapshotter())
+	fxModule.StartRefresher(ctx)
+
 	// Legal Module
 	legalModule := legal.NewModule(db)
 
@@ -167,6 +173,7 @@ func main() {
 		AnalyticsHandler:     analyticsModule.AnalyticsHandler,
 		NotificationHandler:  notificationModule.HTTPHandler(),
 		AdminHandler:         adminModule.HTTPHandler(),
+		FXHandler:            fxModule.Handler(),
 		LegalHandler:         legalModule.HTTPHandler(),
 		FavoritesServer:      favoritesServer,
 		DisableAPIDocs:       !cfg.Server.APIDocsEnabled,

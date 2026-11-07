@@ -72,6 +72,12 @@ func (m *Module) HTTPHandler() *paymentHttp.PaymentHandler {
 	return m.handler
 }
 
+func (m *Module) SetSnapshotter(snapshotter domain.ReportingRateSnapshotter) {
+	if s, ok := m.service.(interface{ SetReportingRateSnapshotter(domain.ReportingRateSnapshotter) }); ok {
+		s.SetReportingRateSnapshotter(snapshotter)
+	}
+}
+
 // CurrencyGatewayNames exposes the registry's actual routing without provider secrets.
 func (m *Module) CurrencyGatewayNames() map[string]string {
 	names := make(map[string]string)

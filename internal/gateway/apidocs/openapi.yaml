@@ -96,6 +96,82 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /admin/fx-rates:
+    get:
+      tags:
+        - Admin
+        - FX
+      operationId: adminListFXRates
+      summary: List FX rate history
+      description: Super-admin paginated history of exchange rates with latest rate per pair
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number, starting at 1
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          description: Page size chosen by the client (default 50, capped at 100)
+          schema:
+            type: integer
+        - name: base
+          in: query
+          description: Filter by base currency code (e.g. USD)
+          schema:
+            type: string
+        - name: quote
+          in: query
+          description: Filter by quote currency code (e.g. INR)
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: 'Filter by status: accepted or quarantined'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /admin/fx-rates/refresh:
+    post:
+      tags:
+        - Admin
+        - FX
+      operationId: adminRefreshFXRates
+      summary: Trigger manual FX rate refresh
+      description: Triggers a rate refresh from the upstream provider with cooldown and audit logging
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /admin/licenses:
     get:
       tags:
@@ -962,6 +1038,43 @@ paths:
         "400":
           description: ""
           $ref: '#/components/responses/BadRequest'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+  /fx/rates/latest:
+    get:
+      tags:
+        - FX
+      operationId: getLatestFXRate
+      summary: Get latest FX rate
+      description: Returns the latest accepted exchange rate for a given currency pair
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: base
+          in: query
+          required: true
+          description: Base currency code (e.g. USD)
+          schema:
+            type: string
+        - name: quote
+          in: query
+          required: true
+          description: Quote currency code (e.g. INR)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
