@@ -42,8 +42,8 @@ type StoredPrice struct {
 
 // Validate ensures monetary invariants for a StoredPrice.
 func (p *StoredPrice) Validate() error {
-	curr := strings.ToUpper(strings.TrimSpace(p.Currency))
-	if curr != CurrencyINR && curr != CurrencyUSD {
+	def, ok := LookupCurrency(p.Currency)
+	if !ok {
 		return ErrInvalidCurrency
 	}
 	if p.AmountMinor < 0 {
@@ -55,9 +55,13 @@ func (p *StoredPrice) Validate() error {
 	if p.Revision < 1 {
 		p.Revision = 1
 	}
-	// Derive amount_major exactly from minor units
-	p.AmountMajor = float64(p.AmountMinor) / 100.0
-	p.Currency = curr
+	// Derive amount_major exactly from minor units and scale
+	scale := def.MinorUnitScale
+	if scale <= 0 {
+		scale = 100
+	}
+	p.AmountMajor = MinorToMajor(p.AmountMinor, scale)
+	p.Currency = def.Code
 	return nil
 }
 
@@ -115,11 +119,15 @@ func SelectPriceOffer(prices []StoredPrice, nativeCurrency string, requestedCurr
 
 	// 1. Exact match for requested currency
 	if price, found := activePrices[reqCode]; found {
+		scale := 100
+		if def, ok := LookupCurrency(price.Currency); ok && def.MinorUnitScale > 0 {
+			scale = def.MinorUnitScale
+		}
 		return SelectedPriceOffer{
 			PriceID:             &price.ID,
 			Revision:            price.Revision,
 			AmountMinor:         price.AmountMinor,
-			AmountMajor:         float64(price.AmountMinor) / 100.0,
+			AmountMajor:         MinorToMajor(price.AmountMinor, scale),
 			Currency:            price.Currency,
 			Selection:           SelectionExact,
 			IsPurchasable:       true,
@@ -129,11 +137,15 @@ func SelectPriceOffer(prices []StoredPrice, nativeCurrency string, requestedCurr
 
 	// 2. Fallback to native currency if available
 	if nativePrice, found := activePrices[natCode]; found {
+		scale := 100
+		if def, ok := LookupCurrency(nativePrice.Currency); ok && def.MinorUnitScale > 0 {
+			scale = def.MinorUnitScale
+		}
 		return SelectedPriceOffer{
 			PriceID:             &nativePrice.ID,
 			Revision:            nativePrice.Revision,
 			AmountMinor:         nativePrice.AmountMinor,
-			AmountMajor:         float64(nativePrice.AmountMinor) / 100.0,
+			AmountMajor:         MinorToMajor(nativePrice.AmountMinor, scale),
 			Currency:            nativePrice.Currency,
 			Selection:           SelectionNativeFallback,
 			FallbackReason:      fmt.Sprintf("%s pricing unavailable. Available in %s", reqCode, nativePrice.Currency),
@@ -152,17 +164,33 @@ func SelectPriceOffer(prices []StoredPrice, nativeCurrency string, requestedCurr
 	}
 }
 
-// MajorToMinor safely quantizes a major decimal amount to minor units with exact rounding.
-func MajorToMinor(amount float64) (int, error) {
+// MinorToMajor converts minor units to major units according to the minor unit scale.
+func MinorToMajor(amountMinor int, scale int) float64 {
+	if scale <= 0 {
+		scale = 100
+	}
+	return float64(amountMinor) / float64(scale)
+}
+
+// MajorToMinorScale safely quantizes a major decimal amount to minor units with exact rounding for a given scale.
+func MajorToMinorScale(amount float64, scale int) (int, error) {
 	if math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return 0, errors.New("invalid decimal amount")
 	}
 	if amount < 0 {
 		return 0, ErrNegativeAmount
 	}
-	minorF := math.Round(amount * 100)
+	if scale <= 0 {
+		scale = 100
+	}
+	minorF := math.Round(amount * float64(scale))
 	if minorF > float64(MaxAmountMinor) {
 		return 0, ErrAmountOverflow
 	}
 	return int(minorF), nil
+}
+
+// MajorToMinor safely quantizes a major decimal amount to minor units with exact rounding assuming default 100 scale.
+func MajorToMinor(amount float64) (int, error) {
+	return MajorToMinorScale(amount, 100)
 }
