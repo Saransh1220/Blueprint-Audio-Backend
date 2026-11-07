@@ -1,5 +1,5 @@
 // Package razorpay is the Razorpay implementation of the payment gateway
-// strategy: server-side order creation, then client-reported confirmation.
+// strategy: server-side order creation, client-reported confirmation and webhook confirmation.
 package razorpay
 
 import (
@@ -7,8 +7,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,20 +19,23 @@ import (
 )
 
 type Config struct {
-	KeyID     string
-	KeySecret string
+	KeyID         string
+	KeySecret     string
+	WebhookSecret string
 	// BaseURL overrides the Razorpay API root. Tests point it at httptest.
 	BaseURL string
 }
 
 type Gateway struct {
-	client *rzp.Client
-	secret string
+	client        *rzp.Client
+	secret        string
+	webhookSecret string
 }
 
 var (
-	_ domain.Gateway         = (*Gateway)(nil)
-	_ domain.ClientConfirmer = (*Gateway)(nil)
+	_ domain.Gateway          = (*Gateway)(nil)
+	_ domain.ClientConfirmer  = (*Gateway)(nil)
+	_ domain.WebhookConfirmer = (*Gateway)(nil)
 )
 
 func NewGateway(cfg Config) *Gateway {
@@ -38,7 +43,11 @@ func NewGateway(cfg Config) *Gateway {
 	if cfg.BaseURL != "" {
 		client.Request.BaseURL = cfg.BaseURL
 	}
-	return &Gateway{client: client, secret: cfg.KeySecret}
+	return &Gateway{
+		client:        client,
+		secret:        cfg.KeySecret,
+		webhookSecret: cfg.WebhookSecret,
+	}
 }
 
 func (g *Gateway) Name() string { return domain.ProviderRazorpay }
@@ -77,9 +86,23 @@ func (g *Gateway) ConfirmClientPayment(_ context.Context, order *domain.Order, p
 	}
 
 	c := &domain.PaymentConfirmation{
-		OrderID:           order.ID,
-		ProviderPaymentID: paymentID,
-		Signature:         signature,
+		OrderID:            order.ID,
+		ProviderCheckoutID: *order.ProviderCheckoutID,
+		ProviderPaymentID:  paymentID,
+		Signature:          signature,
+	}
+	if amountVal, ok := payment["amount"]; ok && amountVal != nil {
+		switch v := amountVal.(type) {
+		case float64:
+			c.ReportedAmountMinor = int64(v)
+		case int64:
+			c.ReportedAmountMinor = v
+		case int:
+			c.ReportedAmountMinor = int64(v)
+		}
+	}
+	if currencyVal, ok := payment["currency"].(string); ok {
+		c.ReportedCurrency = strings.ToUpper(strings.TrimSpace(currencyVal))
 	}
 	if method, ok := payment["method"].(string); ok {
 		c.Method = &method
@@ -90,10 +113,117 @@ func (g *Gateway) ConfirmClientPayment(_ context.Context, order *domain.Order, p
 	return c, nil
 }
 
+func (g *Gateway) ParseWebhook(payload []byte, headers map[string]string) (*domain.PaymentConfirmation, error) {
+	secret := strings.TrimSpace(g.webhookSecret)
+	if secret == "" {
+		return nil, domain.ErrMissingWebhookSecret
+	}
+
+	signature := getHeader(headers, "x-razorpay-signature")
+	if signature == "" {
+		return nil, domain.ErrInvalidSignature
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(strings.TrimSpace(expectedSignature)), []byte(strings.TrimSpace(signature))) {
+		return nil, domain.ErrInvalidSignature
+	}
+
+	var event struct {
+		Event   string `json:"event"`
+		Payload struct {
+			Payment struct {
+				Entity map[string]any `json:"entity"`
+			} `json:"payment"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return nil, domain.ErrMalformedPayload
+	}
+
+	// Canonical event: payment.captured
+	if event.Event != "payment.captured" {
+		return nil, nil // valid event we do not act on
+	}
+
+	entity := event.Payload.Payment.Entity
+	if len(entity) == 0 {
+		return nil, domain.ErrMalformedPayload
+	}
+
+	paymentID := stringFromAny(entity["id"])
+	if paymentID == "" {
+		return nil, domain.ErrMissingPaymentID
+	}
+
+	providerOrderID := stringFromAny(entity["order_id"])
+	if providerOrderID == "" {
+		return nil, domain.ErrOrderNotFound
+	}
+
+	var amountMinor int64
+	if amountVal, ok := entity["amount"]; ok && amountVal != nil {
+		switch v := amountVal.(type) {
+		case float64:
+			amountMinor = int64(v)
+		case int64:
+			amountMinor = v
+		case int:
+			amountMinor = int64(v)
+		case string:
+			if parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+				amountMinor = parsed
+			}
+		}
+	}
+
+	currency := strings.ToUpper(strings.TrimSpace(stringFromAny(entity["currency"])))
+
+	c := &domain.PaymentConfirmation{
+		ProviderCheckoutID:  providerOrderID,
+		ProviderPaymentID:   paymentID,
+		ReportedAmountMinor: amountMinor,
+		ReportedCurrency:    currency,
+		Signature:           signature,
+		EventID:             getHeader(headers, "x-razorpay-event-id"),
+	}
+
+	if method := stringFromAny(entity["method"]); method != "" {
+		c.Method = &method
+	}
+	if email := stringFromAny(entity["email"]); email != "" {
+		c.Email = &email
+	}
+
+	return c, nil
+}
+
 func (g *Gateway) sign(orderID, paymentID string) string {
 	h := hmac.New(sha256.New, []byte(g.secret))
 	h.Write([]byte(orderID + "|" + paymentID))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func getHeader(headers map[string]string, key string) string {
+	for k, v := range headers {
+		if strings.EqualFold(k, key) {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 func formatReceipt(id uuid.UUID) string {

@@ -25,17 +25,37 @@ type PaymentService interface {
 	CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error)
 	CreateOrderWithOffer(ctx context.Context, input CreateOrderInput) (*domain.Order, error)
 	GetOrder(ctx context.Context, orderID, requesterID uuid.UUID) (*domain.Order, error)
+	GetOrderStatus(ctx context.Context, orderID, requesterID uuid.UUID) (*OrderStatusResponse, error)
 	// VerifyPayment confirms a payment the browser reported back, for gateways
 	// that work that way (Razorpay).
 	VerifyPayment(ctx context.Context, orderID, userID uuid.UUID, providerPaymentID, signature string) (*domain.License, error)
 	// HandleWebhook confirms a payment the gateway reported to us, for gateways
-	// that work that way (Dodo).
+	// that work that way (Dodo, Razorpay).
 	HandleWebhook(ctx context.Context, provider string, payload []byte, headers map[string]string) error
 	GetUserOrders(ctx context.Context, userID uuid.UUID, page int) ([]domain.Order, error)
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error)
 	GetProducerOrders(ctx context.Context, producerID uuid.UUID, page, limit int) (*ProducerOrderResponse, error)
+}
 
+type nopTxRunner struct {
+	orderRepo   domain.OrderRepository
+	paymentRepo domain.PaymentRepository
+	licenseRepo domain.LicenseRepository
+}
+
+type nopPaymentTx struct {
+	orderRepo   domain.OrderRepository
+	paymentRepo domain.PaymentRepository
+	licenseRepo domain.LicenseRepository
+}
+
+func (pt *nopPaymentTx) OrderRepo() domain.OrderRepository     { return pt.orderRepo }
+func (pt *nopPaymentTx) PaymentRepo() domain.PaymentRepository { return pt.paymentRepo }
+func (pt *nopPaymentTx) LicenseRepo() domain.LicenseRepository { return pt.licenseRepo }
+
+func (n *nopTxRunner) WithTx(ctx context.Context, fn func(tx domain.PaymentTx) error) error {
+	return fn(&nopPaymentTx{orderRepo: n.orderRepo, paymentRepo: n.paymentRepo, licenseRepo: n.licenseRepo})
 }
 
 type paymentService struct {
@@ -49,6 +69,7 @@ type paymentService struct {
 	appBaseURL  string
 	gateways    GatewayResolver
 	snapshotter domain.ReportingRateSnapshotter
+	txRunner    domain.TxRunner
 }
 
 func NewPaymentService(
@@ -61,7 +82,12 @@ func NewPaymentService(
 	emailSender sharedemail.Sender,
 	appBaseURL string,
 	gateways GatewayResolver,
+	txRunner ...domain.TxRunner,
 ) PaymentService {
+	var runner domain.TxRunner
+	if len(txRunner) > 0 {
+		runner = txRunner[0]
+	}
 	return &paymentService{
 		orderRepo:   orderRepo,
 		paymentRepo: paymentRepo,
@@ -72,7 +98,15 @@ func NewPaymentService(
 		emailSender: emailSender,
 		appBaseURL:  appBaseURL,
 		gateways:    gateways,
+		txRunner:    runner,
 	}
+}
+
+func (s *paymentService) getTxRunner() domain.TxRunner {
+	if s.txRunner != nil {
+		return s.txRunner
+	}
+	return &nopTxRunner{orderRepo: s.orderRepo, paymentRepo: s.paymentRepo, licenseRepo: s.licenseRepo}
 }
 
 func (s *paymentService) SetReportingRateSnapshotter(snapshotter domain.ReportingRateSnapshotter) {
@@ -189,8 +223,13 @@ func (s *paymentService) CreateOrderWithOffer(ctx context.Context, input CreateO
 	return s.createOrderFromSpec(ctx, spec, licenseOption, offer, input)
 }
 
-func (s *paymentService) createOrderFromSpec(ctx context.Context, spec *catalogDomain.Spec, licenseOption *catalogDomain.LicenseOption, offer sharedmoney.SelectedPriceOffer, input CreateOrderInput) (*domain.Order, error) {
-
+func (s *paymentService) createOrderFromSpec(
+	ctx context.Context,
+	spec *catalogDomain.Spec,
+	licenseOption *catalogDomain.LicenseOption,
+	offer sharedmoney.SelectedPriceOffer,
+	input CreateOrderInput,
+) (*domain.Order, error) {
 	receiptID, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate uuid: %w", err)
@@ -265,6 +304,38 @@ func (s *paymentService) createOrderFromSpec(ctx context.Context, spec *catalogD
 	return order, nil
 }
 
+// GetOrderStatus returns a provider-neutral minimal status for polling.
+func (s *paymentService) GetOrderStatus(ctx context.Context, orderID, requesterID uuid.UUID) (*OrderStatusResponse, error) {
+	order, err := s.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, domain.ErrOrderNotFound
+	}
+	if order.UserID != requesterID {
+		return nil, domain.ErrOrderNotFound
+	}
+
+	resp := &OrderStatusResponse{
+		OrderID:   order.ID,
+		Status:    order.Status,
+		Provider:  order.Provider,
+		ExpiresAt: order.ExpiresAt,
+	}
+
+	if order.Status == domain.OrderStatusPaid {
+		lic, licErr := s.licenseRepo.GetByOrderID(ctx, order.ID)
+		if licErr == nil && lic != nil {
+			resp.License = &OrderLicenseSummary{
+				ID:         lic.ID,
+				LicenseKey: lic.LicenseKey,
+			}
+		}
+	} else if order.Status == domain.OrderStatusPending || order.Status == domain.OrderStatusProcessing {
+		resp.RetryAfterSeconds = 2
+	}
+
+	return resp, nil
+}
+
 // VerifyPayment confirms a payment that the browser reported back.
 func (s *paymentService) VerifyPayment(ctx context.Context, orderID, userID uuid.UUID, providerPaymentID, signature string) (*domain.License, error) {
 	order, err := s.orderRepo.GetByID(ctx, orderID)
@@ -277,7 +348,20 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID, userID uuid
 		return nil, errors.New("order not found")
 	}
 
-	if order.Status != domain.OrderStatusPending {
+	gateway, err := s.gateways.ByName(order.Provider)
+	if err != nil {
+		return nil, err
+	}
+	confirmer, ok := gateway.(domain.ClientConfirmer)
+	if !ok {
+		return nil, fmt.Errorf("%s payments are confirmed by webhook, not by the client: %w", order.Provider, domain.ErrProviderCompletesByWebhook)
+	}
+
+	if order.Status == domain.OrderStatusPaid {
+		return s.licenseRepo.GetByOrderID(ctx, order.ID)
+	}
+
+	if order.Status != domain.OrderStatusPending && order.Status != domain.OrderStatusProcessing && order.Status != domain.OrderStatusFailed {
 		return nil, errors.New("order already processed")
 	}
 	if time.Now().After(order.ExpiresAt) {
@@ -285,15 +369,6 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID, userID uuid
 			return nil, fmt.Errorf("order expired and status update failed: %w", updateErr)
 		}
 		return nil, errors.New("order expired")
-	}
-
-	gateway, err := s.gateways.ByName(order.Provider)
-	if err != nil {
-		return nil, err
-	}
-	confirmer, ok := gateway.(domain.ClientConfirmer)
-	if !ok {
-		return nil, fmt.Errorf("%s payments are confirmed by webhook, not by the client", gateway.Name())
 	}
 
 	confirmation, err := confirmer.ConfirmClientPayment(ctx, order, providerPaymentID, signature)
@@ -305,6 +380,15 @@ func (s *paymentService) VerifyPayment(ctx context.Context, orderID, userID uuid
 			}
 		}
 		return nil, err
+	}
+
+	if confirmation.ReportedAmountMinor > 0 && confirmation.ReportedAmountMinor != int64(order.Amount) {
+		log.Printf("[ALERT][PAYMENT_AMOUNT_MISMATCH] order_id=%s provider=%s expected=%d reported=%d", order.ID, order.Provider, order.Amount, confirmation.ReportedAmountMinor)
+		return nil, domain.ErrAmountMismatch
+	}
+	if confirmation.ReportedCurrency != "" && !strings.EqualFold(confirmation.ReportedCurrency, order.Currency) {
+		log.Printf("[ALERT][PAYMENT_AMOUNT_MISMATCH] order_id=%s provider=%s expected=%s reported=%s", order.ID, order.Provider, order.Currency, confirmation.ReportedCurrency)
+		return nil, domain.ErrAmountMismatch
 	}
 
 	return s.finalizePayment(ctx, order, confirmation)
@@ -329,18 +413,37 @@ func (s *paymentService) HandleWebhook(ctx context.Context, provider string, pay
 		return nil // valid event we do not act on
 	}
 
-	order, err := s.orderRepo.GetByID(ctx, confirmation.OrderID)
-	if err != nil {
-		return errors.New("order not found")
+	var order *domain.Order
+	if confirmation.OrderID != uuid.Nil {
+		order, err = s.orderRepo.GetByID(ctx, confirmation.OrderID)
+	} else if confirmation.ProviderCheckoutID != "" {
+		order, err = s.orderRepo.GetByProviderCheckoutID(ctx, gateway.Name(), confirmation.ProviderCheckoutID)
+	} else {
+		return domain.ErrOrderNotFound
 	}
+	if err != nil || order == nil {
+		return domain.ErrOrderNotFound
+	}
+
 	if order.Provider != gateway.Name() {
-		return errors.New("order not found")
+		return domain.ErrProviderMismatch
 	}
+
+	if confirmation.ReportedAmountMinor > 0 && confirmation.ReportedAmountMinor != int64(order.Amount) {
+		log.Printf("[ALERT][PAYMENT_AMOUNT_MISMATCH] order_id=%s provider=%s expected=%d reported=%d", order.ID, order.Provider, order.Amount, confirmation.ReportedAmountMinor)
+		return domain.ErrAmountMismatch
+	}
+	if confirmation.ReportedCurrency != "" && !strings.EqualFold(confirmation.ReportedCurrency, order.Currency) {
+		log.Printf("[ALERT][PAYMENT_AMOUNT_MISMATCH] order_id=%s provider=%s expected=%s reported=%s", order.ID, order.Provider, order.Currency, confirmation.ReportedCurrency)
+		return domain.ErrAmountMismatch
+	}
+
 	if order.Status == domain.OrderStatusPaid {
 		return nil // webhooks are delivered at least once
 	}
-	if order.Status != domain.OrderStatusPending {
-		return errors.New("order is not payable")
+	if order.Status == domain.OrderStatusCancelled || order.Status == domain.OrderStatusRefunded {
+		log.Printf("[ALERT][PAYMENT_INVALID_STATUS] order_id=%s status=%s provider=%s", order.ID, order.Status, order.Provider)
+		return domain.ErrOrderNotPayable
 	}
 
 	_, err = s.finalizePayment(ctx, order, confirmation)
@@ -349,39 +452,68 @@ func (s *paymentService) HandleWebhook(ctx context.Context, provider string, pay
 
 // finalizePayment is the one place a successful payment turns into a paid
 // order, a license and a receipt, whichever gateway it came from.
+// It executes atomically inside a transaction.
 func (s *paymentService) finalizePayment(ctx context.Context, order *domain.Order, c *domain.PaymentConfirmation) (*domain.License, error) {
-	now := time.Now()
-	payment := &domain.Payment{
-		OrderID:           order.ID,
-		Provider:          order.Provider,
-		ProviderPaymentID: c.ProviderPaymentID,
-		ProviderSignature: c.Signature,
-		Amount:            order.Amount,
-		Currency:          order.Currency,
-		Status:            domain.PaymentStatusCaptured,
-		Method:            c.Method,
-		Email:             c.Email,
-		CapturedAt:        &now,
-	}
-	if err := s.paymentRepo.Create(ctx, payment); err != nil {
-		return nil, err
-	}
-	if err := s.orderRepo.UpdateStatus(ctx, order.ID, domain.OrderStatusPaid); err != nil {
-		return nil, err
-	}
+	var (
+		license     *domain.License
+		payment     *domain.Payment
+		didFinalize bool
+	)
 
-	license, err := s.issueLicense(ctx, order)
-	if err != nil {
-		return nil, fmt.Errorf("payment ok but license failed: %w", err)
-	}
-
-	go func() {
-		emailCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := s.sendReceiptEmail(emailCtx, order, payment, license); err != nil {
-			log.Printf("PaymentService.finalizePayment receipt email failed. order_id=%s err=%v", order.ID, err)
+	runner := s.getTxRunner()
+	err := runner.WithTx(ctx, func(tx domain.PaymentTx) error {
+		changed, err := tx.OrderRepo().MarkPaidIfPayable(ctx, order.ID, c.ProviderPaymentID)
+		if err != nil {
+			return err
 		}
-	}()
+		if !changed {
+			existingLic, licErr := tx.LicenseRepo().GetByOrderID(ctx, order.ID)
+			if licErr == nil && existingLic != nil {
+				license = existingLic
+				didFinalize = false
+				return nil
+			}
+			return domain.ErrOrderNotPayable
+		}
+
+		now := time.Now()
+		payment = &domain.Payment{
+			OrderID:           order.ID,
+			Provider:          order.Provider,
+			ProviderPaymentID: c.ProviderPaymentID,
+			ProviderSignature: c.Signature,
+			Amount:            order.Amount,
+			Currency:          order.Currency,
+			Status:            domain.PaymentStatusCaptured,
+			Method:            c.Method,
+			Email:             c.Email,
+			CapturedAt:        &now,
+		}
+		if err := tx.PaymentRepo().Create(ctx, payment); err != nil {
+			return err
+		}
+
+		lic, err := s.issueLicenseWithRepo(ctx, order, tx.LicenseRepo())
+		if err != nil {
+			return fmt.Errorf("payment ok but license failed: %w", err)
+		}
+		license = lic
+		didFinalize = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if didFinalize && payment != nil && license != nil {
+		go func() {
+			emailCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.sendReceiptEmail(emailCtx, order, payment, license); err != nil {
+				log.Printf("PaymentService.finalizePayment receipt email failed. order_id=%s err=%v", order.ID, err)
+			}
+		}()
+	}
 
 	return license, nil
 }
@@ -447,6 +579,10 @@ func (s *paymentService) GetUserLicenses(ctx context.Context, userID uuid.UUID, 
 }
 
 func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) (*domain.License, error) {
+	return s.issueLicenseWithRepo(ctx, order, s.licenseRepo)
+}
+
+func (s *paymentService) issueLicenseWithRepo(ctx context.Context, order *domain.Order, licenseRepo domain.LicenseRepository) (*domain.License, error) {
 	licenseOptionIDStr, ok := order.Notes["license_option_id"].(string)
 	if !ok {
 		return nil, errors.New("license_option_id missing")
@@ -476,7 +612,7 @@ func (s *paymentService) issueLicense(ctx context.Context, order *domain.Order) 
 		IssuedAt:        time.Now(),
 	}
 
-	return license, s.licenseRepo.Create(ctx, license)
+	return license, licenseRepo.Create(ctx, license)
 }
 
 func (s *paymentService) GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error) {

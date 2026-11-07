@@ -137,6 +137,7 @@ type OrderRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
 	GetByProviderCheckoutID(ctx context.Context, provider, checkoutID string) (*Order, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status OrderStatus) error
+	MarkPaidIfPayable(ctx context.Context, id uuid.UUID, providerPaymentID string) (bool, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]Order, error)
 	ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]OrderWithBuyer, int, error)
 }
@@ -155,4 +156,14 @@ type LicenseRepository interface {
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int, search, licenseType string) ([]License, int, error)
 	IncrementDownloads(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, reason string) error
+}
+
+type PaymentTx interface {
+	OrderRepo() OrderRepository
+	PaymentRepo() PaymentRepository
+	LicenseRepo() LicenseRepository
+}
+
+type TxRunner interface {
+	WithTx(ctx context.Context, fn func(tx PaymentTx) error) error
 }

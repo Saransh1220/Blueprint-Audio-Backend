@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"encoding/json"
 	"testing"
 	"time"
@@ -147,4 +148,86 @@ func TestPgLicenseRepository_Basic(t *testing.T) {
 	require.NoError(t, repo.IncrementDownloads(ctx, id))
 	mock.ExpectExec("UPDATE licenses").WithArgs("reason", id).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, repo.Revoke(ctx, id, "reason"))
+}
+
+func TestPgOrderRepository_MarkPaidIfPayable(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	repo := postgres.NewOrderRepository(db)
+	ctx := context.Background()
+	id := uuid.New()
+	providerPayID := "pay_test_123"
+
+	expectedQuery := `UPDATE orders\s+SET status = \$1, provider_payment_id = \$2, updated_at = NOW\(\)\s+WHERE id = \$3 AND status IN \('pending', 'processing', 'failed'\)\s+RETURNING id`
+
+	t.Run("order payable updates to paid and returns true", func(t *testing.T) {
+		rows := sqlmock.NewRows([]string{"id"}).AddRow(id)
+		mock.ExpectQuery(expectedQuery).
+			WithArgs(domain.OrderStatusPaid, providerPayID, id).
+			WillReturnRows(rows)
+
+		changed, err := repo.MarkPaidIfPayable(ctx, id, providerPayID)
+		require.NoError(t, err)
+		assert.True(t, changed)
+	})
+
+	t.Run("order not payable returns false without error", func(t *testing.T) {
+		mock.ExpectQuery(expectedQuery).
+			WithArgs(domain.OrderStatusPaid, providerPayID, id).
+			WillReturnError(sql.ErrNoRows)
+
+		changed, err := repo.MarkPaidIfPayable(ctx, id, providerPayID)
+		require.NoError(t, err)
+		assert.False(t, changed)
+	})
+
+	t.Run("db error returns false and error", func(t *testing.T) {
+		mock.ExpectQuery(expectedQuery).
+			WithArgs(domain.OrderStatusPaid, providerPayID, id).
+			WillReturnError(sql.ErrConnDone)
+
+		changed, err := repo.MarkPaidIfPayable(ctx, id, providerPayID)
+		require.Error(t, err)
+		assert.False(t, changed)
+	})
+}
+
+func TestPgTxRunner_WithTx(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	runner := postgres.NewTxRunner(db)
+	ctx := context.Background()
+
+	t.Run("success commits transaction", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectCommit()
+
+		err := runner.WithTx(ctx, func(tx domain.PaymentTx) error {
+			assert.NotNil(t, tx.OrderRepo())
+			assert.NotNil(t, tx.PaymentRepo())
+			assert.NotNil(t, tx.LicenseRepo())
+			return nil
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("fn error rolls back transaction", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectRollback()
+
+		boom := errors.New("boom")
+		err := runner.WithTx(ctx, func(tx domain.PaymentTx) error {
+			return boom
+		})
+		assert.ErrorIs(t, err, boom)
+	})
+
+	t.Run("begin error returns error", func(t *testing.T) {
+		mock.ExpectBegin().WillReturnError(sql.ErrConnDone)
+
+		err := runner.WithTx(ctx, func(tx domain.PaymentTx) error {
+			return nil
+		})
+		assert.ErrorIs(t, err, sql.ErrConnDone)
+	})
 }

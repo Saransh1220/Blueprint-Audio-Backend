@@ -40,6 +40,10 @@ func (m *orderRepoMock) UpdateStatus(ctx context.Context, id uuid.UUID, status d
 	args := m.Called(ctx, id, status)
 	return args.Error(0)
 }
+func (m *orderRepoMock) MarkPaidIfPayable(ctx context.Context, id uuid.UUID, providerPaymentID string) (bool, error) {
+	args := m.Called(ctx, id, providerPaymentID)
+	return args.Bool(0), args.Error(1)
+}
 func (m *orderRepoMock) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Order, error) {
 	args := m.Called(ctx, userID, limit, offset)
 	if args.Get(0) == nil {

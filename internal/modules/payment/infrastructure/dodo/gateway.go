@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,13 +72,31 @@ func (g *Gateway) CreateCheckout(ctx context.Context, req domain.CheckoutRequest
 		"spec_title":   req.SpecTitle,
 		"license_name": req.LicenseName,
 	}
+
+	returnURL := g.cfg.ReturnURL
+	if returnURL == "" {
+		returnURL = "/payment/return"
+	}
+	if parsed, err := url.Parse(returnURL); err == nil {
+		q := parsed.Query()
+		q.Set("order_id", order.ID.String())
+		parsed.RawQuery = q.Encode()
+		returnURL = parsed.String()
+	} else {
+		if strings.Contains(returnURL, "?") {
+			returnURL = returnURL + "&order_id=" + order.ID.String()
+		} else {
+			returnURL = returnURL + "?order_id=" + order.ID.String()
+		}
+	}
+
 	body := map[string]any{
 		"product_cart": []map[string]any{{
 			"product_id": productID,
 			"quantity":   1,
 			"amount":     order.Amount,
 		}},
-		"return_url":  g.cfg.ReturnURL,
+		"return_url":  returnURL,
 		"metadata":    metadata,
 		"custom_data": metadata,
 	}
@@ -123,7 +143,7 @@ func (g *Gateway) ParseWebhook(payload []byte, headers map[string]string) (*doma
 		Data map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return nil, err
+		return nil, domain.ErrMalformedPayload
 	}
 	if event.Type != "payment.succeeded" {
 		return nil, nil
@@ -131,22 +151,29 @@ func (g *Gateway) ParseWebhook(payload []byte, headers map[string]string) (*doma
 
 	orderID, paymentID := extractOrderMetadata(event.Data)
 	if orderID == uuid.Nil {
-		return nil, errors.New("dodo webhook missing order_id")
+		return nil, domain.ErrOrderNotFound
 	}
 	if paymentID == "" {
-		paymentID = headers["webhook-id"]
+		return nil, domain.ErrMissingPaymentID
 	}
+
+	amountMinor := extractAmountMinor(event.Data)
+	currency := extractCurrency(event.Data)
+
 	return &domain.PaymentConfirmation{
-		OrderID:           orderID,
-		ProviderPaymentID: paymentID,
-		Signature:         headers["webhook-signature"],
+		OrderID:             orderID,
+		ProviderPaymentID:   paymentID,
+		ReportedAmountMinor: amountMinor,
+		ReportedCurrency:    currency,
+		Signature:           headers["webhook-signature"],
+		EventID:             headers["webhook-id"],
 	}, nil
 }
 
 func (g *Gateway) verifySignature(payload []byte, headers map[string]string) error {
 	secret := strings.TrimSpace(g.cfg.WebhookKey)
 	if secret == "" {
-		return errors.New("dodo webhook secret is not configured")
+		return domain.ErrMissingWebhookSecret
 	}
 	if strings.HasPrefix(strings.ToLower(secret), "http://") || strings.HasPrefix(strings.ToLower(secret), "https://") {
 		return errors.New("DODO_PAYMENTS_WEBHOOK_KEY must be the Dodo webhook signing secret, not the endpoint URL")
@@ -155,7 +182,17 @@ func (g *Gateway) verifySignature(payload []byte, headers map[string]string) err
 	timestamp := headers["webhook-timestamp"]
 	signature := headers["webhook-signature"]
 	if webhookID == "" || timestamp == "" || signature == "" {
-		return errors.New("missing dodo webhook signature headers")
+		return domain.ErrInvalidSignature
+	}
+
+	ts, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
+	if err != nil {
+		return domain.ErrTimestampToleranceExceeded
+	}
+	now := time.Now().Unix()
+	diff := now - ts
+	if diff < -300 || diff > 300 {
+		return domain.ErrTimestampToleranceExceeded
 	}
 
 	message := webhookID + "." + timestamp + "." + string(payload)
@@ -179,7 +216,7 @@ func (g *Gateway) verifySignature(payload []byte, headers map[string]string) err
 			return nil
 		}
 	}
-	return errors.New("invalid dodo webhook signature")
+	return domain.ErrInvalidSignature
 }
 
 func compareSignature(received string, expected ...string) bool {
@@ -211,7 +248,7 @@ func extractOrderMetadata(data map[string]any) (uuid.UUID, string) {
 		paymentID = stringFromAny(data["id"])
 	}
 
-	candidates := []any{data["metadata"], data["custom_data"], data["custom_fields"]}
+	candidates := []any{data["metadata"], data["custom_data"]}
 	for _, candidate := range candidates {
 		if meta, ok := candidate.(map[string]any); ok {
 			if id, err := uuid.Parse(stringFromAny(meta["order_id"])); err == nil {
@@ -223,6 +260,39 @@ func extractOrderMetadata(data map[string]any) (uuid.UUID, string) {
 		return id, paymentID
 	}
 	return uuid.Nil, paymentID
+}
+
+func extractAmountMinor(data map[string]any) int64 {
+	candidates := []string{"total_amount", "amount", "payment_amount"}
+	for _, k := range candidates {
+		if val, ok := data[k]; ok && val != nil {
+			switch v := val.(type) {
+			case float64:
+				return int64(v)
+			case int64:
+				return v
+			case int:
+				return int64(v)
+			case string:
+				if parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+					return parsed
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func extractCurrency(data map[string]any) string {
+	candidates := []string{"currency", "currency_code"}
+	for _, k := range candidates {
+		if val, ok := data[k]; ok && val != nil {
+			if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.ToUpper(strings.TrimSpace(s))
+			}
+		}
+	}
+	return ""
 }
 
 func stringFromAny(value any) string {

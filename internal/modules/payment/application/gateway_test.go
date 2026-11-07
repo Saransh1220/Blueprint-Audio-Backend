@@ -190,10 +190,22 @@ func TestPaymentService_VerifyPayment_Preconditions(t *testing.T) {
 	t.Run("already processed", func(t *testing.T) {
 		s, or, _, _, _, _, _, _ := newPaymentSvc()
 		o := pendingOrder(ptr("order_1"))
-		o.Status = domain.OrderStatusPaid
+		o.Status = domain.OrderStatusCancelled
 		or.On("GetByID", ctx, o.ID).Return(o, nil).Once()
 		_, err := s.VerifyPayment(ctx, o.ID, o.UserID, "pay", "sig")
 		assert.EqualError(t, err, "order already processed")
+	})
+
+	t.Run("already paid returns existing license", func(t *testing.T) {
+		s, or, _, lr, _, _, _, _ := newPaymentSvc()
+		o := pendingOrder(ptr("order_1"))
+		o.Status = domain.OrderStatusPaid
+		expectedLicense := &domain.License{ID: uuid.New(), OrderID: o.ID}
+		or.On("GetByID", ctx, o.ID).Return(o, nil).Once()
+		lr.On("GetByOrderID", ctx, o.ID).Return(expectedLicense, nil).Once()
+		lic, err := s.VerifyPayment(ctx, o.ID, o.UserID, "pay", "sig")
+		require.NoError(t, err)
+		assert.Equal(t, expectedLicense, lic)
 	})
 
 	t.Run("expired marks failed", func(t *testing.T) {
@@ -231,7 +243,8 @@ func TestPaymentService_VerifyPayment_Preconditions(t *testing.T) {
 		o.Provider = "plain"
 		or.On("GetByID", ctx, o.ID).Return(o, nil).Once()
 		_, err := s.VerifyPayment(ctx, o.ID, o.UserID, "pay", "sig")
-		assert.EqualError(t, err, "plain payments are confirmed by webhook, not by the client")
+		assert.ErrorIs(t, err, domain.ErrProviderCompletesByWebhook)
+		assert.Contains(t, err.Error(), "plain payments are confirmed by webhook, not by the client")
 	})
 }
 
@@ -289,7 +302,7 @@ func TestPaymentService_VerifyPayment_SuccessStoresProviderNeutralPaymentAndSend
 	or.On("GetByID", ctx, o.ID).Return(o, nil).Once()
 	var stored *domain.Payment
 	pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Run(func(a mock.Arguments) { stored = a.Get(1).(*domain.Payment) }).Return(nil).Once()
-	or.On("UpdateStatus", ctx, o.ID, domain.OrderStatusPaid).Return(nil).Once()
+	or.On("MarkPaidIfPayable", ctx, o.ID, "pay_9").Return(true, nil).Once()
 	lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(nil).Once()
 	uf.On("FindByID", mock.Anything, o.UserID).Return(&authDomain.User{ID: o.UserID, Email: "acct@example.com", Name: "N"}, nil).Once()
 	sent := make(chan struct{}, 1)
@@ -324,23 +337,23 @@ func TestPaymentService_FinalizePayment_FailureBranches(t *testing.T) {
 		return s, or, pr, lr, o, &domain.PaymentConfirmation{OrderID: o.ID, ProviderPaymentID: "pay_1"}
 	}
 
+	t.Run("mark paid fails", func(t *testing.T) {
+		s, or, _, _, o, c := setup()
+		or.On("MarkPaidIfPayable", ctx, o.ID, c.ProviderPaymentID).Return(false, errors.New("paid err")).Once()
+		_, err := s.finalizePayment(ctx, o, c)
+		assert.EqualError(t, err, "paid err")
+	})
 	t.Run("payment insert fails", func(t *testing.T) {
-		s, _, pr, _, o, c := setup()
+		s, or, pr, _, o, c := setup()
+		or.On("MarkPaidIfPayable", ctx, o.ID, c.ProviderPaymentID).Return(true, nil).Once()
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(errors.New("pay db")).Once()
 		_, err := s.finalizePayment(ctx, o, c)
 		assert.EqualError(t, err, "pay db")
 	})
-	t.Run("mark paid fails", func(t *testing.T) {
-		s, or, pr, _, o, c := setup()
-		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
-		or.On("UpdateStatus", ctx, o.ID, domain.OrderStatusPaid).Return(errors.New("paid err")).Once()
-		_, err := s.finalizePayment(ctx, o, c)
-		assert.EqualError(t, err, "paid err")
-	})
 	t.Run("license fails after payment", func(t *testing.T) {
 		s, or, pr, lr, o, c := setup()
+		or.On("MarkPaidIfPayable", ctx, o.ID, c.ProviderPaymentID).Return(true, nil).Once()
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(nil).Once()
-		or.On("UpdateStatus", ctx, o.ID, domain.OrderStatusPaid).Return(nil).Once()
 		lr.On("Create", ctx, mock.AnythingOfType("*domain.License")).Return(errors.New("lic err")).Once()
 		_, err := s.finalizePayment(ctx, o, c)
 		assert.EqualError(t, err, "payment ok but license failed: lic err")
@@ -386,7 +399,7 @@ func TestPaymentService_HandleWebhook(t *testing.T) {
 		s, or, pr, _, _, _, _, _ := newPaymentSvc()
 		fakeOf(s, domain.ProviderDodo).webhook = confirm()
 		or.On("GetByID", ctx, oid).Return(order(domain.OrderStatusPending, domain.ProviderRazorpay, nil), nil).Once()
-		assert.EqualError(t, s.HandleWebhook(ctx, domain.ProviderDodo, nil, nil), "order not found")
+		assert.ErrorIs(t, s.HandleWebhook(ctx, domain.ProviderDodo, nil, nil), domain.ErrProviderMismatch)
 		pr.AssertNotCalled(t, "Create")
 	})
 	t.Run("already paid is idempotent", func(t *testing.T) {
@@ -399,13 +412,14 @@ func TestPaymentService_HandleWebhook(t *testing.T) {
 	t.Run("not payable", func(t *testing.T) {
 		s, or, _, _, _, _, _, _ := newPaymentSvc()
 		fakeOf(s, domain.ProviderDodo).webhook = confirm()
-		or.On("GetByID", ctx, oid).Return(order(domain.OrderStatusFailed, domain.ProviderDodo, nil), nil).Once()
+		or.On("GetByID", ctx, oid).Return(order(domain.OrderStatusCancelled, domain.ProviderDodo, nil), nil).Once()
 		assert.EqualError(t, s.HandleWebhook(ctx, domain.ProviderDodo, nil, nil), "order is not payable")
 	})
 	t.Run("finalize error is returned", func(t *testing.T) {
 		s, or, pr, _, _, _, _, _ := newPaymentSvc()
 		fakeOf(s, domain.ProviderDodo).webhook = confirm()
 		or.On("GetByID", ctx, oid).Return(order(domain.OrderStatusPending, domain.ProviderDodo, nil), nil).Once()
+		or.On("MarkPaidIfPayable", ctx, oid, "pay_dodo_1").Return(true, nil).Once()
 		pr.On("Create", ctx, mock.AnythingOfType("*domain.Payment")).Return(errors.New("pay err")).Once()
 		assert.EqualError(t, s.HandleWebhook(ctx, domain.ProviderDodo, nil, nil), "pay err")
 	})
@@ -420,7 +434,7 @@ func TestPaymentService_HandleWebhook(t *testing.T) {
 				p.ProviderPaymentID == "pay_dodo_1" && p.ProviderSignature == "v1,abc" &&
 				p.Status == domain.PaymentStatusCaptured && p.CapturedAt != nil
 		})).Return(nil).Once()
-		or.On("UpdateStatus", ctx, oid, domain.OrderStatusPaid).Return(nil).Once()
+		or.On("MarkPaidIfPayable", ctx, oid, "pay_dodo_1").Return(true, nil).Once()
 		lr.On("Create", ctx, mock.MatchedBy(func(l *domain.License) bool {
 			return l.OrderID == oid && l.LicenseOptionID == loID && l.Currency == "USD"
 		})).Return(nil).Once()

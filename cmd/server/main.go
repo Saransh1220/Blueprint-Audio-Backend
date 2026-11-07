@@ -38,6 +38,9 @@ import (
 func main() {
 	// 1. Load Configuration
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
 
 	if cfg.Migration.AutoRun {
 		logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -213,14 +216,16 @@ func main() {
 func paymentGatewayConfig(cfg config.Config) payment.GatewayConfig {
 	return payment.GatewayConfig{
 		Razorpay: razorpay.Config{
-			KeyID:     cfg.Razorpay.KeyID,
-			KeySecret: cfg.Razorpay.KeySecret,
+			KeyID:         cfg.Razorpay.KeyID,
+			KeySecret:     cfg.Razorpay.KeySecret,
+			WebhookSecret: cfg.Razorpay.WebhookSecret,
 		},
 		Dodo: dodo.Config{
 			APIKey:     cfg.Dodo.APIKey,
 			ProductID:  cfg.Dodo.ProductID,
 			WebhookKey: cfg.Dodo.WebhookKey,
 			APIURL:     cfg.Dodo.APIURL,
+			ReturnURL:  cfg.Dodo.ReturnURL,
 		},
 	}
 }

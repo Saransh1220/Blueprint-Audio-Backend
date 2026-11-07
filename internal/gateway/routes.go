@@ -12,11 +12,11 @@ import (
 	analytics_http "github.com/saransh1220/blueprint-audio/internal/modules/analytics/interfaces/http"
 	auth_http "github.com/saransh1220/blueprint-audio/internal/modules/auth/interfaces/http"
 	catalog_http "github.com/saransh1220/blueprint-audio/internal/modules/catalog/interfaces/http"
+	fx_http "github.com/saransh1220/blueprint-audio/internal/modules/fx/interfaces/http"
+	legal_http "github.com/saransh1220/blueprint-audio/internal/modules/legal/interfaces/http"
 	notification_http "github.com/saransh1220/blueprint-audio/internal/modules/notification/interfaces/http"
 	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
-	legal_http "github.com/saransh1220/blueprint-audio/internal/modules/legal/interfaces/http"
-	fx_http "github.com/saransh1220/blueprint-audio/internal/modules/fx/interfaces/http"
 )
 
 // RouterConfig holds all the handlers and middleware needed for routing
@@ -147,7 +147,9 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("POST /orders", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.CreateOrder))))
 	mux.Handle("GET /orders", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.GetUserOrders))))
 	mux.Handle("GET /orders/{id}", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.GetOrder))))
+	mux.Handle("GET /orders/{id}/status", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.GetOrderStatus))))
 	mux.Handle("POST /payments/verify", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.VerifyPayment)))
+	mux.HandleFunc("POST /webhooks/{provider}", config.PaymentHandler.ProviderWebhook)
 	mux.HandleFunc("POST /webhooks/dodo", config.PaymentHandler.DodoWebhook)
 	mux.Handle("GET /licenses", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserLicenses)))
 	mux.Handle("GET /licenses/{id}/downloads", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetLicenseDownloads)))
@@ -207,4 +209,3 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 
 	return mux
 }
-

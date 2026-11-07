@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,15 +13,18 @@ import (
 )
 
 type PgOrderRepository struct {
-	db *sqlx.DB
+	db DBTX
 }
 
 func NewOrderRepository(db *sqlx.DB) domain.OrderRepository {
+	return NewOrderRepositoryWithDB(db)
+}
+
+func NewOrderRepositoryWithDB(db DBTX) domain.OrderRepository {
 	return &PgOrderRepository{db: db}
 }
 
 func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) error {
-
 	if order.ID == uuid.Nil {
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -158,6 +162,23 @@ func (r *PgOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	return err
 }
 
+func (r *PgOrderRepository) MarkPaidIfPayable(ctx context.Context, id uuid.UUID, providerPaymentID string) (bool, error) {
+	query := `
+		UPDATE orders
+		SET status = $1, provider_payment_id = $2, updated_at = NOW()
+		WHERE id = $3 AND status IN ('pending', 'processing', 'failed')
+		RETURNING id`
+	var updatedID uuid.UUID
+	err := r.db.QueryRowContext(ctx, query, domain.OrderStatusPaid, providerPaymentID, id).Scan(&updatedID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *PgOrderRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Order, error) {
 	query := `SELECT ` + orderColumns + ` FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
@@ -178,9 +199,6 @@ func (r *PgOrderRepository) ListByUser(ctx context.Context, userID uuid.UUID, li
 }
 
 func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.UUID, limit, offset int) ([]domain.OrderWithBuyer, int, error) {
-	var orders []domain.OrderWithBuyer
-
-	// Get total count first
 	var total int
 	countQuery := `
 		SELECT COUNT(*)
@@ -193,7 +211,6 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 		return nil, 0, err
 	}
 
-	// Get orders with buyer details
 	query := `
 		SELECT 
 			o.id,
@@ -221,17 +238,17 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryxContext(ctx, query, producerID, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, producerID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 
+	var orders []domain.OrderWithBuyer
 	for rows.Next() {
 		var order domain.OrderWithBuyer
 		var notesJSON []byte
 
-		// We need to scan manually because of the JSON field and embedded struct
 		err := rows.Scan(
 			&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
 			&order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
@@ -249,5 +266,5 @@ func (r *PgOrderRepository) ListByProducer(ctx context.Context, producerID uuid.
 		orders = append(orders, order)
 	}
 
-	return orders, total, nil
+	return orders, total, rows.Err()
 }

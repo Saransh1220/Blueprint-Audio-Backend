@@ -11,10 +11,14 @@ import (
 )
 
 type PgLicenseRepository struct {
-	db *sqlx.DB
+	db DBTX
 }
 
 func NewLicenseRepository(db *sqlx.DB) domain.LicenseRepository {
+	return NewLicenseRepositoryWithDB(db)
+}
+
+func NewLicenseRepositoryWithDB(db DBTX) domain.LicenseRepository {
 	return &PgLicenseRepository{db: db}
 }
 

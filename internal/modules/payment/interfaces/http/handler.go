@@ -20,30 +20,72 @@ type PaymentHandler struct {
 	service application.PaymentService
 }
 
-func (h *PaymentHandler) DodoWebhook(w http.ResponseWriter, r *http.Request) {
+func NewPaymentHandler(service application.PaymentService) *PaymentHandler {
+	return &PaymentHandler{service: service}
+}
+
+func (h *PaymentHandler) ProviderWebhook(w http.ResponseWriter, r *http.Request) {
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	if provider == "" {
+		provider = domain.ProviderDodo
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024) // 1MB cap
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "invalid webhook body", http.StatusBadRequest)
 		return
 	}
 
-	headers := map[string]string{
-		"webhook-id":        r.Header.Get("webhook-id"),
-		"webhook-timestamp": r.Header.Get("webhook-timestamp"),
-		"webhook-signature": r.Header.Get("webhook-signature"),
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[strings.ToLower(k)] = v[0]
+		}
 	}
-	if err := h.service.HandleWebhook(r.Context(), domain.ProviderDodo, payload, headers); err != nil {
+
+	if err := h.service.HandleWebhook(r.Context(), provider, payload, headers); err != nil {
 		traceID := middleware.GetRequestID(r.Context())
-		log.Printf("[ALERT][PAYMENT_FAILURE] trace_id=%s provider=%s error=%v", traceID, domain.ProviderDodo, err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		switch {
+		case errors.Is(err, domain.ErrInvalidSignature),
+			errors.Is(err, domain.ErrTimestampToleranceExceeded),
+			errors.Is(err, domain.ErrMissingWebhookSecret):
+			log.Printf("[ALERT][PAYMENT_UNAUTHORIZED] trace_id=%s provider=%s error=%v", traceID, provider, err)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		case errors.Is(err, domain.ErrMalformedPayload),
+			errors.Is(err, domain.ErrMissingPaymentID):
+			log.Printf("[ALERT][PAYMENT_BAD_REQUEST] trace_id=%s provider=%s error=%v", traceID, provider, err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		case errors.Is(err, domain.ErrOrderNotFound),
+			errors.Is(err, domain.ErrProviderMismatch),
+			errors.Is(err, domain.ErrAmountMismatch),
+			errors.Is(err, domain.ErrOrderNotPayable):
+			// Permanent business rejection: log alert, return 200 so provider stops retrying!
+			log.Printf("[ALERT][PAYMENT_REJECTED] trace_id=%s provider=%s reason=%v", traceID, provider, err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]any{"received": true, "status": "ignored"})
+			return
+		case strings.Contains(strings.ToLower(err.Error()), "not supported") || strings.Contains(strings.ToLower(err.Error()), "unknown"):
+			log.Printf("[ALERT][PAYMENT_UNKNOWN_PROVIDER] trace_id=%s provider=%s error=%v", traceID, provider, err)
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		default:
+			log.Printf("[ALERT][PAYMENT_FAILURE] trace_id=%s provider=%s error=%v", traceID, provider, err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]bool{"received": true})
 }
 
-func NewPaymentHandler(service application.PaymentService) *PaymentHandler {
-	return &PaymentHandler{service: service}
+func (h *PaymentHandler) DodoWebhook(w http.ResponseWriter, r *http.Request) {
+	h.ProviderWebhook(w, r)
 }
 
 func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
@@ -106,14 +148,14 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	order, err := h.service.CreateOrderWithOffer(r.Context(), input)
 	if err != nil {
-		var mismatch *application.PriceMismatchError
-		if errors.As(err, &mismatch) {
+		var priceMismatch *application.PriceMismatchError
+		if errors.As(err, &priceMismatch) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]any{
+			json.NewEncoder(w).Encode(map[string]interface{}{
 				"code":          "PRICE_CHANGED",
-				"error":         mismatch.Message,
-				"current_offer": mismatch.CurrentOffer,
+				"message":       priceMismatch.Message,
+				"current_offer": priceMismatch.CurrentOffer,
 			})
 			return
 		}
@@ -122,7 +164,12 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, money.ErrPriceUnavailable) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code":    "PRICE_UNAVAILABLE",
+				"message": "Selected license cannot be purchased in this currency",
+			})
 			return
 		}
 		http.Error(w, "failed to create order: "+err.Error(), http.StatusInternalServerError)
@@ -168,6 +215,16 @@ func (h *PaymentHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		req.RazorpaySignature,
 	)
 	if err != nil {
+		if errors.Is(err, domain.ErrProviderCompletesByWebhook) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "PROVIDER_COMPLETES_BY_WEBHOOK",
+				"message": "This order is confirmed via webhook",
+			})
+			return
+		}
+
 		traceID := middleware.GetRequestID(r.Context())
 		log.Printf("[ALERT][PAYMENT_FAILURE] trace_id=%s order_id=%s user_id=%s error=%v", traceID, orderID, userID, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -208,6 +265,33 @@ func (h *PaymentHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	// Return order
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(order)
+}
+
+func (h *PaymentHandler) GetOrderStatus(w http.ResponseWriter, r *http.Request) {
+	// Auth check
+	userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get order ID from path
+	orderID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+
+	// Fetch order status
+	status, err := h.service.GetOrderStatus(r.Context(), orderID, userID)
+	if err != nil {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+
+	// Return order status
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 func (h *PaymentHandler) GetUserOrders(w http.ResponseWriter, r *http.Request) {

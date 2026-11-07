@@ -26,6 +26,7 @@ type mockPaymentService struct {
 	getUserLicensesFn   func(context.Context, uuid.UUID, int, string, string) ([]domain.License, int, error)
 	getDownloadsFn      func(context.Context, uuid.UUID, uuid.UUID) (*application.LicenseDownloadsResponse, error)
 	getProducerOrdersFn func(context.Context, uuid.UUID, int, int) (*application.ProducerOrderResponse, error)
+	getOrderStatusFn    func(context.Context, uuid.UUID, uuid.UUID) (*application.OrderStatusResponse, error)
 }
 
 func (m mockPaymentService) CreateOrder(ctx context.Context, u, s, l uuid.UUID, c string) (*domain.Order, error) {
@@ -59,7 +60,16 @@ func (m mockPaymentService) GetLicenseDownloads(ctx context.Context, l, u uuid.U
 	return m.getDownloadsFn(ctx, l, u)
 }
 func (m mockPaymentService) GetProducerOrders(ctx context.Context, u uuid.UUID, p int, l int) (*application.ProducerOrderResponse, error) {
-	return m.getProducerOrdersFn(ctx, u, p, l)
+	if m.getProducerOrdersFn != nil {
+		return m.getProducerOrdersFn(ctx, u, p, l)
+	}
+	return nil, nil
+}
+func (m mockPaymentService) GetOrderStatus(ctx context.Context, orderID, userID uuid.UUID) (*application.OrderStatusResponse, error) {
+	if m.getOrderStatusFn != nil {
+		return m.getOrderStatusFn(ctx, orderID, userID)
+	}
+	return nil, nil
 }
 
 func authedReq(method, path, body string) *http.Request {
