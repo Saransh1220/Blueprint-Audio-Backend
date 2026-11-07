@@ -1,6 +1,7 @@
 package http_test
 
 import (
+	"strings"
 	"context"
 	"encoding/json"
 	"math/big"
@@ -147,6 +148,7 @@ func TestFXHandler_AdminRefreshRates(t *testing.T) {
 
 	repo.On("Latest", mock.Anything, "INR", "USD").Return(nil, domain.ErrNoRate).Once()
 	repo.On("Latest", mock.Anything, "USD", "INR").Return(nil, domain.ErrNoRate).Once()
+		repo.On("Latest", mock.Anything, "INR", "USD").Return(nil, domain.ErrNoRate).Once()
 	repo.On("AppendBatch", mock.Anything, mock.Anything).Return(nil).Once()
 
 	audit.On("Log", mock.Anything, &actorID, "fx:refresh", "fx_rates", "", nil, mock.Anything, mock.Anything, mock.Anything).
@@ -200,6 +202,7 @@ func TestFXHandler_GetLatestRate(t *testing.T) {
 
 	t.Run("rate not found -> 404", func(t *testing.T) {
 		repo.On("Latest", mock.Anything, "USD", "INR").Return(nil, domain.ErrNoRate).Once()
+		repo.On("Latest", mock.Anything, "INR", "USD").Return(nil, domain.ErrNoRate).Once()
 		req := httptest.NewRequest(http.MethodGet, "/fx/rates/latest?base=USD&quote=INR", nil)
 		w := httptest.NewRecorder()
 		handler.GetLatestRate(w, req)
@@ -240,3 +243,191 @@ func TestFXHandler_GetLatestRate(t *testing.T) {
 		assert.Contains(t, w.Body.String(), `"source":"frankfurter"`)
 	})
 }
+
+func TestFXHandler_SuggestPrice(t *testing.T) {
+	setup := func() (*mockRateRepo, *fxHttp.FXHandler) {
+		repo := new(mockRateRepo)
+		svc := application.NewService(repo, nil, application.Config{
+			StaleAfter: 36 * time.Hour,
+			MaxAge:     7 * 24 * time.Hour,
+		})
+		handler := fxHttp.NewFXHandler(svc, nil)
+		return repo, handler
+	}
+	now := time.Now().UTC()
+
+	t.Run("invalid json body -> 400", func(t *testing.T) {
+		_, handler := setup()
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader("bad json"))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("disallowed unknown fields -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1999,"extra":"field"}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("multiple json objects -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1999}{"from_currency":"USD","to_currency":"INR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("unsupported from_currency -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"EUR","to_currency":"INR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "unsupported from_currency")
+	})
+
+	t.Run("unsupported to_currency -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"EUR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "unsupported to_currency")
+	})
+
+	t.Run("non-positive amount_minor -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":0}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "must be positive")
+	})
+
+	t.Run("overflow amount_minor -> 400", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1000000000000}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("identity conversion -> 200", func(t *testing.T) {
+		_, handler := setup()
+		body := `{"from_currency":"USD","to_currency":"USD","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp fxHttp.SuggestPriceResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "USD", resp.Currency)
+		assert.Equal(t, 1999, resp.AmountMinor)
+		assert.Equal(t, "none", resp.Rounding)
+		assert.Equal(t, "fx_suggestion", resp.Source)
+		assert.False(t, resp.Stale)
+	})
+
+	t.Run("rate unavailable -> 503 RATE_UNAVAILABLE", func(t *testing.T) {
+		repo, handler := setup()
+		repo.On("Latest", mock.Anything, "USD", "INR").Return(nil, domain.ErrNoRate).Once()
+		repo.On("Latest", mock.Anything, "INR", "USD").Return(nil, domain.ErrNoRate).Once()
+
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+		assert.Contains(t, w.Body.String(), "RATE_UNAVAILABLE")
+	})
+
+	t.Run("rate unusable (>7d) -> 503 RATE_UNAVAILABLE", func(t *testing.T) {
+		repo, handler := setup()
+		unusableRate := &domain.Rate{
+			Base:        "USD",
+			Quote:       "INR",
+			RateDecimal: "83.12000000",
+			Rate:        big.NewRat(8312, 100),
+			AsOf:        now.Add(-10 * 24 * time.Hour),
+			FetchedAt:   now.Add(-10 * 24 * time.Hour),
+			Status:      domain.RateStatusAccepted,
+		}
+		repo.On("Latest", mock.Anything, "USD", "INR").Return(unusableRate, nil).Once()
+
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+		assert.Contains(t, w.Body.String(), "RATE_UNAVAILABLE")
+	})
+
+	t.Run("valid USD to INR suggestion -> 200 with whole_unit", func(t *testing.T) {
+		repo, handler := setup()
+		validRate := &domain.Rate{
+			Base:        "USD",
+			Quote:       "INR",
+			RateDecimal: "83.00000000",
+			Rate:        big.NewRat(83, 1),
+			AsOf:        now.Add(-1 * time.Hour),
+			FetchedAt:   now.Add(-1 * time.Hour),
+			Status:      domain.RateStatusAccepted,
+		}
+		repo.On("Latest", mock.Anything, "USD", "INR").Return(validRate, nil).Once()
+
+		body := `{"from_currency":"USD","to_currency":"INR","amount_minor":1999}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp fxHttp.SuggestPriceResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "INR", resp.Currency)
+		assert.Equal(t, 165900, resp.AmountMinor) // $19.99 * 83 = 1659.17 -> 165900
+		assert.Equal(t, "whole_unit", resp.Rounding)
+		assert.False(t, resp.Stale)
+	})
+
+	t.Run("valid INR to USD suggestion -> 200 with marketplace_99", func(t *testing.T) {
+		repo, handler := setup()
+		validRate := &domain.Rate{
+			Base:        "INR",
+			Quote:       "USD",
+			RateDecimal: "0.01204819",
+			Rate:        big.NewRat(1, 83),
+			AsOf:        now.Add(-40 * time.Hour), // stale (>36h)
+			FetchedAt:   now.Add(-40 * time.Hour),
+			Status:      domain.RateStatusAccepted,
+		}
+		repo.On("Latest", mock.Anything, "INR", "USD").Return(validRate, nil).Once()
+
+		body := `{"from_currency":"INR","to_currency":"USD","amount_minor":149900}`
+		req := httptest.NewRequest(http.MethodPost, "/fx/suggest-price", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		handler.SuggestPrice(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp fxHttp.SuggestPriceResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "USD", resp.Currency)
+		assert.Equal(t, 1799, resp.AmountMinor) // ₹1499 / 83 = 18.06 -> 1799
+		assert.Equal(t, "marketplace_99", resp.Rounding)
+		assert.True(t, resp.Stale)
+	})
+}
+
+

@@ -12,6 +12,7 @@ import (
 	payment_app "github.com/saransh1220/blueprint-audio/internal/modules/payment/application"
 	payment_domain "github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	user_app "github.com/saransh1220/blueprint-audio/internal/modules/user/application"
+	fx_http "github.com/saransh1220/blueprint-audio/internal/modules/fx/interfaces/http"
 )
 
 // Common response schemas
@@ -964,6 +965,18 @@ func GetEndpointsRegistry() []EndpointDef {
 			},
 			SuccessCode: 200,
 		},
+		{
+			Method:       "POST",
+			Path:         "/fx/suggest-price",
+			Tags:         []string{"FX"},
+			OperationID:  "suggestSecondaryPrice",
+			Summary:      "Suggest secondary currency price",
+			Description:  "Calculates an auto-filled secondary currency price using exchange rates and target rounding rules",
+			Auth:         "bearer",
+			RequestBody:  fx_http.SuggestPriceRequest{},
+			SuccessCode:  200,
+			ResponseBody: fx_http.SuggestPriceResponse{},
+		},
 
 		// System & Currency Config
 		{
@@ -1105,3 +1118,5 @@ func RegisterKnownTypes(r *Reflector) {
 	// Register Admin types if needed
 	_ = reflect.TypeOf(admin_http.AdminHandler{})
 }
+
+

@@ -1078,6 +1078,40 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /fx/suggest-price:
+    post:
+      tags:
+        - FX
+      operationId: suggestSecondaryPrice
+      summary: Suggest secondary currency price
+      description: Calculates an auto-filled secondary currency price using exchange rates and target rounding rules
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestPriceRequest'
+      responses:
+        "200":
+          description: Operation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuggestPriceResponse'
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /health:
     get:
       tags:
@@ -3531,6 +3565,46 @@ components:
       properties:
         message:
           type: string
+    SuggestPriceRequest:
+      type: object
+      required:
+        - from_currency
+        - to_currency
+        - amount_minor
+      properties:
+        amount_minor:
+          type: integer
+        from_currency:
+          type: string
+        to_currency:
+          type: string
+    SuggestPriceResponse:
+      type: object
+      required:
+        - currency
+        - amount_minor
+        - rate_as_of
+        - rate_fetched_at
+        - stale
+        - source
+        - rounding
+      properties:
+        amount_minor:
+          type: integer
+        currency:
+          type: string
+        rate_as_of:
+          type: string
+          format: date-time
+        rate_fetched_at:
+          type: string
+          format: date-time
+        rounding:
+          type: string
+        source:
+          type: string
+        stale:
+          type: boolean
     ToggleFavoriteResponse:
       type: object
       required:

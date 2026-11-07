@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,6 +53,22 @@ type latestRateResponse struct {
 	FetchedAt time.Time `json:"fetched_at"`
 	Source    string    `json:"source"`
 	Stale     bool      `json:"stale"`
+}
+
+type SuggestPriceRequest struct {
+	FromCurrency string `json:"from_currency"`
+	ToCurrency   string `json:"to_currency"`
+	AmountMinor  int    `json:"amount_minor"`
+}
+
+type SuggestPriceResponse struct {
+	Currency      string    `json:"currency"`
+	AmountMinor   int       `json:"amount_minor"`
+	RateAsOf      time.Time `json:"rate_as_of"`
+	RateFetchedAt time.Time `json:"rate_fetched_at"`
+	Stale         bool      `json:"stale"`
+	Source        string    `json:"source"`
+	Rounding      string    `json:"rounding"`
 }
 
 func (h *FXHandler) AdminListRates(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +203,101 @@ func (h *FXHandler) GetLatestRate(w http.ResponseWriter, r *http.Request) {
 		FetchedAt: rate.FetchedAt,
 		Source:    rate.Source,
 		Stale:     rate.Stale,
+	})
+}
+
+func (h *FXHandler) SuggestPrice(w http.ResponseWriter, r *http.Request) {
+	var req SuggestPriceRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "request must contain one JSON object")
+		return
+	}
+
+	fromDef, ok := money.LookupCurrency(req.FromCurrency)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unsupported from_currency")
+		return
+	}
+	toDef, ok := money.LookupCurrency(req.ToCurrency)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unsupported to_currency")
+		return
+	}
+	if req.AmountMinor <= 0 {
+		writeError(w, http.StatusBadRequest, "amount_minor must be positive")
+		return
+	}
+	if req.AmountMinor > money.MaxAmountMinor {
+		writeError(w, http.StatusBadRequest, "amount_minor exceeds maximum allowed limit")
+		return
+	}
+
+	if fromDef.Code == toDef.Code {
+		now := time.Now().UTC()
+		writeJSON(w, http.StatusOK, SuggestPriceResponse{
+			Currency:      toDef.Code,
+			AmountMinor:   req.AmountMinor,
+			RateAsOf:      now,
+			RateFetchedAt: now,
+			Stale:         false,
+			Source:        "fx_suggestion",
+			Rounding:      string(money.RoundingPolicyNone),
+		})
+		return
+	}
+
+	rate, err := h.service.GetLatestRate(r.Context(), fromDef.Code, toDef.Code)
+	if err != nil {
+		if errors.Is(err, domain.ErrNoRate) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error":   "RATE_UNAVAILABLE",
+				"message": "exchange rate unavailable for requested pair",
+			})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch exchange rate")
+		return
+	}
+
+	if rate.Unusable {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   "RATE_UNAVAILABLE",
+			"message": "exchange rate exceeds maximum age and is unusable",
+		})
+		return
+	}
+
+	rateRat := rate.GetBigRat()
+	if rateRat == nil {
+		parsed, parseErr := money.ParseRateDecimal(rate.RateDecimal)
+		if parseErr != nil {
+			writeError(w, http.StatusInternalServerError, "invalid exchange rate representation")
+			return
+		}
+		rateRat = parsed
+	}
+
+	suggestedMinor, policy, err := money.SuggestSecondaryPrice(req.AmountMinor, fromDef, toDef, rateRat)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SuggestPriceResponse{
+		Currency:      toDef.Code,
+		AmountMinor:   suggestedMinor,
+		RateAsOf:      rate.AsOf,
+		RateFetchedAt: rate.FetchedAt,
+		Stale:         rate.Stale,
+		Source:        "fx_suggestion",
+		Rounding:      string(policy),
 	})
 }
 

@@ -189,6 +189,7 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 		mux.Handle("GET /admin/fx-rates", authz(middleware.PermAdminFXRead)(http.HandlerFunc(config.FXHandler.AdminListRates)))
 		mux.Handle("POST /admin/fx-rates/refresh", authz(middleware.PermAdminFXWrite)(http.HandlerFunc(config.FXHandler.AdminRefreshRates)))
 		mux.Handle("GET /fx/rates/latest", config.AuthMiddleware.RequireAuth(http.HandlerFunc(refreshLimiter(config.FXHandler.GetLatestRate))))
+		mux.Handle("POST /fx/suggest-price", authz(middleware.PermSpecUpload)(http.HandlerFunc(refreshLimiter(config.FXHandler.SuggestPrice))))
 	}
 
 	if config.LegalHandler != nil {
@@ -206,3 +207,4 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 
 	return mux
 }
+
