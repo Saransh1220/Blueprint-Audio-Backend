@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type Category string
@@ -60,6 +61,8 @@ type Spec struct {
 	Licenses []LicenseOption `json:"licenses,omitempty"`
 	Genres   []Genre         `json:"genres,omitempty"`
 	Tags     pq.StringArray  `json:"tags,omitempty" db:"tags"`
+
+	SelectedPrice *money.SelectedPriceOffer `json:"selected_price,omitempty"`
 }
 
 type ProcessingStatus string
@@ -73,17 +76,19 @@ const (
 
 // LicenseOption defines the pricing and features for a specific spec
 type LicenseOption struct {
-	ID            uuid.UUID      `json:"id" db:"id"`
-	SpecID        uuid.UUID      `json:"spec_id" db:"spec_id"`
-	LicenseType   LicenseType    `json:"type" db:"license_type"`
-	Name          string         `json:"name" db:"name"`
-	Price         float64        `json:"price" db:"price"`
-	PriceCurrency string         `json:"price_currency" db:"price_currency"`
-	Features      pq.StringArray `json:"features" db:"features"`
-	FileTypes     pq.StringArray `json:"file_types" db:"file_types"`
-	CreatedAt     time.Time      `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at" db:"updated_at"`
-	IsDeleted     bool           `json:"is_deleted" db:"is_deleted"`
+	ID            uuid.UUID                 `json:"id" db:"id"`
+	SpecID        uuid.UUID                 `json:"spec_id" db:"spec_id"`
+	LicenseType   LicenseType               `json:"type" db:"license_type"`
+	Name          string                    `json:"name" db:"name"`
+	Price         float64                   `json:"price" db:"price"`
+	PriceCurrency string                    `json:"price_currency" db:"price_currency"`
+	Features      pq.StringArray            `json:"features" db:"features"`
+	FileTypes     pq.StringArray            `json:"file_types" db:"file_types"`
+	CreatedAt     time.Time                 `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time                 `json:"updated_at" db:"updated_at"`
+	IsDeleted     bool                      `json:"is_deleted" db:"is_deleted"`
+	Prices        []money.StoredPrice       `json:"prices,omitempty"`
+	SelectedPrice *money.SelectedPriceOffer `json:"selected_price,omitempty"`
 }
 
 // Genre represents a musical genre
@@ -96,6 +101,7 @@ type Genre struct {
 
 // SpecFilter contains all possible filters for listing specs
 type SpecFilter struct {
+	Currency    string // Effective buyer currency for exact stored-price filtering and sorting.
 	Category    Category
 	Genres      []string
 	Tags        []string
@@ -143,4 +149,5 @@ type SpecFinder interface {
 	FindWithLicenses(ctx context.Context, id uuid.UUID) (*Spec, error)
 	Exists(ctx context.Context, id uuid.UUID) (bool, error)
 	GetLicenseByID(ctx context.Context, licenseID uuid.UUID) (*LicenseOption, error)
+	GetLicensePrices(ctx context.Context, licenseID uuid.UUID) ([]money.StoredPrice, error)
 }

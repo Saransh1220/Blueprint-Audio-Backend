@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
@@ -52,8 +54,13 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	// Parse request body
 	var req struct {
-		SpecID          string `json:"spec_id"`
-		LicenseOptionID string `json:"license_option_id"`
+		SpecID              string  `json:"spec_id"`
+		LicenseOptionID     string  `json:"license_option_id"`
+		Currency            string  `json:"currency,omitempty"`
+		ExpectedPriceID     *string `json:"expected_price_id,omitempty"`
+		ExpectedRevision    *int64  `json:"expected_revision,omitempty"`
+		ExpectedAmountMinor *int    `json:"expected_amount_minor,omitempty"`
+		ExpectedCurrency    *string `json:"expected_currency,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -70,9 +77,54 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid license_option_id", http.StatusBadRequest)
 		return
 	}
-	// Create order via service
-	order, err := h.service.CreateOrder(r.Context(), userID, specID, licenseOptionID, money.ResolveCurrencyFromRequest(r))
+
+	currency := strings.TrimSpace(req.Currency)
+	if currency == "" {
+		currency = money.ResolveCurrencyFromRequest(r)
+	}
+
+	var expectedPriceID *uuid.UUID
+	if req.ExpectedPriceID != nil && strings.TrimSpace(*req.ExpectedPriceID) != "" {
+		parsedPriceID, err := uuid.Parse(strings.TrimSpace(*req.ExpectedPriceID))
+		if err != nil {
+			http.Error(w, "invalid expected_price_id", http.StatusBadRequest)
+			return
+		}
+		expectedPriceID = &parsedPriceID
+	}
+
+	input := application.CreateOrderInput{
+		UserID:              userID,
+		SpecID:              specID,
+		LicenseOptionID:     licenseOptionID,
+		Currency:            currency,
+		ExpectedPriceID:     expectedPriceID,
+		ExpectedRevision:    req.ExpectedRevision,
+		ExpectedAmountMinor: req.ExpectedAmountMinor,
+		ExpectedCurrency:    req.ExpectedCurrency,
+	}
+
+	order, err := h.service.CreateOrderWithOffer(r.Context(), input)
 	if err != nil {
+		var mismatch *application.PriceMismatchError
+		if errors.As(err, &mismatch) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]any{
+				"code":          "PRICE_CHANGED",
+				"error":         mismatch.Message,
+				"current_offer": mismatch.CurrentOffer,
+			})
+			return
+		}
+		if errors.Is(err, money.ErrInvalidCurrency) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, money.ErrPriceUnavailable) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		http.Error(w, "failed to create order: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

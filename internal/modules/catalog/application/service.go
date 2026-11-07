@@ -86,7 +86,7 @@ func (s *specService) prepareSpecForCreate(ctx context.Context, spec *domain.Spe
 		spec.ShortCode = &shortCode
 	}
 
-	if err := normalizeSpecCurrencies(spec); err != nil {
+	if err := prepareLicensePrices(spec, nil); err != nil {
 		return err
 	}
 
@@ -313,7 +313,7 @@ func (s *specService) UpdateSpec(ctx context.Context, spec *domain.Spec, produce
 	if err := validateSpec(spec); err != nil {
 		return err
 	}
-	if err := normalizeSpecCurrencies(spec); err != nil {
+	if err := prepareLicensePrices(spec, existing); err != nil {
 		return err
 	}
 

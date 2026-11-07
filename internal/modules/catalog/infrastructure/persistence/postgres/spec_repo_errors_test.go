@@ -144,6 +144,7 @@ func TestPGSpecRepository_GetVariants_ErrorPaths(t *testing.T) {
 			mock.ExpectQuery(`SELECT s\.\*, u\.display_name`).WithArgs(g.arg).WillReturnRows(specRow(id, producerID))
 			mock.ExpectQuery(`FROM license_options`).WithArgs(id).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name"}).AddRow(uuid.New(), id, "basic", "Basic"))
+			expectEmptyLicensePrices(mock)
 			mock.ExpectQuery(`FROM genres g JOIN spec_genres`).WithArgs(id).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "name", "slug"}).AddRow(uuid.New(), "Trap", "trap"))
 			spec, err := g.call(repo)
@@ -194,8 +195,8 @@ func TestPGSpecRepository_List_SortsFiltersAndErrors(t *testing.T) {
 		"":           "ORDER BY s.created_at DESC",
 		"newest":     "ORDER BY s.created_at DESC",
 		"oldest":     "ORDER BY s.created_at ASC",
-		"price_asc":  "ORDER BY s.base_price ASC",
-		"price_desc": "ORDER BY s.base_price DESC",
+		"price_asc":  "ORDER BY s.base_price ASC NULLS LAST",
+		"price_desc": "ORDER BY s.base_price DESC NULLS LAST",
 		"bpm_asc":    "ORDER BY s.bpm ASC",
 		"bpm_desc":   "ORDER BY s.bpm DESC",
 	}
@@ -226,6 +227,7 @@ func TestPGSpecRepository_List_SortsFiltersAndErrors(t *testing.T) {
 			sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name"}).
 				AddRow(uuid.New(), id, "basic", "Basic").
 				AddRow(uuid.New(), uuid.New(), "basic", "Orphan"))
+		expectEmptyLicensePrices(mock)
 
 		specs, total, err := repo.List(ctx, domain.SpecFilter{
 			Category: "beat", Genres: []string{"trap"}, Tags: []string{"dark"}, Search: "dark",
@@ -282,6 +284,7 @@ func TestPGSpecRepository_ListByUserID_ErrorPaths(t *testing.T) {
 			sqlmock.NewRows([]string{"spec_id", "id", "name", "slug"}).AddRow(id, uuid.New(), "Trap", "trap"))
 		mock.ExpectQuery(`FROM license_options`).WillReturnRows(
 			sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name"}).AddRow(uuid.New(), id, "basic", "Basic"))
+		expectEmptyLicensePrices(mock)
 		specs, total, err := repo.ListByUserID(ctx, producerID, 10, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 3, total)
@@ -389,6 +392,8 @@ func TestPGSpecRepository_HomeQueries_ErrorPaths(t *testing.T) {
 				AddRow(uuid.New(), uuid.New(), "Other", "other"))
 		mock.ExpectQuery(`FROM license_options`).WillReturnRows(
 			sqlmock.NewRows([]string{"id", "spec_id", "license_type", "name"}).AddRow(uuid.New(), id, "basic", "Basic"))
+		expectEmptyLicensePrices(mock)
+		expectEmptyLicensePrices(mock)
 		beats, err := repo.GetNewestBeats(ctx, 3)
 		require.NoError(t, err)
 		require.Len(t, beats, 1)

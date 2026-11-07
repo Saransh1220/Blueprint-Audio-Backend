@@ -234,6 +234,10 @@ func (h *AdminHandler) UpdateSpec(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
+	if req.BasePrice != nil {
+		http.Error(w, `{"error":"edit license prices through the catalog editor; base_price is not a chargeable price"}`, http.StatusBadRequest)
+		return
+	}
 	before := h.getSpecState(r.Context(), id)
 	if before == nil {
 		http.Error(w, `{"error":"spec not found"}`, http.StatusNotFound)

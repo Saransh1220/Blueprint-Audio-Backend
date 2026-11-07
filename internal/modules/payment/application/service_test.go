@@ -11,6 +11,7 @@ import (
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
 	sharedemail "github.com/saransh1220/blueprint-audio/internal/shared/infrastructure/email"
+	sharedmoney "github.com/saransh1220/blueprint-audio/internal/shared/money"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -151,6 +152,17 @@ func (m *specFinderMock) GetLicenseByID(ctx context.Context, licenseID uuid.UUID
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*catalogDomain.LicenseOption), args.Error(1)
+}
+func (m *specFinderMock) GetLicensePrices(ctx context.Context, licenseID uuid.UUID) ([]sharedmoney.StoredPrice, error) {
+	args := m.Called(ctx, licenseID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]sharedmoney.StoredPrice), args.Error(1)
+}
+func (m *specFinderMock) UpsertLicensePrices(ctx context.Context, licenseID uuid.UUID, prices []sharedmoney.StoredPrice) error {
+	args := m.Called(ctx, licenseID, prices)
+	return args.Error(0)
 }
 
 type fileSvcMock struct{ mock.Mock }

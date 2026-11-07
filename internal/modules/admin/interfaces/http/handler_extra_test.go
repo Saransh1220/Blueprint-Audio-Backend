@@ -290,17 +290,17 @@ func TestUpdateSpec_Branches(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "spec not found")
 	})
 
-	t.Run("all fields are passed and audited", func(t *testing.T) {
+	t.Run("non-price fields are passed and audited", func(t *testing.T) {
 		h, mock, closeDB := newHandler(t)
 		defer closeDB()
 		mock.ExpectQuery("SELECT id, producer_id").WillReturnRows(specStateRows(id, "old"))
-		mock.ExpectExec("UPDATE specs").WithArgs("new", 12.5, true, id).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("UPDATE specs").WithArgs("new", nil, true, id).WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectQuery("SELECT id, producer_id").WillReturnRows(specStateRows(id, "new"))
 		mock.ExpectExec("INSERT INTO admin_audit_logs").
 			WithArgs(actor, "specs.update", "spec", &id, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 		w := httptest.NewRecorder()
-		h.UpdateSpec(w, patchReq(id, `{"title":"new","base_price":12.5,"is_deleted":true}`, &actor))
+		h.UpdateSpec(w, patchReq(id, `{"title":"new","is_deleted":true}`, &actor))
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), `"title":"new"`)
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -402,4 +402,15 @@ func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
 	assert.Equal(t, "10.0.0.5:1234", clientIP(r))
 	r.Header.Set("X-Forwarded-For", "  ")
 	assert.Equal(t, "10.0.0.5:1234", clientIP(r))
+}
+
+// The legacy admin scalar must not bypass canonical license-price persistence.
+func TestUpdateSpecRejectsScalarPrice(t *testing.T) {
+	h, mock, closeDB := newHandler(t)
+	defer closeDB()
+	actor := uuid.New()
+	w := httptest.NewRecorder()
+	h.UpdateSpec(w, patchReq(uuid.New(), `{"base_price":1}`, &actor))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

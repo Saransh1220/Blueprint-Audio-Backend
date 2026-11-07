@@ -31,6 +31,12 @@ type mockPaymentService struct {
 func (m mockPaymentService) CreateOrder(ctx context.Context, u, s, l uuid.UUID, c string) (*domain.Order, error) {
 	return m.createOrderFn(ctx, u, s, l)
 }
+func (m mockPaymentService) CreateOrderWithOffer(ctx context.Context, input application.CreateOrderInput) (*domain.Order, error) {
+	if m.createOrderFn != nil {
+		return m.createOrderFn(ctx, input.UserID, input.SpecID, input.LicenseOptionID)
+	}
+	return nil, nil
+}
 func (m mockPaymentService) VerifyPayment(ctx context.Context, o, u uuid.UUID, p, sig string) (*domain.License, error) {
 	return m.verifyFn(ctx, o, u, p, sig)
 }
