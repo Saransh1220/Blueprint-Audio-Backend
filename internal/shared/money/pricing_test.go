@@ -1,6 +1,7 @@
 package money_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/uuid"
@@ -227,6 +228,82 @@ func TestPricing_MajorToMinor(t *testing.T) {
 		_, err := money.MajorToMinor(-1.0)
 		if err != money.ErrNegativeAmount {
 			t.Fatalf("expected ErrNegativeAmount, got %v", err)
+		}
+	})
+}
+
+func TestPricing_ScaleAwareConversions(t *testing.T) {
+	t.Run("MinorToMajor with various scales", func(t *testing.T) {
+		// Standard 2-decimal (scale 100)
+		if got := money.MinorToMajor(1499, 100); got != 14.99 {
+			t.Fatalf("expected 14.99, got %f", got)
+		}
+		// 0-decimal (scale 1, like JPY)
+		if got := money.MinorToMajor(1500, 1); got != 1500.0 {
+			t.Fatalf("expected 1500.0, got %f", got)
+		}
+		// 3-decimal (scale 1000, like BHD)
+		if got := money.MinorToMajor(12345, 1000); got != 12.345 {
+			t.Fatalf("expected 12.345, got %f", got)
+		}
+		// Zero or negative scale falls back to 100
+		if got := money.MinorToMajor(5000, 0); got != 50.0 {
+			t.Fatalf("expected 50.0 fallback for scale 0, got %f", got)
+		}
+		if got := money.MinorToMajor(5000, -10); got != 50.0 {
+			t.Fatalf("expected 50.0 fallback for negative scale, got %f", got)
+		}
+	})
+
+	t.Run("MajorToMinorScale with various scales", func(t *testing.T) {
+		// Scale 1 (0-decimal)
+		minor, err := money.MajorToMinorScale(2500.0, 1)
+		if err != nil || minor != 2500 {
+			t.Fatalf("expected 2500, got %d (err: %v)", minor, err)
+		}
+
+		// Scale 100 (2-decimal)
+		minor, err = money.MajorToMinorScale(29.99, 100)
+		if err != nil || minor != 2999 {
+			t.Fatalf("expected 2999, got %d (err: %v)", minor, err)
+		}
+
+		// Scale 1000 (3-decimal)
+		minor, err = money.MajorToMinorScale(1.234, 1000)
+		if err != nil || minor != 1234 {
+			t.Fatalf("expected 1234, got %d (err: %v)", minor, err)
+		}
+
+		// Fallback for invalid scale
+		minor, err = money.MajorToMinorScale(10.0, 0)
+		if err != nil || minor != 1000 {
+			t.Fatalf("expected 1000 (fallback 100 scale), got %d (err: %v)", minor, err)
+		}
+	})
+
+	t.Run("Error handling in MajorToMinorScale", func(t *testing.T) {
+		// NaN
+		_, err := money.MajorToMinorScale(math.NaN(), 100)
+		if err == nil {
+			t.Fatal("expected error for NaN")
+		}
+
+		// Inf
+		_, err = money.MajorToMinorScale(math.Inf(1), 100)
+		if err == nil {
+			t.Fatal("expected error for Inf")
+		}
+
+		// Negative
+		_, err = money.MajorToMinorScale(-5.0, 100)
+		if err != money.ErrNegativeAmount {
+			t.Fatalf("expected ErrNegativeAmount, got %v", err)
+		}
+
+		// Overflow
+		_, err = money.MajorToMinorScale(float64(money.MaxAmountMinor)+1000, 100)
+		if err != money.ErrAmountOverflow {
+			t.Fatalf("expected ErrAmountOverflow, got %v", err)
 		}
 	})
 }

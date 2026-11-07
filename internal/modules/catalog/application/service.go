@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 const (
@@ -19,8 +20,8 @@ const (
 	defaultSpecLimit = 20
 	maxSpecLimit     = 50
 	shortCodeLength  = 8
-	currencyINR      = "INR"
-	currencyUSD      = "USD"
+	currencyINR      = money.CurrencyINR
+	currencyUSD      = money.CurrencyUSD
 
 	defaultHomeLimit = 8
 	maxHomeLimit     = 20
@@ -471,7 +472,7 @@ func normalizeCurrency(value, fallback string) (string, error) {
 	if currency == "" {
 		currency = fallback
 	}
-	if currency != currencyINR && currency != currencyUSD {
+	if _, ok := money.LookupCurrency(currency); !ok {
 		return "", domain.ErrInvalidCurrency
 	}
 	return currency, nil

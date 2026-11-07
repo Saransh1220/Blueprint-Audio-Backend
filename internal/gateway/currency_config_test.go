@@ -37,3 +37,67 @@ func TestCurrencyConfiguration(t *testing.T) {
 	require.Nil(t, body.Currencies[0].Gateway)
 	require.Nil(t, body.Currencies[1].Gateway)
 }
+
+func TestCurrencyConfiguration_ContractAndEdgeCases(t *testing.T) {
+	t.Run("strict contract shape and headers", func(t *testing.T) {
+		registry := map[string]string{
+			"INR": "razorpay",
+			"USD": "dodo",
+		}
+		handler := currencyConfiguration(registry)
+
+		req := httptest.NewRequest(http.MethodGet, "/config/currencies", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+		require.Equal(t, "public, max-age=300", rec.Header().Get("Cache-Control"))
+
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+		require.Contains(t, raw, "currencies")
+
+		items, ok := raw["currencies"].([]any)
+		require.True(t, ok)
+		supported := money.SupportedCurrencies()
+		require.Equal(t, len(supported), len(items))
+
+		for i, rawItem := range items {
+			itemMap, ok := rawItem.(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, supported[i].Code, itemMap["code"])
+			require.Equal(t, supported[i].Symbol, itemMap["symbol"])
+			require.Equal(t, float64(supported[i].MinorUnitScale), itemMap["minor_unit_scale"])
+			require.Equal(t, supported[i].Locale, itemMap["locale"])
+			require.Contains(t, itemMap, "gateway")
+			require.NotNil(t, itemMap["gateway"])
+		}
+	})
+
+	t.Run("null gateway when unrouted", func(t *testing.T) {
+		handler := currencyConfiguration(map[string]string{
+			"INR": "razorpay",
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/config/currencies", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+		items := raw["currencies"].([]any)
+
+		// USD should have null gateway
+		for _, rawItem := range items {
+			itemMap := rawItem.(map[string]any)
+			if itemMap["code"] == "USD" {
+				require.Nil(t, itemMap["gateway"])
+			} else if itemMap["code"] == "INR" {
+				require.Equal(t, "razorpay", itemMap["gateway"])
+			}
+		}
+	})
+}

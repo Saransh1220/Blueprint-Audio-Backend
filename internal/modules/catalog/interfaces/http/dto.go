@@ -155,13 +155,17 @@ func ToSpecResponseForCurrency(spec *domain.Spec, displayCurrency string) *SpecR
 			prices := license.Prices
 			offer := money.SelectPriceOffer(prices, licNatCurr, displayCurrency)
 
-			nativeMinor, err := money.MajorToMinor(license.Price)
+			scale := 100
+			if def, ok := money.LookupCurrency(licNatCurr); ok && def.MinorUnitScale > 0 {
+				scale = def.MinorUnitScale
+			}
+			nativeMinor, err := money.MajorToMinorScale(license.Price, scale)
 			if err != nil {
 				nativeMinor = 0
 			}
 			priceMoney := money.Money{
 				AmountMinor: nativeMinor,
-				AmountMajor: float64(nativeMinor) / 100.0,
+				AmountMajor: money.MinorToMajor(nativeMinor, scale),
 				Currency:    licNatCurr,
 			}
 
@@ -268,9 +272,13 @@ func nativeDisplayMoney(amount float64, currency string) money.Money {
 	if currency == "" {
 		currency = money.CurrencyINR
 	}
-	minor, err := money.MajorToMinor(amount)
+	scale := 100
+	if def, ok := money.LookupCurrency(currency); ok && def.MinorUnitScale > 0 {
+		scale = def.MinorUnitScale
+	}
+	minor, err := money.MajorToMinorScale(amount, scale)
 	if err != nil {
 		return money.Money{Currency: currency}
 	}
-	return money.Money{Currency: currency, AmountMinor: minor, AmountMajor: float64(minor) / 100}
+	return money.Money{Currency: currency, AmountMinor: minor, AmountMajor: money.MinorToMajor(minor, scale)}
 }
