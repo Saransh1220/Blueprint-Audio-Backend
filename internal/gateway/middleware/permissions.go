@@ -23,6 +23,8 @@ const (
 	PermAdminLicensesRead  Permission = "admin:licenses:read"
 	PermAdminAnalyticsRead Permission = "admin:analytics:read"
 	PermAdminAuditRead     Permission = "admin:audit:read"
+	PermAdminFXRead        Permission = "admin:fx:read"
+	PermAdminFXWrite       Permission = "admin:fx:write"
 )
 
 // AllPermissions lists every permission the code knows about. A test keeps it
@@ -42,6 +44,8 @@ var AllPermissions = []Permission{
 	PermAdminLicensesRead,
 	PermAdminAnalyticsRead,
 	PermAdminAuditRead,
+	PermAdminFXRead,
+	PermAdminFXWrite,
 }
 
 func isKnownPermission(p Permission) bool {

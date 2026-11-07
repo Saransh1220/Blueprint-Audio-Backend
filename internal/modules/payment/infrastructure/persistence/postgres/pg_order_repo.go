@@ -43,9 +43,11 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 		INSERT INTO orders (
 			id, user_id, spec_id, license_type, amount, currency,
 			provider, provider_checkout_id, provider_payment_id,
-			status, notes, created_at, updated_at, expires_at
+			status, notes, created_at, updated_at, expires_at,
+			report_currency, report_fx_rate, report_fx_as_of, report_fx_fetched_at, report_fx_rate_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			$15, $16, $17, $18, $19
 		)`
 
 	_, err = r.db.ExecContext(ctx, query,
@@ -63,6 +65,11 @@ func (r *PgOrderRepository) Create(ctx context.Context, order *domain.Order) err
 		order.CreatedAt,
 		order.UpdatedAt,
 		order.ExpiresAt,
+		order.ReportCurrency,
+		order.ReportFXRate,
+		order.ReportFXAsOf,
+		order.ReportFXFetchedAt,
+		order.ReportFXRateID,
 	)
 	return err
 }
@@ -71,13 +78,7 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	order := &domain.Order{}
 	var notesJSON []byte
 
-	query := `
-		SELECT id, user_id, spec_id, license_type, amount, currency,
-		       provider, provider_checkout_id, provider_payment_id,
-		       status, notes, created_at, updated_at, expires_at
-		FROM orders 
-		WHERE id = $1
-	`
+	query := `SELECT ` + orderColumns + ` FROM orders WHERE id = $1`
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&order.ID,
@@ -94,6 +95,11 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 		&order.CreatedAt,
 		&order.UpdatedAt,
 		&order.ExpiresAt,
+		&order.ReportCurrency,
+		&order.ReportFXRate,
+		&order.ReportFXAsOf,
+		&order.ReportFXFetchedAt,
+		&order.ReportFXRateID,
 	)
 
 	if err != nil {
@@ -117,7 +123,8 @@ func (r *PgOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 // rows are scanned by hand rather than with SELECT * into the struct.
 const orderColumns = `id, user_id, spec_id, license_type, amount, currency,
 	provider, provider_checkout_id, provider_payment_id,
-	status, notes, created_at, updated_at, expires_at`
+	status, notes, created_at, updated_at, expires_at,
+	report_currency, report_fx_rate, report_fx_as_of, report_fx_fetched_at, report_fx_rate_id`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
@@ -128,6 +135,7 @@ func scanOrder(row rowScanner) (*domain.Order, error) {
 		&order.ID, &order.UserID, &order.SpecID, &order.LicenseType, &order.Amount, &order.Currency,
 		&order.Provider, &order.ProviderCheckoutID, &order.ProviderPaymentID,
 		&order.Status, &notesJSON, &order.CreatedAt, &order.UpdatedAt, &order.ExpiresAt,
+		&order.ReportCurrency, &order.ReportFXRate, &order.ReportFXAsOf, &order.ReportFXFetchedAt, &order.ReportFXRateID,
 	); err != nil {
 		return nil, err
 	}

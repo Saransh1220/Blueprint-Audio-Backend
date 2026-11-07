@@ -43,9 +43,26 @@ type Order struct {
 	CheckoutURL        *string        `json:"checkout_url,omitempty" db:"-"`
 	Status             OrderStatus    `json:"status" db:"status"`
 	Notes              map[string]any `json:"notes,omitempty" db:"notes"`
+	ReportCurrency     *string        `json:"report_currency,omitempty" db:"report_currency"`
+	ReportFXRate       *string        `json:"report_fx_rate,omitempty" db:"report_fx_rate"`
+	ReportFXAsOf       *time.Time     `json:"report_fx_as_of,omitempty" db:"report_fx_as_of"`
+	ReportFXFetchedAt  *time.Time     `json:"report_fx_fetched_at,omitempty" db:"report_fx_fetched_at"`
+	ReportFXRateID     *int64         `json:"report_fx_rate_id,omitempty" db:"report_fx_rate_id"`
 	CreatedAt          time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at" db:"updated_at"`
 	ExpiresAt          time.Time      `json:"expires_at" db:"expires_at"`
+}
+
+type OrderFXSnapshot struct {
+	ReportCurrency    string
+	ReportFXRate      *string
+	ReportFXRateID    *int64
+	ReportFXAsOf      *time.Time
+	ReportFXFetchedAt *time.Time
+}
+
+type ReportingRateSnapshotter interface {
+	Snapshot(ctx context.Context, orderCurrency string) (*OrderFXSnapshot, error)
 }
 
 // FillClientFields sets the derived fields the frontend expects.

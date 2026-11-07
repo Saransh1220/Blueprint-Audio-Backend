@@ -35,6 +35,7 @@ type PaymentService interface {
 	GetUserLicenses(ctx context.Context, userID uuid.UUID, page int, search, licenseType string) ([]domain.License, int, error)
 	GetLicenseDownloads(ctx context.Context, licenseID, userID uuid.UUID) (*LicenseDownloadsResponse, error)
 	GetProducerOrders(ctx context.Context, producerID uuid.UUID, page, limit int) (*ProducerOrderResponse, error)
+
 }
 
 type paymentService struct {
@@ -47,6 +48,7 @@ type paymentService struct {
 	emailSender sharedemail.Sender
 	appBaseURL  string
 	gateways    GatewayResolver
+	snapshotter domain.ReportingRateSnapshotter
 }
 
 func NewPaymentService(
@@ -71,6 +73,10 @@ func NewPaymentService(
 		appBaseURL:  appBaseURL,
 		gateways:    gateways,
 	}
+}
+
+func (s *paymentService) SetReportingRateSnapshotter(snapshotter domain.ReportingRateSnapshotter) {
+	s.snapshotter = snapshotter
 }
 
 func (s *paymentService) CreateOrder(ctx context.Context, userID, specID, licenseOptionID uuid.UUID, currency string) (*domain.Order, error) {
@@ -219,6 +225,19 @@ func (s *paymentService) createOrderFromSpec(ctx context.Context, spec *catalogD
 			},
 		},
 		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	if s.snapshotter != nil {
+		snapshot, snapErr := s.snapshotter.Snapshot(ctx, order.Currency)
+		if snapErr != nil {
+			log.Printf("[PaymentService] Warning: FX snapshot failed for currency %s: %v", order.Currency, snapErr)
+		} else if snapshot != nil {
+			order.ReportCurrency = &snapshot.ReportCurrency
+			order.ReportFXRate = snapshot.ReportFXRate
+			order.ReportFXRateID = snapshot.ReportFXRateID
+			order.ReportFXAsOf = snapshot.ReportFXAsOf
+			order.ReportFXFetchedAt = snapshot.ReportFXFetchedAt
+		}
 	}
 
 	gateway, err := s.gateways.ForCurrency(order.Currency)

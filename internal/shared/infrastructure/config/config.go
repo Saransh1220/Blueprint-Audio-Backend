@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"bufio"
 	"log"
 	"os"
@@ -21,6 +22,7 @@ type Config struct {
 	Razorpay    RazorpayConfig
 	Dodo        DodoPaymentsConfig
 	Currency    CurrencyConfig
+	FX          FXConfig
 	FileStorage FileStorageConfig
 	Google      GoogleConfig
 	Email       EmailConfig
@@ -77,8 +79,17 @@ type DodoPaymentsConfig struct {
 	APIURL     string
 }
 
-type CurrencyConfig struct {
-	INRUSDRate string
+type CurrencyConfig struct{}
+
+type FXConfig struct {
+	Enabled           bool
+	ProviderURL       string
+	APIKey            string
+	RefreshInterval   time.Duration
+	StaleAfter        time.Duration
+	MaxAge            time.Duration
+	MaxDailyMove      float64
+	ReportingCurrency string
 }
 
 // FileStorageConfig holds file storage configuration
@@ -154,8 +165,16 @@ func Load() Config {
 			WebhookKey: getEnv("DODO_PAYMENTS_WEBHOOK_KEY", ""),
 			APIURL:     getEnv("DODO_PAYMENTS_API_URL", ""),
 		},
-		Currency: CurrencyConfig{
-			INRUSDRate: getEnv("INR_USD_RATE", "0.012"),
+		Currency: CurrencyConfig{},
+		FX: FXConfig{
+			Enabled:           getEnv("FX_ENABLED", "false") == "true",
+			ProviderURL:       getEnv("FX_PROVIDER_URL", "https://api.frankfurter.dev/v1/latest"),
+			APIKey:            getEnv("FX_API_KEY", ""),
+			RefreshInterval:   parseDuration(getEnv("FX_REFRESH_INTERVAL", "24h"), 24*time.Hour),
+			StaleAfter:        parseDuration(getEnv("FX_STALE_AFTER", "36h"), 36*time.Hour),
+			MaxAge:            parseDuration(getEnv("FX_MAX_AGE", "168h"), 168*time.Hour),
+			MaxDailyMove:      parseFloat(getEnv("FX_MAX_DAILY_MOVE", "0.20"), 0.20),
+			ReportingCurrency: strings.ToUpper(getEnv("FX_REPORTING_CURRENCY", "INR")),
 		},
 		FileStorage: FileStorageConfig{
 			UseS3:             getEnv("USE_S3", "true") == "true",
@@ -230,6 +249,13 @@ func loadDotEnvIfPresent(path string) {
 func parseDuration(value string, defaultValue time.Duration) time.Duration {
 	if duration, err := time.ParseDuration(value); err == nil {
 		return duration
+	}
+	return defaultValue
+}
+
+func parseFloat(value string, defaultValue float64) float64 {
+	if val, err := strconv.ParseFloat(value, 64); err == nil && val > 0 {
+		return val
 	}
 	return defaultValue
 }

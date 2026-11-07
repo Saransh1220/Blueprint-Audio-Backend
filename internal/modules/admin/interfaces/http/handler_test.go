@@ -81,7 +81,9 @@ func TestListEndpointsAndOverview(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		mock.ExpectQuery("SELECT COUNT\\(\\*\\)").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(i))
 	}
+	mock.ExpectQuery("SELECT currency, COALESCE").WillReturnRows(sqlmock.NewRows([]string{"currency", "amount_minor", "order_count"}).AddRow("USD", 1200, 2))
 	mock.ExpectQuery("SELECT COALESCE").WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(12))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	w := httptest.NewRecorder()
 	h.AnalyticsOverview(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	assert.Equal(t, http.StatusOK, w.Code)

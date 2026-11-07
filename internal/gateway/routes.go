@@ -16,6 +16,7 @@ import (
 	payment_http "github.com/saransh1220/blueprint-audio/internal/modules/payment/interfaces/http"
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
 	legal_http "github.com/saransh1220/blueprint-audio/internal/modules/legal/interfaces/http"
+	fx_http "github.com/saransh1220/blueprint-audio/internal/modules/fx/interfaces/http"
 )
 
 // RouterConfig holds all the handlers and middleware needed for routing
@@ -30,6 +31,7 @@ type RouterConfig struct {
 	NotificationHandler *notification_http.NotificationHandler
 	AdminHandler        *admin_http.AdminHandler
 	LegalHandler        *legal_http.LegalHandler
+	FXHandler           *fx_http.FXHandler
 	// FavoritesServer implements the oapi-codegen StrictServerInterface for /me/favorites.
 	FavoritesServer      *openapi.FavoritesServer
 	DisableAPIDocs       bool
@@ -165,6 +167,12 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	}
 
 	// Legal Routes
+	if config.FXHandler != nil {
+		mux.Handle("GET /admin/fx-rates", authz(middleware.PermAdminFXRead)(http.HandlerFunc(config.FXHandler.AdminListRates)))
+		mux.Handle("POST /admin/fx-rates/refresh", authz(middleware.PermAdminFXWrite)(http.HandlerFunc(config.FXHandler.AdminRefreshRates)))
+		mux.Handle("GET /fx/rates/latest", config.AuthMiddleware.RequireAuth(http.HandlerFunc(refreshLimiter(config.FXHandler.GetLatestRate))))
+	}
+
 	if config.LegalHandler != nil {
 		mux.HandleFunc("GET /api/v1/legal/documents/{key}", config.LegalHandler.GetDocument)
 		mux.HandleFunc("GET /api/v1/legal/documents/{key}/versions", config.LegalHandler.GetDocumentVersions)

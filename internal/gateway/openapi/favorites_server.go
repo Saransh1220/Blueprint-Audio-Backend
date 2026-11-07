@@ -111,8 +111,8 @@ func mapFavoritePage(page *analyticsDomain.FavoritePage, displayCurrency string)
 
 // mapSpec converts a catalog domain Spec into the generated openapi Spec type.
 func mapSpec(s *catalogDomain.Spec, displayCurrency string) Spec {
-	priceMoney := money.DisplayPrice(s.BasePrice, s.PriceCurrency, s.PriceCurrency)
-	displayPriceMoney := money.DisplayPrice(s.BasePrice, s.PriceCurrency, displayCurrency)
+	priceMoney := money.FromMajor(s.BasePrice, s.PriceCurrency)
+	displayPriceMoney := money.FromMajor(s.BasePrice, s.PriceCurrency)
 
 	spec := Spec{
 		Id:           openapi_types.UUID(s.ID),
@@ -167,8 +167,8 @@ func mapSpec(s *catalogDomain.Spec, displayCurrency string) Spec {
 	if len(s.Licenses) > 0 {
 		licenses := make([]LicenseOption, 0, len(s.Licenses))
 		for _, l := range s.Licenses {
-			lPriceMoney := money.DisplayPrice(l.Price, l.PriceCurrency, l.PriceCurrency)
-			lDisplayPriceMoney := money.DisplayPrice(l.Price, l.PriceCurrency, displayCurrency)
+			lPriceMoney := money.FromMajor(l.Price, l.PriceCurrency)
+			lDisplayPriceMoney := money.FromMajor(l.Price, l.PriceCurrency)
 			licenses = append(licenses, LicenseOption{
 				Id:     openapi_types.UUID(l.ID),
 				SpecId: openapi_types.UUID(l.SpecID),

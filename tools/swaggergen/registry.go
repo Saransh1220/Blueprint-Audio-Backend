@@ -898,6 +898,47 @@ func GetEndpointsRegistry() []EndpointDef {
 			Auth:        "bearer",
 			SuccessCode: 200,
 		},
+		{
+			Method:      "GET",
+			Path:        "/admin/fx-rates",
+			Tags:        []string{"Admin", "FX"},
+			OperationID: "adminListFXRates",
+			Summary:     "List FX rate history",
+			Description: "Super-admin paginated history of exchange rates with latest rate per pair",
+			Auth:        "bearer",
+			QueryParams: []ParamDef{
+				{Name: "page", Type: "integer", Description: "Page number, starting at 1"},
+				{Name: "limit", Type: "integer", Description: "Page size chosen by the client (default 50, capped at 100)"},
+				{Name: "base", Type: "string", Description: "Filter by base currency code (e.g. USD)"},
+				{Name: "quote", Type: "string", Description: "Filter by quote currency code (e.g. INR)"},
+				{Name: "status", Type: "string", Description: "Filter by status: accepted or quarantined"},
+			},
+			SuccessCode: 200,
+		},
+		{
+			Method:      "POST",
+			Path:        "/admin/fx-rates/refresh",
+			Tags:        []string{"Admin", "FX"},
+			OperationID: "adminRefreshFXRates",
+			Summary:     "Trigger manual FX rate refresh",
+			Description: "Triggers a rate refresh from the upstream provider with cooldown and audit logging",
+			Auth:        "bearer",
+			SuccessCode: 200,
+		},
+		{
+			Method:      "GET",
+			Path:        "/fx/rates/latest",
+			Tags:        []string{"FX"},
+			OperationID: "getLatestFXRate",
+			Summary:     "Get latest FX rate",
+			Description: "Returns the latest accepted exchange rate for a given currency pair",
+			Auth:        "bearer",
+			QueryParams: []ParamDef{
+				{Name: "base", Type: "string", Required: true, Description: "Base currency code (e.g. USD)"},
+				{Name: "quote", Type: "string", Required: true, Description: "Quote currency code (e.g. INR)"},
+			},
+			SuccessCode: 200,
+		},
 
 		// System & Currency Config
 		{
