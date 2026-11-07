@@ -56,6 +56,16 @@ func (m *mockUserRepository) CountBySystemRole(ctx context.Context, role domain.
 func (m *mockUserRepository) BootstrapSuperAdmin(ctx context.Context, email string) error {
 	return m.Called(ctx, email).Error(0)
 }
+func (m *mockUserRepository) SetPreferredCurrency(ctx context.Context, id uuid.UUID, currency *string) error {
+	return m.Called(ctx, id, currency).Error(0)
+}
+func (m *mockUserRepository) GetPreferredCurrency(ctx context.Context, id uuid.UUID) (*string, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*string), args.Error(1)
+}
 
 type mockSessionRepository struct{ mock.Mock }
 

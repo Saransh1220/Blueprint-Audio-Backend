@@ -21,17 +21,18 @@ import (
 
 // RouterConfig holds all the handlers and middleware needed for routing
 type RouterConfig struct {
-	AuthHandler         *auth_http.AuthHandler
-	AuthMiddleware      *middleware.AuthMiddleWare
-	SpecHandler         *catalog_http.SpecHandler
-	SpecUploadHandler   *catalog_http.SpecUploadHandler
-	UserHandler         *user_http.UserHandler
-	PaymentHandler      *payment_http.PaymentHandler
-	AnalyticsHandler    *analytics_http.AnalyticsHandler
-	NotificationHandler *notification_http.NotificationHandler
-	AdminHandler        *admin_http.AdminHandler
-	LegalHandler        *legal_http.LegalHandler
-	FXHandler           *fx_http.FXHandler
+	AuthHandler             *auth_http.AuthHandler
+	AuthMiddleware          *middleware.AuthMiddleWare
+	BuyerCurrencyMiddleware *middleware.BuyerCurrencyMiddleware
+	SpecHandler             *catalog_http.SpecHandler
+	SpecUploadHandler       *catalog_http.SpecUploadHandler
+	UserHandler             *user_http.UserHandler
+	PaymentHandler          *payment_http.PaymentHandler
+	AnalyticsHandler        *analytics_http.AnalyticsHandler
+	NotificationHandler     *notification_http.NotificationHandler
+	AdminHandler            *admin_http.AdminHandler
+	LegalHandler            *legal_http.LegalHandler
+	FXHandler               *fx_http.FXHandler
 	// FavoritesServer implements the oapi-codegen StrictServerInterface for /me/favorites.
 	FavoritesServer      *openapi.FavoritesServer
 	DisableAPIDocs       bool
@@ -42,6 +43,13 @@ type RouterConfig struct {
 func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /config/currencies", currencyConfiguration(config.CurrencyGatewayNames))
+
+	buyerCurrency := func(h http.Handler) http.Handler {
+		if config.BuyerCurrencyMiddleware != nil {
+			return config.BuyerCurrencyMiddleware.Middleware(h)
+		}
+		return h
+	}
 
 	// Health Check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -67,11 +75,16 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 		// existing mux as the base router — the generator registers its own routes
 		// directly onto the mux.
 		authMiddlewareFunc := openapi.MiddlewareFunc(config.AuthMiddleware.RequireAuth)
+		var favoritesMiddlewares []openapi.MiddlewareFunc
+		favoritesMiddlewares = append(favoritesMiddlewares, authMiddlewareFunc)
+		if config.BuyerCurrencyMiddleware != nil {
+			favoritesMiddlewares = append(favoritesMiddlewares, openapi.MiddlewareFunc(config.BuyerCurrencyMiddleware.Middleware))
+		}
 		openapi.HandlerWithOptions(
 			openapi.NewStrictHandler(config.FavoritesServer, nil),
 			openapi.StdHTTPServerOptions{
 				BaseRouter:  mux,
-				Middlewares: []openapi.MiddlewareFunc{authMiddlewareFunc},
+				Middlewares: favoritesMiddlewares,
 			},
 		)
 	}
@@ -101,16 +114,16 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	authz := config.AuthMiddleware.Authorize
 
 	// Catalog/Spec Routes
-	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Home)))
-	mux.Handle("GET /specs", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.List)))
-	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.Get)))
+	mux.Handle("GET /catalog/home", config.AuthMiddleware.FlexibleAuth(buyerCurrency(http.HandlerFunc(config.SpecHandler.Home))))
+	mux.Handle("GET /specs", config.AuthMiddleware.FlexibleAuth(buyerCurrency(http.HandlerFunc(config.SpecHandler.List))))
+	mux.Handle("GET /specs/{id}", config.AuthMiddleware.FlexibleAuth(buyerCurrency(http.HandlerFunc(config.SpecHandler.Get))))
 	mux.Handle("POST /specs", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.CreateGone)))
 	if config.SpecUploadHandler != nil {
-		mux.Handle("POST /spec-uploads", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Initiate))))
+		mux.Handle("POST /spec-uploads", authz(middleware.PermSpecUpload)(buyerCurrency(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Initiate)))))
 		mux.Handle("PUT /spec-uploads/{id}/metadata", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.SaveMetadata))))
 		mux.Handle("POST /spec-uploads/{id}/files", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.PrepareFile))))
 		mux.Handle("POST /spec-uploads/{id}/files/{assetID}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.ConfirmFile))))
-		mux.Handle("POST /spec-uploads/{id}/complete", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Complete))))
+		mux.Handle("POST /spec-uploads/{id}/complete", authz(middleware.PermSpecUpload)(buyerCurrency(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Complete)))))
 		mux.Handle("GET /spec-uploads/{id}", authz(middleware.PermSpecUpload)(http.HandlerFunc(uploadLimiter(config.SpecUploadHandler.Status))))
 	}
 	mux.Handle("PATCH /specs/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.SpecHandler.Update)))
@@ -123,12 +136,17 @@ func SetupRoutes(config RouterConfig) *http.ServeMux {
 	mux.Handle("POST /users/profile/avatar", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.UserHandler.UploadAvatar)))
 	mux.Handle("POST /users/profile/banner", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.UserHandler.UploadBanner)))
 	mux.HandleFunc("GET /users/{id}/public", config.UserHandler.GetPublicProfile)
-	mux.Handle("GET /users/{id}/specs", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.SpecHandler.GetUserSpecs)))
+	mux.Handle("GET /users/{id}/specs", config.AuthMiddleware.FlexibleAuth(buyerCurrency(http.HandlerFunc(config.SpecHandler.GetUserSpecs))))
+
+	// Buyer Currency Preferences
+	preferenceLimiter := middleware.RateLimitMiddleware(60, time.Minute)
+	mux.Handle("GET /preferences/currency", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(config.UserHandler.GetCurrencyPreference)))
+	mux.Handle("PUT /preferences/currency", config.AuthMiddleware.FlexibleAuth(http.HandlerFunc(preferenceLimiter(config.UserHandler.SetCurrencyPreference))))
 
 	// Payment Routes
-	mux.Handle("POST /orders", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.CreateOrder)))
-	mux.Handle("GET /orders", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserOrders)))
-	mux.Handle("GET /orders/{id}", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetOrder)))
+	mux.Handle("POST /orders", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.CreateOrder))))
+	mux.Handle("GET /orders", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.GetUserOrders))))
+	mux.Handle("GET /orders/{id}", config.AuthMiddleware.RequireAuth(buyerCurrency(http.HandlerFunc(config.PaymentHandler.GetOrder))))
 	mux.Handle("POST /payments/verify", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.VerifyPayment)))
 	mux.HandleFunc("POST /webhooks/dodo", config.PaymentHandler.DodoWebhook)
 	mux.Handle("GET /licenses", config.AuthMiddleware.RequireAuth(http.HandlerFunc(config.PaymentHandler.GetUserLicenses)))

@@ -29,3 +29,15 @@ type PublicUserResponse struct {
 	StoreCurrency string  `json:"store_currency"`
 	CreatedAt     string  `json:"created_at"`
 }
+
+// CurrencyPreferenceResponse represents the response for GET/PUT /preferences/currency
+type CurrencyPreferenceResponse struct {
+	Preference *string `json:"preference"`
+	Effective  string  `json:"effective"`
+	Source     string  `json:"source"`
+}
+
+// SetCurrencyPreferenceRequest represents the body for PUT /preferences/currency
+type SetCurrencyPreferenceRequest struct {
+	Currency *string `json:"currency"`
+}

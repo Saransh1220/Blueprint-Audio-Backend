@@ -1,7 +1,6 @@
 package money_test
 
 import (
-	"net/http/httptest"
 	"testing"
 
 	"github.com/saransh1220/blueprint-audio/internal/shared/money"
@@ -31,19 +30,122 @@ func TestMoneyBasicCreation(t *testing.T) {
 	assert.Equal(t, money.CurrencyINR, fromEmpty.Currency)
 }
 
-func TestResolveCurrencyFromRequest(t *testing.T) {
-	reqIN := httptest.NewRequest("GET", "/", nil)
-	reqIN.Header.Set("X-Country-Code", "IN")
-	assert.Equal(t, money.CurrencyINR, money.ResolveCurrencyFromRequest(reqIN))
+func TestResolveDisplayCurrency(t *testing.T) {
+	tests := []struct {
+		name         string
+		in           money.ResolveInput
+		wantCurrency string
+		wantSource   money.CurrencySource
+	}{
+		{
+			name: "profile preference beats all",
+			in: money.ResolveInput{
+				ProfileCurrency: "INR",
+				CookieCurrency:  "USD",
+				CountryCode:     "US",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceProfile,
+		},
+		{
+			name: "profile preference USD beats IN country",
+			in: money.ResolveInput{
+				ProfileCurrency: "usd",
+				CookieCurrency:  "",
+				CountryCode:     "IN",
+			},
+			wantCurrency: money.CurrencyUSD,
+			wantSource:   money.SourceProfile,
+		},
+		{
+			name: "invalid profile falls back to cookie",
+			in: money.ResolveInput{
+				ProfileCurrency: "EUR",
+				CookieCurrency:  "INR",
+				CountryCode:     "US",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceCookie,
+		},
+		{
+			name: "cookie preference beats country",
+			in: money.ResolveInput{
+				ProfileCurrency: "",
+				CookieCurrency:  "INR",
+				CountryCode:     "US",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceCookie,
+		},
+		{
+			name: "cookie USD beats IN country",
+			in: money.ResolveInput{
+				ProfileCurrency: "",
+				CookieCurrency:  "USD",
+				CountryCode:     "IN",
+			},
+			wantCurrency: money.CurrencyUSD,
+			wantSource:   money.SourceCookie,
+		},
+		{
+			name: "invalid cookie falls through to country IN",
+			in: money.ResolveInput{
+				ProfileCurrency: "",
+				CookieCurrency:  "INVALID",
+				CountryCode:     "IN",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceCountry,
+		},
+		{
+			name: "country IN lower case resolves to INR",
+			in: money.ResolveInput{
+				CountryCode: "in",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceCountry,
+		},
+		{
+			name: "country with whitespace resolves correctly",
+			in: money.ResolveInput{
+				CountryCode: "  IN  ",
+			},
+			wantCurrency: money.CurrencyINR,
+			wantSource:   money.SourceCountry,
+		},
+		{
+			name: "non-IN country resolves to USD",
+			in: money.ResolveInput{
+				CountryCode: "GB",
+			},
+			wantCurrency: money.CurrencyUSD,
+			wantSource:   money.SourceCountry,
+		},
+		{
+			name: "empty inputs resolve to default USD",
+			in: money.ResolveInput{
+				ProfileCurrency: "",
+				CookieCurrency:  "",
+				CountryCode:     "",
+			},
+			wantCurrency: money.CurrencyUSD,
+			wantSource:   money.SourceDefault,
+		},
+		{
+			name: "whitespace-only country resolves to default USD",
+			in: money.ResolveInput{
+				CountryCode: "   ",
+			},
+			wantCurrency: money.CurrencyUSD,
+			wantSource:   money.SourceDefault,
+		},
+	}
 
-	reqCF := httptest.NewRequest("GET", "/", nil)
-	reqCF.Header.Set("CF-IPCountry", "in")
-	assert.Equal(t, money.CurrencyINR, money.ResolveCurrencyFromRequest(reqCF))
-
-	reqUS := httptest.NewRequest("GET", "/", nil)
-	reqUS.Header.Set("CF-IPCountry", "US")
-	assert.Equal(t, money.CurrencyUSD, money.ResolveCurrencyFromRequest(reqUS))
-
-	reqDefault := httptest.NewRequest("GET", "/", nil)
-	assert.Equal(t, money.CurrencyUSD, money.ResolveCurrencyFromRequest(reqDefault))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := money.ResolveDisplayCurrency(tt.in)
+			assert.Equal(t, tt.wantCurrency, res.Currency)
+			assert.Equal(t, tt.wantSource, res.Source)
+		})
+	}
 }

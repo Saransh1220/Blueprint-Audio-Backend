@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	authDomain "github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type UserService struct {
@@ -100,6 +101,24 @@ func validateProfile(req UpdateProfileRequest) error {
 		}
 	}
 	return nil
+}
+
+// SetPreferredCurrency updates the user's preferred display currency (or resets to Automatic if nil/empty).
+func (s *UserService) SetPreferredCurrency(ctx context.Context, userID uuid.UUID, currency *string) error {
+	if currency == nil || strings.TrimSpace(*currency) == "" {
+		return s.repo.SetPreferredCurrency(ctx, userID, nil)
+	}
+	def, ok := money.LookupCurrency(*currency)
+	if !ok {
+		return fmt.Errorf("unsupported currency: %s", *currency)
+	}
+	code := def.Code
+	return s.repo.SetPreferredCurrency(ctx, userID, &code)
+}
+
+// GetPreferredCurrency retrieves the user's preferred display currency.
+func (s *UserService) GetPreferredCurrency(ctx context.Context, userID uuid.UUID) (*string, error) {
+	return s.repo.GetPreferredCurrency(ctx, userID)
 }
 
 // GetPublicProfileByHandle depends only on the optional public-directory capability.

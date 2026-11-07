@@ -44,6 +44,17 @@ func (m *mockUserRepo) CountBySystemRole(ctx context.Context, role authDomain.Sy
 	return 0, nil
 }
 func (m *mockUserRepo) BootstrapSuperAdmin(ctx context.Context, email string) error { return nil }
+func (m *mockUserRepo) SetPreferredCurrency(ctx context.Context, id uuid.UUID, currency *string) error {
+	args := m.Called(ctx, id, currency)
+	return args.Error(0)
+}
+func (m *mockUserRepo) GetPreferredCurrency(ctx context.Context, id uuid.UUID) (*string, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*string), args.Error(1)
+}
 
 func TestUserService_UpdateProfile(t *testing.T) {
 	ctx := context.Background()
@@ -97,4 +108,47 @@ func TestUserService_GetPublicProfile(t *testing.T) {
 	repo.On("GetByID", ctx, id3).Return(nil, errors.New("db")).Once()
 	_, err = svc.GetPublicProfile(ctx, id3)
 	assert.EqualError(t, err, "db")
+}
+
+func TestUserService_PreferredCurrency(t *testing.T) {
+	ctx := context.Background()
+	repo := new(mockUserRepo)
+	svc := application.NewUserService(repo)
+	id := uuid.New()
+
+	t.Run("set valid currency", func(t *testing.T) {
+		inr := "inr"
+		expected := "INR"
+		repo.On("SetPreferredCurrency", ctx, id, &expected).Return(nil).Once()
+		err := svc.SetPreferredCurrency(ctx, id, &inr)
+		assert.NoError(t, err)
+	})
+
+	t.Run("set automatic with nil", func(t *testing.T) {
+		repo.On("SetPreferredCurrency", ctx, id, (*string)(nil)).Return(nil).Once()
+		err := svc.SetPreferredCurrency(ctx, id, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("set automatic with empty string", func(t *testing.T) {
+		empty := "   "
+		repo.On("SetPreferredCurrency", ctx, id, (*string)(nil)).Return(nil).Once()
+		err := svc.SetPreferredCurrency(ctx, id, &empty)
+		assert.NoError(t, err)
+	})
+
+	t.Run("set unsupported currency returns error", func(t *testing.T) {
+		bad := "EUR"
+		err := svc.SetPreferredCurrency(ctx, id, &bad)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported currency")
+	})
+
+	t.Run("get preferred currency", func(t *testing.T) {
+		val := "USD"
+		repo.On("GetPreferredCurrency", ctx, id).Return(&val, nil).Once()
+		got, err := svc.GetPreferredCurrency(ctx, id)
+		assert.NoError(t, err)
+		assert.Equal(t, &val, got)
+	})
 }

@@ -54,8 +54,14 @@ func (s *FavoritesServer) ListMyFavorites(ctx context.Context, request ListMyFav
 		encodedCursor = request.Params.Cursor
 	}
 
-	// --- Resolve display currency from Cloudflare / fallback headers ---
-	displayCurrency := resolveDisplayCurrency(request.Params.CFIPCountry, request.Params.XCountryCode)
+	// --- Resolve display currency from middleware context (fallback to header params for direct callers) ---
+	displayCurrency := middleware.BuyerCurrencyFromContext(ctx)
+	if displayCurrency == money.CurrencyUSD {
+		if (request.Params.CFIPCountry != nil && *request.Params.CFIPCountry == "IN") ||
+			(request.Params.XCountryCode != nil && *request.Params.XCountryCode == "IN") {
+			displayCurrency = money.CurrencyINR
+		}
+	}
 
 	// --- Call service ---
 	page, err := s.analytics.ListMyFavorites(ctx, userID, limit, encodedCursor)
@@ -208,18 +214,6 @@ func mapSpec(s *catalogDomain.Spec, displayCurrency string) Spec {
 	}
 
 	return spec
-}
-
-// resolveDisplayCurrency determines the display currency from the request headers.
-// IN country code → INR; everything else → USD.
-func resolveDisplayCurrency(cfCountry *CloudflareCountry, xCountry *CountryCode) string {
-	if cfCountry != nil && *cfCountry == "IN" {
-		return money.CurrencyINR
-	}
-	if xCountry != nil && *xCountry == "IN" {
-		return money.CurrencyINR
-	}
-	return money.CurrencyUSD
 }
 
 // strPtr is a small convenience helper.

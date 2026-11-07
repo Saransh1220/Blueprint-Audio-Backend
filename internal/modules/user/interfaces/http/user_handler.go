@@ -11,12 +11,15 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/user/application"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
+	"github.com/saransh1220/blueprint-audio/internal/shared/utils"
 	_ "golang.org/x/image/webp"
 )
 
@@ -24,6 +27,8 @@ import (
 type UserService interface {
 	UpdateProfile(ctx context.Context, userID uuid.UUID, req application.UpdateProfileRequest) error
 	GetPublicProfile(ctx context.Context, userID uuid.UUID) (*application.PublicUserResponse, error)
+	GetPreferredCurrency(ctx context.Context, userID uuid.UUID) (*string, error)
+	SetPreferredCurrency(ctx context.Context, userID uuid.UUID, currency *string) error
 }
 
 // FileService defines the interface for file operations
@@ -36,8 +41,9 @@ type FileService interface {
 }
 
 type UserHandler struct {
-	service     UserService
-	fileService FileService
+	service      UserService
+	fileService  FileService
+	secureCookie bool
 }
 
 func NewUserHandler(service UserService, fileService FileService) *UserHandler {
@@ -45,6 +51,11 @@ func NewUserHandler(service UserService, fileService FileService) *UserHandler {
 		service:     service,
 		fileService: fileService,
 	}
+}
+
+func (h *UserHandler) WithSecureCookie(secure bool) *UserHandler {
+	h.secureCookie = secure
+	return h
 }
 
 // UpdateProfile handles PATCH /users/profile - updates authenticated user's profile
@@ -270,4 +281,113 @@ func (h *UserHandler) GetPublicProfileByHandle(w http.ResponseWriter, r *http.Re
 	h.sanitizeUserProfile(profile)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(profile)
+}
+
+// GetCurrencyPreference handles GET /preferences/currency.
+// Reads authenticated profile preference, cookie preference, or country code.
+// If authenticated with a preference, refreshes the wy_currency cookie.
+func (h *UserHandler) GetCurrencyPreference(w http.ResponseWriter, r *http.Request) {
+	var profileCurrency *string
+	if userID, ok := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID); ok {
+		if pref, err := h.service.GetPreferredCurrency(r.Context(), userID); err == nil {
+			profileCurrency = pref
+		}
+	}
+
+	var cookieCurrency string
+	if c, err := r.Cookie("wy_currency"); err == nil {
+		cookieCurrency = c.Value
+	}
+
+	country := strings.TrimSpace(r.Header.Get("CF-IPCountry"))
+	if country == "" {
+		country = strings.TrimSpace(r.Header.Get("X-Country-Code"))
+	}
+
+	profileVal := ""
+	if profileCurrency != nil {
+		profileVal = *profileCurrency
+	}
+
+	res := money.ResolveDisplayCurrency(money.ResolveInput{
+		ProfileCurrency: profileVal,
+		CookieCurrency:  cookieCurrency,
+		CountryCode:     country,
+	})
+
+	if profileCurrency != nil && *profileCurrency != "" {
+		utils.SetCookie(w, "wy_currency", *profileCurrency, "/", time.Now().Add(365*24*time.Hour), 365*24*3600, h.secureCookie, true)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(application.CurrencyPreferenceResponse{
+		Preference: profileCurrency,
+		Effective:  res.Currency,
+		Source:     string(res.Source),
+	})
+}
+
+// SetCurrencyPreference handles PUT /preferences/currency.
+// Body: { "currency": "INR" | "USD" | null }
+// If currency is null/empty, clears profile and cookie (Automatic mode).
+// If authenticated, persists to database profile.
+// Updates wy_currency cookie and returns updated preference state.
+func (h *UserHandler) SetCurrencyPreference(w http.ResponseWriter, r *http.Request) {
+	var req application.SetCurrencyPreferenceRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, `{"error": "invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	var preferredCurrency *string
+	if req.Currency != nil && strings.TrimSpace(*req.Currency) != "" {
+		def, ok := money.LookupCurrency(*req.Currency)
+		if !ok {
+			http.Error(w, `{"error": "unsupported currency"}`, http.StatusBadRequest)
+			return
+		}
+		code := def.Code
+		preferredCurrency = &code
+	}
+
+	userID, isAuthenticated := r.Context().Value(middleware.ContextKeyUserId).(uuid.UUID)
+	if isAuthenticated {
+		if err := h.service.SetPreferredCurrency(r.Context(), userID, preferredCurrency); err != nil {
+			http.Error(w, `{"error": "failed to save preference"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	country := strings.TrimSpace(r.Header.Get("CF-IPCountry"))
+	if country == "" {
+		country = strings.TrimSpace(r.Header.Get("X-Country-Code"))
+	}
+
+	if preferredCurrency != nil {
+		utils.SetCookie(w, "wy_currency", *preferredCurrency, "/", time.Now().Add(365*24*time.Hour), 365*24*3600, h.secureCookie, true)
+		res := money.ResolveDisplayCurrency(money.ResolveInput{
+			ProfileCurrency: *preferredCurrency,
+			CookieCurrency:  *preferredCurrency,
+			CountryCode:     country,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(application.CurrencyPreferenceResponse{
+			Preference: preferredCurrency,
+			Effective:  res.Currency,
+			Source:     string(res.Source),
+		})
+	} else {
+		utils.SetCookie(w, "wy_currency", "", "/", time.Unix(0, 0), -1, h.secureCookie, true)
+		res := money.ResolveDisplayCurrency(money.ResolveInput{
+			CountryCode: country,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(application.CurrencyPreferenceResponse{
+			Preference: nil,
+			Effective:  res.Currency,
+			Source:     string(res.Source),
+		})
+	}
 }

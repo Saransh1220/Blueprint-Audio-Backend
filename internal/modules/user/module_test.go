@@ -37,6 +37,12 @@ func (r *repoStub) CountBySystemRole(ctx context.Context, role authDomain.System
 	return 0, nil
 }
 func (r *repoStub) BootstrapSuperAdmin(ctx context.Context, email string) error { return nil }
+func (r *repoStub) SetPreferredCurrency(ctx context.Context, id uuid.UUID, currency *string) error {
+	return nil
+}
+func (r *repoStub) GetPreferredCurrency(ctx context.Context, id uuid.UUID) (*string, error) {
+	return nil, nil
+}
 
 func TestNewModule(t *testing.T) {
 	var fs *fileApp.FileService

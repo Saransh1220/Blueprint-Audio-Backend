@@ -13,6 +13,7 @@ import (
 	analyticsApp "github.com/saransh1220/blueprint-audio/internal/modules/analytics/application"
 	analyticsDomain "github.com/saransh1220/blueprint-audio/internal/modules/analytics/domain"
 	catalogDomain "github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -230,7 +231,18 @@ func TestResolveDisplayCurrency(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, resolveDisplayCurrency(tt.cf, tt.x))
+			country := ""
+			if tt.cf != nil && *tt.cf == "IN" {
+				country = *tt.cf
+			} else if tt.x != nil && *tt.x == "IN" {
+				country = *tt.x
+			} else if tt.cf != nil {
+				country = *tt.cf
+			} else if tt.x != nil {
+				country = *tt.x
+			}
+			res := money.ResolveDisplayCurrency(money.ResolveInput{CountryCode: country})
+			assert.Equal(t, tt.want, res.Currency)
 		})
 	}
 }

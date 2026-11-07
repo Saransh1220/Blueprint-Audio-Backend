@@ -108,7 +108,7 @@ func (h *SpecHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Try Cache
-	displayCurrency := money.ResolveCurrencyFromRequest(r)
+	displayCurrency := middleware.BuyerCurrencyFromContext(r.Context())
 	cacheKey := "spec:prices-v2:" + spec.ID.String() + ":" + displayCurrency // Normalize cache key to always use UUID and currency
 	if val, ok := h.cacheGet(r.Context(), cacheKey); ok {
 		var cached struct {
@@ -235,7 +235,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := domain.SpecFilter{
-		Currency:    money.ResolveCurrencyFromRequest(r),
+		Currency:    middleware.BuyerCurrencyFromContext(r.Context()),
 		Category:    category,
 		Genres:      genres,
 		Tags:        tags,
@@ -271,7 +271,7 @@ func (h *SpecHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
-		responses[i] = *ToSpecResponseForCurrency(&specs[i], money.ResolveCurrencyFromRequest(r))
+		responses[i] = *ToSpecResponseForCurrency(&specs[i], middleware.BuyerCurrencyFromContext(r.Context()))
 
 		// Fetch analytics for each spec
 		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, userIDPtr)
@@ -335,7 +335,7 @@ func (h *SpecHandler) Home(w http.ResponseWriter, r *http.Request) {
 		userIDPtr = &userID
 	}
 
-	displayCurrency := money.ResolveCurrencyFromRequest(r)
+	displayCurrency := middleware.BuyerCurrencyFromContext(r.Context())
 	response := HomepageResponse{
 		GeneratedAt:     home.GeneratedAt,
 		CacheTTLSeconds: home.CacheTTLSeconds,
@@ -652,7 +652,7 @@ func (h *SpecHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// 6. Return Updated Spec
 	h.sanitizeSpec(existingSpec)
-	response := ToSpecResponseForCurrency(existingSpec, money.ResolveCurrencyFromRequest(r))
+	response := ToSpecResponseForCurrency(existingSpec, middleware.BuyerCurrencyFromContext(r.Context()))
 
 	// Invalidate Cache
 	h.cacheDelSpec(context.Background(), id)
@@ -701,7 +701,7 @@ func (h *SpecHandler) GetUserSpecs(w http.ResponseWriter, r *http.Request) {
 
 	for i := range specs {
 		h.sanitizeSpec(&specs[i])
-		responses[i] = *ToSpecResponseForCurrency(&specs[i], money.ResolveCurrencyFromRequest(r))
+		responses[i] = *ToSpecResponseForCurrency(&specs[i], middleware.BuyerCurrencyFromContext(r.Context()))
 
 		// Fetch analytics for each spec
 		analytics, err := h.analyticsService.GetPublicAnalytics(r.Context(), specs[i].ID, currentUserIDPtr)

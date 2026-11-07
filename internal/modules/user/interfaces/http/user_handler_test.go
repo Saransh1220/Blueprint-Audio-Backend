@@ -22,6 +22,7 @@ import (
 	user_http "github.com/saransh1220/blueprint-audio/internal/modules/user/interfaces/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock Services
@@ -40,6 +41,19 @@ func (m *mockUserService) GetPublicProfile(ctx context.Context, userID uuid.UUID
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*application.PublicUserResponse), args.Error(1)
+}
+
+func (m *mockUserService) SetPreferredCurrency(ctx context.Context, userID uuid.UUID, currency *string) error {
+	args := m.Called(ctx, userID, currency)
+	return args.Error(0)
+}
+
+func (m *mockUserService) GetPreferredCurrency(ctx context.Context, userID uuid.UUID) (*string, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*string), args.Error(1)
 }
 
 type mockFileService struct {
@@ -274,4 +288,193 @@ func TestUserHandler_UploadAvatar_RollbackOnUpdateError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.UploadAvatar(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUserHandler_GetCurrencyPreference(t *testing.T) {
+	svc := new(mockUserService)
+	fileSvc := new(mockFileService)
+	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Run("authenticated user with preference in profile", func(t *testing.T) {
+		userID := uuid.New()
+		pref := "INR"
+		svc.On("GetPreferredCurrency", mock.Anything, userID).Return(&pref, nil).Once()
+
+		req := httptest.NewRequest(http.MethodGet, "/preferences/currency", nil)
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+		w := httptest.NewRecorder()
+
+		h.GetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Equal(t, &pref, resp.Preference)
+		assert.Equal(t, "INR", resp.Effective)
+		assert.Equal(t, "profile", resp.Source)
+
+		// Check refreshed cookie
+		cookies := w.Result().Cookies()
+		require.NotEmpty(t, cookies)
+		assert.Equal(t, "wy_currency", cookies[0].Name)
+		assert.Equal(t, "INR", cookies[0].Value)
+	})
+
+	t.Run("guest with cookie preference", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/preferences/currency", nil)
+		req.AddCookie(&http.Cookie{Name: "wy_currency", Value: "INR"})
+		req.Header.Set("CF-IPCountry", "US")
+		w := httptest.NewRecorder()
+
+		h.GetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Nil(t, resp.Preference)
+		assert.Equal(t, "INR", resp.Effective)
+		assert.Equal(t, "cookie", resp.Source)
+	})
+
+	t.Run("guest with country header", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/preferences/currency", nil)
+		req.Header.Set("CF-IPCountry", "IN")
+		w := httptest.NewRecorder()
+
+		h.GetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Nil(t, resp.Preference)
+		assert.Equal(t, "INR", resp.Effective)
+		assert.Equal(t, "country", resp.Source)
+	})
+
+	t.Run("guest default USD", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/preferences/currency", nil)
+		w := httptest.NewRecorder()
+
+		h.GetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Nil(t, resp.Preference)
+		assert.Equal(t, "USD", resp.Effective)
+		assert.Equal(t, "default", resp.Source)
+	})
+}
+
+func TestUserHandler_SetCurrencyPreference(t *testing.T) {
+	svc := new(mockUserService)
+	fileSvc := new(mockFileService)
+	h := user_http.NewUserHandler(svc, fileSvc)
+
+	t.Run("authenticated user sets valid currency", func(t *testing.T) {
+		userID := uuid.New()
+		expected := "INR"
+		svc.On("SetPreferredCurrency", mock.Anything, userID, &expected).Return(nil).Once()
+
+		body := `{"currency": "inr"}`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Equal(t, &expected, resp.Preference)
+		assert.Equal(t, "INR", resp.Effective)
+		assert.Equal(t, "profile", resp.Source)
+
+		cookies := w.Result().Cookies()
+		require.NotEmpty(t, cookies)
+		assert.Equal(t, "wy_currency", cookies[0].Name)
+		assert.Equal(t, "INR", cookies[0].Value)
+	})
+
+	t.Run("authenticated user resets to automatic with null", func(t *testing.T) {
+		userID := uuid.New()
+		svc.On("SetPreferredCurrency", mock.Anything, userID, (*string)(nil)).Return(nil).Once()
+
+		body := `{"currency": null}`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ContextKeyUserId, userID))
+		req.Header.Set("CF-IPCountry", "IN")
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		assert.Nil(t, resp.Preference)
+		assert.Equal(t, "INR", resp.Effective)
+		assert.Equal(t, "country", resp.Source)
+
+		cookies := w.Result().Cookies()
+		require.NotEmpty(t, cookies)
+		assert.Equal(t, "wy_currency", cookies[0].Name)
+		assert.Equal(t, -1, cookies[0].MaxAge)
+	})
+
+	t.Run("guest sets currency", func(t *testing.T) {
+		body := `{"currency": "USD"}`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp application.CurrencyPreferenceResponse
+		err := json.NewDecoder(w.Body).Decode(&resp)
+		assert.NoError(t, err)
+		expected := "USD"
+		assert.Equal(t, &expected, resp.Preference)
+		assert.Equal(t, "USD", resp.Effective)
+
+		cookies := w.Result().Cookies()
+		require.NotEmpty(t, cookies)
+		assert.Equal(t, "wy_currency", cookies[0].Name)
+		assert.Equal(t, "USD", cookies[0].Value)
+	})
+
+	t.Run("invalid currency 400", func(t *testing.T) {
+		body := `{"currency": "EUR"}`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid json body 400", func(t *testing.T) {
+		body := `not-json`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("unknown fields in body 400", func(t *testing.T) {
+		body := `{"currency": "USD", "extra": 123}`
+		req := httptest.NewRequest(http.MethodPut, "/preferences/currency", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		h.SetCurrencyPreference(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }
