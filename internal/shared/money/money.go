@@ -2,7 +2,6 @@ package money
 
 import (
 	"math"
-	"net/http"
 	"strings"
 )
 
@@ -17,15 +16,46 @@ type Money struct {
 	Currency    string  `json:"currency"`
 }
 
-func ResolveCurrencyFromRequest(r *http.Request) string {
-	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
-	if country == "" {
-		country = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-Country-Code")))
+type CurrencySource string
+
+const (
+	SourceProfile CurrencySource = "profile"
+	SourceCookie  CurrencySource = "cookie"
+	SourceCountry CurrencySource = "country"
+	SourceDefault CurrencySource = "default"
+)
+
+type ResolveInput struct {
+	ProfileCurrency string
+	CookieCurrency  string
+	CountryCode     string
+}
+
+type ResolutionResult struct {
+	Currency string         `json:"currency"`
+	Source   CurrencySource `json:"source"`
+}
+
+// ResolveDisplayCurrency resolves buyer display currency and origin source using D2 precedence:
+// 1. Profile preference (if non-empty and valid supported currency)
+// 2. Cookie preference (if non-empty and valid supported currency)
+// 3. Country code ("IN" -> INR, any other non-empty country -> USD)
+// 4. Fallback -> USD (default source)
+func ResolveDisplayCurrency(in ResolveInput) ResolutionResult {
+	if def, ok := LookupCurrency(in.ProfileCurrency); ok {
+		return ResolutionResult{Currency: def.Code, Source: SourceProfile}
 	}
+	if def, ok := LookupCurrency(in.CookieCurrency); ok {
+		return ResolutionResult{Currency: def.Code, Source: SourceCookie}
+	}
+	country := strings.ToUpper(strings.TrimSpace(in.CountryCode))
 	if country == "IN" {
-		return CurrencyINR
+		return ResolutionResult{Currency: CurrencyINR, Source: SourceCountry}
 	}
-	return CurrencyUSD
+	if country != "" {
+		return ResolutionResult{Currency: CurrencyUSD, Source: SourceCountry}
+	}
+	return ResolutionResult{Currency: CurrencyUSD, Source: SourceDefault}
 }
 
 func INRFromMajor(amount float64) Money {

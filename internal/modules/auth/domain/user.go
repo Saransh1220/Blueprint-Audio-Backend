@@ -56,6 +56,7 @@ type User struct {
 	YoutubeURL         *string    `json:"youtube_url" db:"youtube_url"`
 	SpotifyURL         *string    `json:"spotify_url" db:"spotify_url"`
 	StoreCurrency      Currency   `json:"store_currency" db:"store_currency"`
+	PreferredCurrency  *string    `json:"preferred_currency,omitempty" db:"preferred_currency"`
 	RegistrationSource string     `json:"registration_source" db:"registration_source"` // "waveyard" | "sonically" | "blueprint" | "google"
 	CreatedAt          time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at" db:"updated_at"`
@@ -73,6 +74,8 @@ type UserRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status UserStatus) error
 	CountBySystemRole(ctx context.Context, role SystemRole) (int, error)
 	BootstrapSuperAdmin(ctx context.Context, email string) error
+	SetPreferredCurrency(ctx context.Context, id uuid.UUID, currency *string) error
+	GetPreferredCurrency(ctx context.Context, id uuid.UUID) (*string, error)
 }
 
 // UserFinder provides user lookup capabilities for other modules

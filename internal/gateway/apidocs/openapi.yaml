@@ -1602,6 +1602,69 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /preferences/currency:
+    get:
+      tags:
+        - Preferences
+      operationId: getCurrencyPreference
+      summary: Get buyer currency preference
+      description: Returns the active display currency, saved user preference, and resolution source
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Operation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrencyPreferenceResponse'
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Preferences
+      operationId: setCurrencyPreference
+      summary: Set buyer currency preference
+      description: Sets preferred display currency (or resets to Automatic with null/empty)
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetCurrencyPreferenceRequest'
+      responses:
+        "200":
+          description: Operation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrencyPreferenceResponse'
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /producers/{handle}:
     get:
       tags:
@@ -2708,6 +2771,19 @@ components:
         size_bytes:
           type: integer
           format: int64
+    CurrencyPreferenceResponse:
+      type: object
+      required:
+        - effective
+        - source
+      properties:
+        effective:
+          type: string
+        preference:
+          type: string
+          nullable: true
+        source:
+          type: string
     DailyRevenueStat:
       type: object
       required:
@@ -3294,6 +3370,12 @@ components:
           type: string
         new_password:
           type: string
+    SetCurrencyPreferenceRequest:
+      type: object
+      properties:
+        currency:
+          type: string
+          nullable: true
     SpecAnalytics:
       type: object
       required:

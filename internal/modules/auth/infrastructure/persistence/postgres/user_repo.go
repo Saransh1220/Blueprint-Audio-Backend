@@ -296,3 +296,34 @@ func (r *PgUserRepository) GetByHandle(ctx context.Context, handle string) (*dom
 	}
 	return &users[0], nil
 }
+
+// SetPreferredCurrency updates the user's preferred display currency (NULL for automatic).
+func (r *PgUserRepository) SetPreferredCurrency(ctx context.Context, id uuid.UUID, currency *string) error {
+	query := `UPDATE users SET preferred_currency = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, currency, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
+}
+
+// GetPreferredCurrency retrieves the user's preferred display currency.
+func (r *PgUserRepository) GetPreferredCurrency(ctx context.Context, id uuid.UUID) (*string, error) {
+	var currency *string
+	query := `SELECT preferred_currency FROM users WHERE id = $1`
+	err := r.db.GetContext(ctx, &currency, query, id)
+	if err == sql.ErrNoRows {
+		return nil, domain.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return currency, nil
+}

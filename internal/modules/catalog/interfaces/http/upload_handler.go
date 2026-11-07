@@ -12,7 +12,6 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
 	filestorageDomain "github.com/saransh1220/blueprint-audio/internal/modules/filestorage/domain"
-	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type SpecUploadHandler struct {
@@ -147,7 +146,7 @@ func (h *SpecUploadHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/specs/"+spec.ID.String())
-	writeJSON(w, http.StatusAccepted, ToSpecResponseForCurrency(spec, money.ResolveCurrencyFromRequest(r)))
+	writeJSON(w, http.StatusAccepted, ToSpecResponseForCurrency(spec, middleware.BuyerCurrencyFromContext(r.Context())))
 }
 
 func (h *SpecUploadHandler) Status(w http.ResponseWriter, r *http.Request) {

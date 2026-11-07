@@ -403,6 +403,31 @@ func GetEndpointsRegistry() []EndpointDef {
 			ResponseBody: catalog_dto.SpecUploadStatusResponse{},
 		},
 
+		// Preferences
+		{
+			Method:       "GET",
+			Path:         "/preferences/currency",
+			Tags:         []string{"Preferences"},
+			OperationID:  "getCurrencyPreference",
+			Summary:      "Get buyer currency preference",
+			Description:  "Returns the active display currency, saved user preference, and resolution source",
+			Auth:         "flexible",
+			SuccessCode:  200,
+			ResponseBody: user_app.CurrencyPreferenceResponse{},
+		},
+		{
+			Method:       "PUT",
+			Path:         "/preferences/currency",
+			Tags:         []string{"Preferences"},
+			OperationID:  "setCurrencyPreference",
+			Summary:      "Set buyer currency preference",
+			Description:  "Sets preferred display currency (or resets to Automatic with null/empty)",
+			Auth:         "flexible",
+			RequestBody:  user_app.SetCurrencyPreferenceRequest{},
+			SuccessCode:  200,
+			ResponseBody: user_app.CurrencyPreferenceResponse{},
+		},
+
 		// Users
 		{
 			Method:       "PATCH",

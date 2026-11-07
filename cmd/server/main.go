@@ -114,7 +114,7 @@ func main() {
 	roleStore.Start(ctx, 30*time.Second)
 
 	// User Module
-	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service())
+	userModule := user.NewModule(authModule.UserRepository(), fsModule.Service()).WithSecureCookie(cfg.Server.SecureCookies)
 	adminModule := admin.NewModule(db, authModule.UserRepository(), roleStore)
 
 	// Notification Module
@@ -161,22 +161,30 @@ func main() {
 	// Favorites strict server (OpenAPI-generated contract implementation)
 	favoritesServer := openapi.NewFavoritesServer(analyticsModule.AnalyticsService)
 
+	buyerCurrencyMiddleware := gatewayMiddleware.NewBuyerCurrencyMiddleware(
+		func(ctx context.Context, id uuid.UUID) (*string, error) {
+			return userRepo.GetPreferredCurrency(ctx, id)
+		},
+		true,
+	)
+
 	// 6. Setup Routes
 	mux := gateway.SetupRoutes(gateway.RouterConfig{
-		AuthHandler:          authModule.HTTPHandler(),
-		AuthMiddleware:       authMiddleware,
-		SpecHandler:          catalogModule.HTTPHandler(),
-		SpecUploadHandler:    catalogModule.UploadHTTPHandler(),
-		UserHandler:          userModule.HTTPHandler(),
-		PaymentHandler:       paymentModule.HTTPHandler(),
-		CurrencyGatewayNames: paymentModule.CurrencyGatewayNames(),
-		AnalyticsHandler:     analyticsModule.AnalyticsHandler,
-		NotificationHandler:  notificationModule.HTTPHandler(),
-		AdminHandler:         adminModule.HTTPHandler(),
-		FXHandler:            fxModule.Handler(),
-		LegalHandler:         legalModule.HTTPHandler(),
-		FavoritesServer:      favoritesServer,
-		DisableAPIDocs:       !cfg.Server.APIDocsEnabled,
+		AuthHandler:             authModule.HTTPHandler(),
+		AuthMiddleware:          authMiddleware,
+		BuyerCurrencyMiddleware: buyerCurrencyMiddleware,
+		SpecHandler:             catalogModule.HTTPHandler(),
+		SpecUploadHandler:       catalogModule.UploadHTTPHandler(),
+		UserHandler:             userModule.HTTPHandler(),
+		PaymentHandler:          paymentModule.HTTPHandler(),
+		CurrencyGatewayNames:    paymentModule.CurrencyGatewayNames(),
+		AnalyticsHandler:        analyticsModule.AnalyticsHandler,
+		NotificationHandler:     notificationModule.HTTPHandler(),
+		AdminHandler:            adminModule.HTTPHandler(),
+		FXHandler:               fxModule.Handler(),
+		LegalHandler:            legalModule.HTTPHandler(),
+		FavoritesServer:         favoritesServer,
+		DisableAPIDocs:          !cfg.Server.APIDocsEnabled,
 	})
 
 	// 7. Apply Middleware

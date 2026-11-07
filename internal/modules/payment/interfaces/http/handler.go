@@ -80,7 +80,7 @@ func (h *PaymentHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	currency := strings.TrimSpace(req.Currency)
 	if currency == "" {
-		currency = money.ResolveCurrencyFromRequest(r)
+		currency = middleware.BuyerCurrencyFromContext(r.Context())
 	}
 
 	var expectedPriceID *uuid.UUID

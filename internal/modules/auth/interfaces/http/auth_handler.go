@@ -12,6 +12,7 @@ import (
 	"github.com/saransh1220/blueprint-audio/internal/gateway/middleware"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/auth/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/utils"
 )
 
 // AuthService defines the interface for auth operations
@@ -53,21 +54,7 @@ func NewAuthHandler(service AuthService, fileService FileService, googleClientID
 }
 
 func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time, maxAge int) {
-	sameSite := http.SameSiteStrictMode
-	if h.secureCookie {
-		sameSite = http.SameSiteNoneMode
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    value,
-		Path:     "/",
-		Expires:  expires,
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   h.secureCookie,
-		SameSite: sameSite,
-	})
+	utils.SetCookie(w, "refresh_token", value, "/", expires, maxAge, h.secureCookie, true)
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {

@@ -24,6 +24,12 @@ func NewModule(repo authDomain.UserRepository, fileService *fileApp.FileService)
 	}
 }
 
+// WithSecureCookie configures whether preference cookies use the Secure flag.
+func (m *Module) WithSecureCookie(secure bool) *Module {
+	m.handler.WithSecureCookie(secure)
+	return m
+}
+
 // HTTPHandler returns the HTTP handler for the user module
 func (m *Module) HTTPHandler() *user_http.UserHandler {
 	return m.handler

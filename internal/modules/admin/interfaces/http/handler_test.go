@@ -32,6 +32,8 @@ func (userRepoStub) UpdateSystemRole(context.Context, uuid.UUID, auth.SystemRole
 func (userRepoStub) UpdateStatus(context.Context, uuid.UUID, auth.UserStatus) error     { return nil }
 func (userRepoStub) CountBySystemRole(context.Context, auth.SystemRole) (int, error)    { return 2, nil }
 func (userRepoStub) BootstrapSuperAdmin(context.Context, string) error                  { return nil }
+func (userRepoStub) SetPreferredCurrency(context.Context, uuid.UUID, *string) error     { return nil }
+func (userRepoStub) GetPreferredCurrency(context.Context, uuid.UUID) (*string, error)   { return nil, nil }
 
 func newHandler(t *testing.T) (*AdminHandler, sqlmock.Sqlmock, func()) {
 	t.Helper()
