@@ -2,7 +2,6 @@ package domain
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 )
@@ -11,11 +10,6 @@ import (
 const (
 	ProviderRazorpay = "razorpay"
 	ProviderDodo     = "dodo"
-)
-
-var (
-	ErrInvalidSignature   = errors.New("invalid signature")
-	ErrPaymentNotCaptured = errors.New("payment not captured")
 )
 
 // Gateway is the strategy every payment provider implements: how to start a
@@ -42,11 +36,15 @@ type CheckoutSession struct {
 
 // PaymentConfirmation is the provider-neutral result of a successful payment.
 type PaymentConfirmation struct {
-	OrderID           uuid.UUID
-	ProviderPaymentID string
-	Signature         string
-	Method            *string
-	Email             *string
+	OrderID             uuid.UUID
+	ProviderCheckoutID  string
+	ProviderPaymentID   string
+	ReportedAmountMinor int64
+	ReportedCurrency    string
+	Signature           string
+	Method              *string
+	Email               *string
+	EventID             string
 }
 
 // ClientConfirmer is implemented by gateways where the browser reports the

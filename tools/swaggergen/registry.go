@@ -540,6 +540,20 @@ func GetEndpointsRegistry() []EndpointDef {
 			ResponseBody: payment_domain.Order{},
 		},
 		{
+			Method:      "GET",
+			Path:        "/orders/{id}/status",
+			Tags:        []string{"Payments"},
+			OperationID: "getOrderStatus",
+			Summary:     "Get order polling status",
+			Description: "Pollable endpoint returning provider-neutral status, expiry, retry interval, and license when paid",
+			Auth:        "bearer",
+			PathParams: []ParamDef{
+				{Name: "id", Type: "string", Format: "uuid", Required: true, Description: "Order UUID"},
+			},
+			SuccessCode:  200,
+			ResponseBody: payment_app.OrderStatusResponse{},
+		},
+		{
 			Method:       "POST",
 			Path:         "/payments/verify",
 			Tags:         []string{"Payments"},
@@ -550,6 +564,19 @@ func GetEndpointsRegistry() []EndpointDef {
 			RequestBody:  VerifyPaymentRequest{},
 			SuccessCode:  200,
 			ResponseBody: VerifyPaymentResponse{},
+		},
+		{
+			Method:      "POST",
+			Path:        "/webhooks/{provider}",
+			Tags:        []string{"Payments"},
+			OperationID: "providerWebhook",
+			Summary:     "Process payment provider webhook",
+			Description: "Provider-neutral webhook callback handler for Razorpay and Dodo payments",
+			Auth:        "none",
+			PathParams: []ParamDef{
+				{Name: "provider", Type: "string", Required: true, Description: "Payment provider name (razorpay, dodo)"},
+			},
+			SuccessCode: 200,
 		},
 		{
 			Method:      "POST",

@@ -58,3 +58,17 @@ type ProducerOrderResponse struct {
 	Limit  int                `json:"limit"`
 	Offset int                `json:"offset"`
 }
+
+type OrderLicenseSummary struct {
+	ID         uuid.UUID `json:"id"`
+	LicenseKey string    `json:"license_key,omitempty"`
+}
+
+type OrderStatusResponse struct {
+	OrderID           uuid.UUID            `json:"order_id"`
+	Status            domain.OrderStatus   `json:"status"`
+	Provider          string               `json:"provider"`
+	ExpiresAt         time.Time            `json:"expires_at"`
+	License           *OrderLicenseSummary `json:"license"`
+	RetryAfterSeconds int                  `json:"retry_after_seconds,omitempty"`
+}

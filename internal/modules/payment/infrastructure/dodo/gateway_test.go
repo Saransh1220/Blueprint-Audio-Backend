@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/saransh1220/blueprint-audio/internal/modules/payment/domain"
@@ -53,7 +55,7 @@ func TestGateway_CreateCheckout(t *testing.T) {
 		assert.Equal(t, "cks_1", session.ProviderRef)
 		assert.Equal(t, "https://pay.example/cks_1", session.CheckoutURL)
 		assert.Equal(t, "Bearer key", gotAuth)
-		assert.Equal(t, "http://localhost:4200/dashboard", gotBody["return_url"])
+		assert.Equal(t, "http://localhost:4200/dashboard?order_id="+order.ID.String(), gotBody["return_url"])
 		assert.Equal(t, gotBody["metadata"], gotBody["custom_data"])
 		meta := gotBody["metadata"].(map[string]any)
 		assert.Equal(t, order.ID.String(), meta["order_id"])
@@ -107,36 +109,51 @@ func TestGateway_CreateCheckout(t *testing.T) {
 
 func TestGateway_VerifySignature(t *testing.T) {
 	payload := []byte(`{"type":"x"}`)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	hdr := func(sig string) map[string]string {
-		return map[string]string{"webhook-id": "id", "webhook-timestamp": "1", "webhook-signature": sig}
+		return map[string]string{"webhook-id": "id", "webhook-timestamp": ts, "webhook-signature": sig}
 	}
 
 	g := NewGateway(Config{})
-	assert.EqualError(t, g.verifySignature(payload, hdr("x")), "dodo webhook secret is not configured")
+	assert.ErrorIs(t, g.verifySignature(payload, hdr("x")), domain.ErrMissingWebhookSecret)
 
 	g = NewGateway(Config{WebhookKey: "HTTPS://example.com/hook"})
 	assert.ErrorContains(t, g.verifySignature(payload, hdr("x")), "not the endpoint URL")
 
 	g = NewGateway(Config{WebhookKey: "plain-secret"})
-	assert.EqualError(t, g.verifySignature(payload, map[string]string{"webhook-id": "id"}), "missing dodo webhook signature headers")
+	assert.ErrorIs(t, g.verifySignature(payload, map[string]string{"webhook-id": "id"}), domain.ErrInvalidSignature)
+
+	// timestamp tolerance exceeded (>300s old)
+	oldTS := strconv.FormatInt(time.Now().Unix()-301, 10)
+	oldHdr := map[string]string{"webhook-id": "id", "webhook-timestamp": oldTS, "webhook-signature": "v1,abc"}
+	assert.ErrorIs(t, g.verifySignature(payload, oldHdr), domain.ErrTimestampToleranceExceeded)
+
+	// timestamp tolerance exceeded (>300s future)
+	futureTS := strconv.FormatInt(time.Now().Unix()+301, 10)
+	futureHdr := map[string]string{"webhook-id": "id", "webhook-timestamp": futureTS, "webhook-signature": "v1,abc"}
+	assert.ErrorIs(t, g.verifySignature(payload, futureHdr), domain.ErrTimestampToleranceExceeded)
+
+	// invalid timestamp format
+	badTSHdr := map[string]string{"webhook-id": "id", "webhook-timestamp": "not-a-number", "webhook-signature": "v1,abc"}
+	assert.ErrorIs(t, g.verifySignature(payload, badTSHdr), domain.ErrTimestampToleranceExceeded)
 
 	// plain secret, base64 signature with v1 prefix
-	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign([]byte("plain-secret"), "id", "1", payload))))
+	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign([]byte("plain-secret"), "id", ts, payload))))
 	// plain secret, hex signature, unprefixed
 	mac := hmac.New(sha256.New, []byte("plain-secret"))
-	mac.Write([]byte("id.1." + string(payload)))
+	mac.Write([]byte("id." + ts + "." + string(payload)))
 	assert.NoError(t, g.verifySignature(payload, hdr(hex.EncodeToString(mac.Sum(nil)))))
 	// wrong signature
-	assert.EqualError(t, g.verifySignature(payload, hdr("v1,AAAA")), "invalid dodo webhook signature")
+	assert.ErrorIs(t, g.verifySignature(payload, hdr("v1,AAAA")), domain.ErrInvalidSignature)
 
 	// whsec with raw (unpadded) base64 key
 	raw := []byte("rawkey-bytes!")
 	g = NewGateway(Config{WebhookKey: "whsec_" + base64.RawStdEncoding.EncodeToString(raw)})
-	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign(raw, "id", "1", payload))))
+	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign(raw, "id", ts, payload))))
 
 	// whsec that is not valid base64: falls back to the literal remainder as key
 	g = NewGateway(Config{WebhookKey: "whsec_***notbase64***"})
-	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign([]byte("***notbase64***"), "id", "1", payload))))
+	assert.NoError(t, g.verifySignature(payload, hdr("v1,"+sign([]byte("***notbase64***"), "id", ts, payload))))
 }
 
 func TestCompareSignature(t *testing.T) {
@@ -160,7 +177,7 @@ func TestExtractOrderMetadata(t *testing.T) {
 	}{
 		{"metadata", map[string]any{"payment_id": "p1", "metadata": map[string]any{"order_id": oid.String()}}, oid, "p1"},
 		{"custom_data and id fallback", map[string]any{"id": "p2", "custom_data": map[string]any{"order_id": oid.String()}}, oid, "p2"},
-		{"custom_fields", map[string]any{"custom_fields": map[string]any{"order_id": oid.String()}}, oid, ""},
+		{"custom_fields", map[string]any{"custom_fields": map[string]any{"order_id": oid.String()}}, uuid.Nil, ""},
 		{"top-level order_id", map[string]any{"order_id": oid.String(), "payment_id": 42}, oid, "42"},
 		{"invalid metadata falls through", map[string]any{"metadata": map[string]any{"order_id": "nope"}, "order_id": oid.String()}, oid, ""},
 		{"nothing", map[string]any{"metadata": "string"}, uuid.Nil, ""},
@@ -189,9 +206,10 @@ func TestGateway_ParseWebhook(t *testing.T) {
 	signed := func(t *testing.T, event map[string]any) ([]byte, map[string]string) {
 		payload, err := json.Marshal(event)
 		require.NoError(t, err)
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		return payload, map[string]string{
-			"webhook-id": "evt_1", "webhook-timestamp": "10",
-			"webhook-signature": "v1," + sign(key, "evt_1", "10", payload),
+			"webhook-id": "evt_1", "webhook-timestamp": ts,
+			"webhook-signature": "v1," + sign(key, "evt_1", ts, payload),
 		}
 	}
 	succeeded := func(data map[string]any) map[string]any {
@@ -203,15 +221,17 @@ func TestGateway_ParseWebhook(t *testing.T) {
 	}
 
 	t.Run("invalid signature", func(t *testing.T) {
-		_, err := g.ParseWebhook([]byte(`{}`), map[string]string{"webhook-id": "a", "webhook-timestamp": "b", "webhook-signature": "c"})
-		assert.EqualError(t, err, "invalid dodo webhook signature")
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
+		_, err := g.ParseWebhook([]byte(`{}`), map[string]string{"webhook-id": "a", "webhook-timestamp": ts, "webhook-signature": "c"})
+		assert.ErrorIs(t, err, domain.ErrInvalidSignature)
 	})
 
 	t.Run("invalid json with valid signature", func(t *testing.T) {
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		payload := []byte(`{not json`)
 		_, err := g.ParseWebhook(payload, map[string]string{
-			"webhook-id": "evt_1", "webhook-timestamp": "10",
-			"webhook-signature": "v1," + sign(key, "evt_1", "10", payload),
+			"webhook-id": "evt_1", "webhook-timestamp": ts,
+			"webhook-signature": "v1," + sign(key, "evt_1", ts, payload),
 		})
 		assert.Error(t, err)
 	})
@@ -226,23 +246,30 @@ func TestGateway_ParseWebhook(t *testing.T) {
 	t.Run("missing order id", func(t *testing.T) {
 		p, h := signed(t, map[string]any{"type": "payment.succeeded", "data": map[string]any{}})
 		_, err := g.ParseWebhook(p, h)
-		assert.EqualError(t, err, "dodo webhook missing order_id")
+		assert.ErrorIs(t, err, domain.ErrOrderNotFound)
 	})
 
 	t.Run("success maps to a provider-neutral confirmation", func(t *testing.T) {
-		p, h := signed(t, succeeded(map[string]any{"payment_id": "pay_dodo_1"}))
+		p, h := signed(t, succeeded(map[string]any{
+			"payment_id": "pay_dodo_1",
+			"total_amount": 2500,
+			"currency": "USD",
+		}))
 		c, err := g.ParseWebhook(p, h)
 		require.NoError(t, err)
 		assert.Equal(t, oid, c.OrderID)
 		assert.Equal(t, "pay_dodo_1", c.ProviderPaymentID)
 		assert.Equal(t, h["webhook-signature"], c.Signature)
+		assert.Equal(t, int64(2500), c.ReportedAmountMinor)
+		assert.Equal(t, "USD", c.ReportedCurrency)
+		assert.Equal(t, "evt_1", c.EventID)
 	})
 
-	t.Run("payment id falls back to the webhook id", func(t *testing.T) {
+	t.Run("missing payment id returns ErrMissingPaymentID", func(t *testing.T) {
 		p, h := signed(t, succeeded(nil))
 		c, err := g.ParseWebhook(p, h)
-		require.NoError(t, err)
-		assert.Equal(t, "evt_1", c.ProviderPaymentID)
+		assert.Nil(t, c)
+		assert.ErrorIs(t, err, domain.ErrMissingPaymentID)
 	})
 
 	t.Run("standard-webhooks whsec secret", func(t *testing.T) {
@@ -250,9 +277,10 @@ func TestGateway_ParseWebhook(t *testing.T) {
 		g := NewGateway(Config{WebhookKey: "whsec_" + base64.StdEncoding.EncodeToString(secretBytes)})
 		payload, err := json.Marshal(succeeded(map[string]any{"payment_id": "pay_dodo_1"}))
 		require.NoError(t, err)
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		c, err := g.ParseWebhook(payload, map[string]string{
-			"webhook-id": "evt_dodo_1", "webhook-timestamp": "1779091529",
-			"webhook-signature": "v1," + sign(secretBytes, "evt_dodo_1", "1779091529", payload),
+			"webhook-id": "evt_dodo_1", "webhook-timestamp": ts,
+			"webhook-signature": "v1," + sign(secretBytes, "evt_dodo_1", ts, payload),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "pay_dodo_1", c.ProviderPaymentID)

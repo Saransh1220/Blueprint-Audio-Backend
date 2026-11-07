@@ -1563,6 +1563,42 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /orders/{id}/status:
+    get:
+      tags:
+        - Payments
+      operationId: getOrderStatus
+      summary: Get order polling status
+      description: Pollable endpoint returning provider-neutral status, expiry, retry interval, and license when paid
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Order UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Operation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          description: ""
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: ""
+          $ref: '#/components/responses/Forbidden'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /orders/producer:
     get:
       tags:
@@ -2472,6 +2508,29 @@ paths:
         "500":
           description: ""
           $ref: '#/components/responses/InternalError'
+  /webhooks/{provider}:
+    post:
+      tags:
+        - Payments
+      operationId: providerWebhook
+      summary: Process payment provider webhook
+      description: Provider-neutral webhook callback handler for Razorpay and Dodo payments
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: Payment provider name (razorpay, dodo)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: ""
+          $ref: '#/components/responses/BadRequest'
+        "500":
+          description: ""
+          $ref: '#/components/responses/InternalError'
   /webhooks/dodo:
     post:
       tags:
@@ -3219,6 +3278,39 @@ components:
         user_id:
           type: string
           format: uuid
+    OrderLicenseSummary:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+        license_key:
+          type: string
+    OrderStatusResponse:
+      type: object
+      required:
+        - order_id
+        - status
+        - provider
+        - expires_at
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+        license:
+          nullable: true
+          $ref: '#/components/schemas/OrderLicenseSummary'
+        order_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+        retry_after_seconds:
+          type: integer
+        status:
+          type: string
     PresignedUploadResponse:
       type: object
       required:

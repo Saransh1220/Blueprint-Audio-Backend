@@ -10,10 +10,14 @@ import (
 )
 
 type PgPaymentRepository struct {
-	db *sqlx.DB
+	db DBTX
 }
 
 func NewPaymentRepository(db *sqlx.DB) domain.PaymentRepository {
+	return NewPaymentRepositoryWithDB(db)
+}
+
+func NewPaymentRepositoryWithDB(db DBTX) domain.PaymentRepository {
 	return &PgPaymentRepository{db: db}
 }
 

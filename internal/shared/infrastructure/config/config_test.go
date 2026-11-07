@@ -176,3 +176,62 @@ func TestLoad_JWTExpirationParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_Validate(t *testing.T) {
+	t.Run("development mode does not fail on missing keys", func(t *testing.T) {
+		cfg := &Config{
+			Server:     ServerConfig{Environment: "development"},
+			AppBaseURL: "http://localhost:4200",
+			Dodo:       DodoPaymentsConfig{ReturnURL: "http://localhost:4200/payment/return"},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("production mode requires razorpay credentials", func(t *testing.T) {
+		cfg := &Config{
+			Server:     ServerConfig{Environment: "production"},
+			AppBaseURL: "https://example.com",
+			Razorpay:   RazorpayConfig{KeyID: "", KeySecret: "sec", WebhookSecret: "whsec"},
+			Dodo:       DodoPaymentsConfig{APIKey: "key", ProductID: "pdt", WebhookKey: "whsec", APIURL: "https://live.dodopayments.com", ReturnURL: "https://example.com/payment/return"},
+		}
+		assert.ErrorContains(t, cfg.Validate(), "RAZORPAY_KEY_ID")
+
+		cfg.Razorpay.KeyID = "rzp_live_123"
+		cfg.Razorpay.WebhookSecret = ""
+		assert.ErrorContains(t, cfg.Validate(), "RAZORPAY_WEBHOOK_SECRET")
+	})
+
+	t.Run("production mode requires dodo credentials and live url", func(t *testing.T) {
+		cfg := &Config{
+			Server:     ServerConfig{Environment: "production"},
+			AppBaseURL: "https://example.com",
+			Razorpay:   RazorpayConfig{KeyID: "key", KeySecret: "sec", WebhookSecret: "whsec"},
+			Dodo:       DodoPaymentsConfig{APIKey: "", ProductID: "pdt", WebhookKey: "whsec", APIURL: "https://live.dodopayments.com", ReturnURL: "https://example.com/payment/return"},
+		}
+		assert.ErrorContains(t, cfg.Validate(), "DODO_PAYMENTS_API_KEY")
+
+		cfg.Dodo.APIKey = "dodo_key"
+		cfg.Dodo.APIURL = "https://test.dodopayments.com"
+		assert.ErrorContains(t, cfg.Validate(), "DODO_PAYMENTS_API_URL")
+	})
+
+	t.Run("return url origin mismatch fails validation", func(t *testing.T) {
+		cfg := &Config{
+			Server:     ServerConfig{Environment: "production"},
+			AppBaseURL: "https://app.example.com",
+			Razorpay:   RazorpayConfig{KeyID: "key", KeySecret: "sec", WebhookSecret: "whsec"},
+			Dodo:       DodoPaymentsConfig{APIKey: "key", ProductID: "pdt", WebhookKey: "whsec", APIURL: "https://live.dodopayments.com", ReturnURL: "https://evil.example.com/payment/return"},
+		}
+		assert.ErrorContains(t, cfg.Validate(), "must match APP_BASE_URL origin")
+	})
+
+	t.Run("valid production config passes", func(t *testing.T) {
+		cfg := &Config{
+			Server:     ServerConfig{Environment: "production"},
+			AppBaseURL: "https://app.example.com",
+			Razorpay:   RazorpayConfig{KeyID: "rzp_live_123", KeySecret: "rzp_sec_456", WebhookSecret: "whsec_rzp_789"},
+			Dodo:       DodoPaymentsConfig{APIKey: "dodo_key_123", ProductID: "pdt_456", WebhookKey: "whsec_dodo_789", APIURL: "https://live.dodopayments.com", ReturnURL: "https://app.example.com/payment/return"},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+}

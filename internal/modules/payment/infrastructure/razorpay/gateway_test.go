@@ -2,6 +2,9 @@ package razorpay
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -150,4 +153,98 @@ func TestGateway_SignIsDeterministicAndKeyed(t *testing.T) {
 	assert.Equal(t, a.sign("order_1", "pay_1"), a.sign("order_1", "pay_1"))
 	assert.NotEqual(t, a.sign("order_1", "pay_1"), b.sign("order_1", "pay_1"))
 	assert.NotEqual(t, a.sign("order_1", "pay_1"), a.sign("order_1", "pay_2"))
+}
+
+func TestGateway_ParseWebhook(t *testing.T) {
+	secret := "whsec_test_razorpay_secret"
+	g := NewGateway(Config{WebhookSecret: secret})
+
+	signBody := func(body []byte) string {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+
+	t.Run("missing webhook secret returns ErrMissingWebhookSecret", func(t *testing.T) {
+		gNoSec := NewGateway(Config{})
+		_, err := gNoSec.ParseWebhook([]byte("{}"), map[string]string{"x-razorpay-signature": "any"})
+		assert.ErrorIs(t, err, domain.ErrMissingWebhookSecret)
+	})
+
+	t.Run("missing signature header returns ErrInvalidSignature", func(t *testing.T) {
+		_, err := g.ParseWebhook([]byte("{}"), map[string]string{})
+		assert.ErrorIs(t, err, domain.ErrInvalidSignature)
+	})
+
+	t.Run("invalid signature returns ErrInvalidSignature", func(t *testing.T) {
+		body := []byte(`{"event":"payment.captured"}`)
+		_, err := g.ParseWebhook(body, map[string]string{"x-razorpay-signature": "wrong_hex"})
+		assert.ErrorIs(t, err, domain.ErrInvalidSignature)
+	})
+
+	t.Run("malformed json returns error", func(t *testing.T) {
+		body := []byte(`{not-json`)
+		sig := signBody(body)
+		_, err := g.ParseWebhook(body, map[string]string{"x-razorpay-signature": sig})
+		assert.Error(t, err)
+	})
+
+	t.Run("non payment.captured event is ignored", func(t *testing.T) {
+		body := []byte(`{"event":"payment.authorized","payload":{"payment":{"entity":{"id":"pay_123"}}}}`)
+		sig := signBody(body)
+		c, err := g.ParseWebhook(body, map[string]string{"x-razorpay-signature": sig})
+		assert.NoError(t, err)
+		assert.Nil(t, c)
+	})
+
+	t.Run("missing payment id returns ErrMissingPaymentID", func(t *testing.T) {
+		body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"order_id":"order_rzp_1","amount":1000,"currency":"INR"}}}}`)
+		sig := signBody(body)
+		c, err := g.ParseWebhook(body, map[string]string{"x-razorpay-signature": sig})
+		assert.Nil(t, c)
+		assert.ErrorIs(t, err, domain.ErrMissingPaymentID)
+	})
+
+	t.Run("missing order id returns error", func(t *testing.T) {
+		body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_123","amount":1000,"currency":"INR"}}}}`)
+		sig := signBody(body)
+		c, err := g.ParseWebhook(body, map[string]string{"x-razorpay-signature": sig})
+		assert.Nil(t, c)
+		assert.ErrorIs(t, err, domain.ErrOrderNotFound)
+	})
+
+	t.Run("valid payment.captured parses confirmation", func(t *testing.T) {
+		body := []byte(`{
+			"event":"payment.captured",
+			"payload":{
+				"payment":{
+					"entity":{
+						"id":"pay_valid_123",
+						"order_id":"order_rzp_valid_456",
+						"amount":49900,
+						"currency":"INR",
+						"method":"upi",
+						"email":"buyer@example.com"
+					}
+				}
+			}
+		}`)
+		sig := signBody(body)
+		c, err := g.ParseWebhook(body, map[string]string{
+			"x-razorpay-signature": sig,
+			"x-razorpay-event-id":  "evt_rzp_789",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		assert.Equal(t, "pay_valid_123", c.ProviderPaymentID)
+		assert.Equal(t, "order_rzp_valid_456", c.ProviderCheckoutID)
+		assert.Equal(t, int64(49900), c.ReportedAmountMinor)
+		assert.Equal(t, "INR", c.ReportedCurrency)
+		assert.Equal(t, sig, c.Signature)
+		assert.Equal(t, "evt_rzp_789", c.EventID)
+		require.NotNil(t, c.Method)
+		assert.Equal(t, "upi", *c.Method)
+		require.NotNil(t, c.Email)
+		assert.Equal(t, "buyer@example.com", *c.Email)
+	})
 }

@@ -1,10 +1,13 @@
 package config
 
 import (
-	"strconv"
 	"bufio"
+	"errors"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,8 +71,9 @@ type JWTConfig struct {
 
 // RazorpayConfig holds Razorpay payment gateway configuration
 type RazorpayConfig struct {
-	KeyID     string
-	KeySecret string
+	KeyID         string
+	KeySecret     string
+	WebhookSecret string
 }
 
 type DodoPaymentsConfig struct {
@@ -77,6 +81,7 @@ type DodoPaymentsConfig struct {
 	ProductID  string
 	WebhookKey string
 	APIURL     string
+	ReturnURL  string
 }
 
 type CurrencyConfig struct{}
@@ -156,14 +161,16 @@ func Load() Config {
 			RefreshExpiry: parseDuration(getEnv("JWT_REFRESH_EXPIRATION", "720h"), 30*24*time.Hour),
 		},
 		Razorpay: RazorpayConfig{
-			KeyID:     getEnv("RAZORPAY_KEY_ID", ""),
-			KeySecret: getEnv("RAZORPAY_KEY_SECRET", ""),
+			KeyID:         getEnv("RAZORPAY_KEY_ID", ""),
+			KeySecret:     getEnv("RAZORPAY_KEY_SECRET", ""),
+			WebhookSecret: getEnv("RAZORPAY_WEBHOOK_SECRET", ""),
 		},
 		Dodo: DodoPaymentsConfig{
 			APIKey:     getEnv("DODO_PAYMENTS_API_KEY", ""),
 			ProductID:  getEnv("DODO_PAYMENTS_PRODUCT_ID", ""),
 			WebhookKey: getEnv("DODO_PAYMENTS_WEBHOOK_KEY", ""),
 			APIURL:     getEnv("DODO_PAYMENTS_API_URL", ""),
+			ReturnURL:  getEnv("DODO_RETURN_URL", ""),
 		},
 		Currency: CurrencyConfig{},
 		FX: FXConfig{
@@ -205,6 +212,45 @@ func Load() Config {
 		},
 		AppBaseURL: getEnv("APP_BASE_URL", "http://localhost:4200"),
 	}
+}
+
+// Validate checks critical configuration settings based on environment.
+func (c *Config) Validate() error {
+	isProd := strings.EqualFold(c.Server.Environment, "production")
+
+	// Validate ReturnURL origin if provided
+	if c.Dodo.ReturnURL != "" {
+		dodoURL, err := url.Parse(c.Dodo.ReturnURL)
+		if err != nil {
+			return fmt.Errorf("invalid DODO_RETURN_URL: %w", err)
+		}
+		appURL, err := url.Parse(c.AppBaseURL)
+		if err != nil {
+			return fmt.Errorf("invalid APP_BASE_URL: %w", err)
+		}
+		if dodoURL.Scheme != appURL.Scheme || dodoURL.Host != appURL.Host {
+			return fmt.Errorf("DODO_RETURN_URL origin (%s://%s) must match APP_BASE_URL origin (%s://%s)",
+				dodoURL.Scheme, dodoURL.Host, appURL.Scheme, appURL.Host)
+		}
+	}
+
+	if isProd {
+		if c.Razorpay.KeyID == "" || c.Razorpay.KeySecret == "" || c.Razorpay.WebhookSecret == "" {
+			return errors.New("production environment requires RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET")
+		}
+		if c.Dodo.APIKey == "" || c.Dodo.ProductID == "" || c.Dodo.WebhookKey == "" || c.Dodo.APIURL == "" || strings.Contains(c.Dodo.APIURL, "test.dodopayments.com") {
+			return errors.New("production environment requires DODO_PAYMENTS_API_KEY, DODO_PAYMENTS_PRODUCT_ID, DODO_PAYMENTS_WEBHOOK_KEY, and explicit live DODO_PAYMENTS_API_URL")
+		}
+	} else {
+		if c.Razorpay.KeyID == "" || c.Razorpay.KeySecret == "" || c.Razorpay.WebhookSecret == "" {
+			log.Printf("[CONFIG WARNING] Razorpay credentials or webhook secret not fully configured")
+		}
+		if c.Dodo.APIKey == "" || c.Dodo.ProductID == "" || c.Dodo.WebhookKey == "" {
+			log.Printf("[CONFIG WARNING] Dodo Payments credentials not fully configured")
+		}
+	}
+
+	return nil
 }
 
 // getEnv reads an environment variable or returns a default value

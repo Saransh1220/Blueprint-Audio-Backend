@@ -40,9 +40,10 @@ func NewModule(
 	orderRepo := persistence.NewOrderRepository(db)
 	paymentRepo := persistence.NewPaymentRepository(db)
 	licenseRepo := persistence.NewLicenseRepository(db)
+	txRunner := persistence.NewTxRunner(db)
 
 	if gateways.Dodo.ReturnURL == "" {
-		gateways.Dodo.ReturnURL = appBaseURL + "/dashboard"
+		gateways.Dodo.ReturnURL = appBaseURL + "/payment/return"
 	}
 	// Which gateway charges which currency is decided here, in one place.
 	registry, err := application.NewGatewayRegistry(
@@ -57,7 +58,7 @@ func NewModule(
 		panic(err) // a wiring mistake, caught at startup
 	}
 
-	service := application.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specFinder, userFinder, fileService, emailSender, appBaseURL, registry)
+	service := application.NewPaymentService(orderRepo, paymentRepo, licenseRepo, specFinder, userFinder, fileService, emailSender, appBaseURL, registry, txRunner)
 	handler := paymentHttp.NewPaymentHandler(service)
 
 	return &Module{

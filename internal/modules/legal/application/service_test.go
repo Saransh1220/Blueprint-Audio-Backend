@@ -188,3 +188,59 @@ func TestLegalService_GetRequirements(t *testing.T) {
 	require.NotNil(t, termsReq)
 	assert.True(t, termsReq.Accepted)
 }
+
+func TestLegalService_DraftPublishAndAudits(t *testing.T) {
+	docRepo := &mockDocRepo{
+		versions: make(map[string]*domain.DocumentVersion),
+	}
+	acceptanceRepo := &mockAcceptanceRepo{
+		acceptances: make(map[string]*domain.Acceptance),
+	}
+	svc := NewLegalService(docRepo, acceptanceRepo)
+	ctx := context.Background()
+	authorID := uuid.New()
+
+	t.Run("CreateDraft validates empty sections and creates draft", func(t *testing.T) {
+		ver := &domain.DocumentVersion{
+			DocumentKey:    "terms",
+			DisplayVersion: "1.0",
+			Sections:       nil,
+		}
+		err := svc.CreateDraft(ctx, authorID, ver)
+		assert.ErrorIs(t, err, domain.ErrEmptySections)
+
+		ver.Sections = []domain.Section{{ID: "s1", Title: "T", Content: "C"}}
+		err = svc.CreateDraft(ctx, authorID, ver)
+		require.NoError(t, err)
+		assert.Equal(t, domain.StatusDraft, ver.Status)
+		assert.NotEmpty(t, ver.ContentHash)
+		assert.NotEmpty(t, docRepo.audits)
+	})
+
+	t.Run("PublishVersion checks published status and records audit", func(t *testing.T) {
+		verID := uuid.New()
+		docRepo.versions["3.0"] = &domain.DocumentVersion{
+			ID:             verID,
+			DocumentKey:    "terms",
+			DisplayVersion: "3.0",
+			Status:         domain.StatusPublished,
+		}
+		err := svc.PublishVersion(ctx, authorID, verID, "publish notes")
+		assert.ErrorIs(t, err, domain.ErrAlreadyPublished)
+
+		docRepo.versions["3.0"].Status = domain.StatusDraft
+		err = svc.PublishVersion(ctx, authorID, verID, "publish notes")
+		require.NoError(t, err)
+		assert.Equal(t, verID, docRepo.publishedID)
+	})
+
+	t.Run("GetAudits limits", func(t *testing.T) {
+		audits, err := svc.GetAudits(ctx, 0)
+		require.NoError(t, err)
+		assert.NotNil(t, audits)
+
+		audits, err = svc.GetAudits(ctx, 200)
+		require.NoError(t, err)
+		assert.NotNil(t, audits)
+	})
+}

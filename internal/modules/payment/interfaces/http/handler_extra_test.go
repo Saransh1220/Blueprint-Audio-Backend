@@ -39,14 +39,21 @@ func TestPaymentHandler_DodoWebhook(t *testing.T) {
 		assert.Equal(t, `{"a":1}`, string(gotPayload))
 		assert.Equal(t, map[string]string{"webhook-id": "id1", "webhook-timestamp": "123", "webhook-signature": "sig"}, gotHeaders)
 	})
-	t.Run("service error is 400", func(t *testing.T) {
+	t.Run("service error is 400 on malformed", func(t *testing.T) {
 		h := paymenthttp.NewPaymentHandler(mockPaymentService{
-			dodoWebhookFn: func(context.Context, []byte, map[string]string) error { return errors.New("bad signature") },
+			dodoWebhookFn: func(context.Context, []byte, map[string]string) error { return domain.ErrMalformedPayload },
 		})
 		w := httptest.NewRecorder()
 		h.DodoWebhook(w, httptest.NewRequest(http.MethodPost, "/webhooks/dodo", strings.NewReader("x")))
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "bad signature")
+	})
+	t.Run("service error is 401 on bad signature", func(t *testing.T) {
+		h := paymenthttp.NewPaymentHandler(mockPaymentService{
+			dodoWebhookFn: func(context.Context, []byte, map[string]string) error { return domain.ErrInvalidSignature },
+		})
+		w := httptest.NewRecorder()
+		h.DodoWebhook(w, httptest.NewRequest(http.MethodPost, "/webhooks/dodo", strings.NewReader("x")))
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 	t.Run("unreadable body is 400", func(t *testing.T) {
 		h := paymenthttp.NewPaymentHandler(mockPaymentService{})
@@ -73,6 +80,7 @@ func TestPaymentHandler_Unauthorized(t *testing.T) {
 		"create":    func(w http.ResponseWriter) { h.CreateOrder(w, plainReq("POST", "/o", "{}")) },
 		"verify":    func(w http.ResponseWriter) { h.VerifyPayment(w, plainReq("POST", "/v", "{}")) },
 		"getOrder":  func(w http.ResponseWriter) { h.GetOrder(w, plainReq("GET", "/o/1", "")) },
+		"status":    func(w http.ResponseWriter) { h.GetOrderStatus(w, plainReq("GET", "/o/1/status", "")) },
 		"orders":    func(w http.ResponseWriter) { h.GetUserOrders(w, plainReq("GET", "/o", "")) },
 		"licenses":  func(w http.ResponseWriter) { h.GetUserLicenses(w, plainReq("GET", "/l", "")) },
 		"producers": func(w http.ResponseWriter) { h.GetProducerOrders(w, plainReq("GET", "/p", "")) },
