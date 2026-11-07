@@ -2,9 +2,12 @@ package application
 
 import (
 	"context"
+	"errors"
+	"math/big"
 	"time"
 
 	"github.com/saransh1220/blueprint-audio/internal/modules/fx/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type Config struct {
@@ -41,12 +44,47 @@ func NewService(repo domain.RateRepository, refresher *Refresher, cfg Config) *S
 
 func (s *Service) GetLatestRate(ctx context.Context, base, quote string) (*domain.Rate, error) {
 	rate, err := s.repo.Latest(ctx, base, quote)
-	if err != nil {
+	if err == nil {
+		now := time.Now().UTC()
+		s.decorateFlags(rate, now)
+		return rate, nil
+	}
+	if !errors.Is(err, domain.ErrNoRate) {
 		return nil, err
 	}
+
+	// Try inverse pair if direct pair is missing
+	invRate, invErr := s.repo.Latest(ctx, quote, base)
+	if invErr != nil {
+		return nil, domain.ErrNoRate
+	}
 	now := time.Now().UTC()
-	s.decorateFlags(rate, now)
-	return rate, nil
+	s.decorateFlags(invRate, now)
+
+	rat := invRate.GetBigRat()
+	if rat == nil {
+		parsed, parseErr := money.ParseRateDecimal(invRate.RateDecimal)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		rat = parsed
+	}
+	invertedRat := new(big.Rat).Inv(rat)
+	invertedDecimal := money.FormatRateDecimal(invertedRat)
+
+	return &domain.Rate{
+		ID:          invRate.ID,
+		Base:        base,
+		Quote:       quote,
+		Rate:        invertedRat,
+		RateDecimal: invertedDecimal,
+		Source:      invRate.Source,
+		AsOf:        invRate.AsOf,
+		FetchedAt:   invRate.FetchedAt,
+		Status:      invRate.Status,
+		Stale:       invRate.Stale,
+		Unusable:    invRate.Unusable,
+	}, nil
 }
 
 func (s *Service) GetHistory(ctx context.Context, filter domain.HistoryFilter) ([]*domain.Rate, int, error) {

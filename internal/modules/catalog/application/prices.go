@@ -36,7 +36,11 @@ func prepareLicensePrices(spec *domain.Spec, existing *domain.Spec) error {
 	}
 	for i := range spec.Licenses {
 		lic := &spec.Licenses[i]
-		minor, err := money.MajorToMinor(lic.Price)
+		def, ok := money.LookupCurrency(lic.PriceCurrency)
+		if !ok {
+			return fmt.Errorf("license %s: invalid currency %s", lic.Name, lic.PriceCurrency)
+		}
+		minor, err := money.MajorToMinorScale(lic.Price, def.MinorUnitScale)
 		if err != nil {
 			return fmt.Errorf("license %s: %w", lic.Name, err)
 		}
@@ -71,6 +75,9 @@ func prepareLicensePrices(spec *domain.Spec, existing *domain.Spec) error {
 			expectedRevision := patch.Revision
 			if err := patch.Validate(); err != nil {
 				return err
+			}
+			if existing == nil && strings.EqualFold(patch.Currency, lic.PriceCurrency) && minor > 0 && patch.AmountMinor != minor {
+				return fmt.Errorf("conflicting price for %s: scalar price does not match prices entry", lic.PriceCurrency)
 			}
 			if seen[patch.Currency] {
 				return fmt.Errorf("duplicate price currency %s", patch.Currency)

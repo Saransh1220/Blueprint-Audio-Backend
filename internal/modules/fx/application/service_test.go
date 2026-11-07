@@ -222,3 +222,46 @@ func TestSnapshotter(t *testing.T) {
 
 	repo.AssertExpectations(t)
 }
+
+func TestService_GetLatestRate_InverseFallback(t *testing.T) {
+	repo := new(mockRateRepo)
+	svc := application.NewService(repo, nil, application.Config{
+		StaleAfter: 36 * time.Hour,
+		MaxAge:     7 * 24 * time.Hour,
+	})
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	directRate := &domain.Rate{
+		ID:          1,
+		Base:        "USD",
+		Quote:       "INR",
+		RateDecimal: "80.00000000",
+		Rate:        big.NewRat(80, 1),
+		AsOf:        now.Add(-1 * time.Hour),
+		FetchedAt:   now.Add(-1 * time.Hour),
+		Status:      domain.RateStatusAccepted,
+	}
+
+	// Requesting INR -> USD when only USD -> INR is stored
+	repo.On("Latest", ctx, "INR", "USD").Return(nil, domain.ErrNoRate).Once()
+	repo.On("Latest", ctx, "USD", "INR").Return(directRate, nil).Once()
+
+	rate, err := svc.GetLatestRate(ctx, "INR", "USD")
+	require.NoError(t, err)
+	assert.Equal(t, "INR", rate.Base)
+	assert.Equal(t, "USD", rate.Quote)
+	assert.Equal(t, "0.01250000", rate.RateDecimal) // 1 / 80 = 0.0125
+	assert.False(t, rate.Stale)
+	assert.False(t, rate.Unusable)
+
+	// When both direct and inverse are missing
+	repo.On("Latest", ctx, "EUR", "GBP").Return(nil, domain.ErrNoRate).Once()
+	repo.On("Latest", ctx, "GBP", "EUR").Return(nil, domain.ErrNoRate).Once()
+
+	_, err = svc.GetLatestRate(ctx, "EUR", "GBP")
+	require.ErrorIs(t, err, domain.ErrNoRate)
+
+	repo.AssertExpectations(t)
+}

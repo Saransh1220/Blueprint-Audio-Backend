@@ -204,3 +204,192 @@ func TestConvertMinor(t *testing.T) {
 		})
 	}
 }
+
+func TestRoundingPolicyForCurrency(t *testing.T) {
+	assert.Equal(t, money.RoundingPolicyMarketplace99, money.RoundingPolicyForCurrency("USD"))
+	assert.Equal(t, money.RoundingPolicyMarketplace99, money.RoundingPolicyForCurrency("usd"))
+	assert.Equal(t, money.RoundingPolicyWholeUnit, money.RoundingPolicyForCurrency("INR"))
+	assert.Equal(t, money.RoundingPolicyWholeUnit, money.RoundingPolicyForCurrency("inr"))
+	assert.Equal(t, money.RoundingPolicyNone, money.RoundingPolicyForCurrency("EUR"))
+	assert.Equal(t, money.RoundingPolicyNone, money.RoundingPolicyForCurrency(""))
+}
+
+func TestSuggestSecondaryPrice(t *testing.T) {
+	usdDef, ok := money.LookupCurrency("USD")
+	require.True(t, ok)
+	inrDef, ok := money.LookupCurrency("INR")
+	require.True(t, ok)
+
+	rateUsdToInr := big.NewRat(83, 1)      // 1 USD = 83 INR
+	rateInrToUsd := big.NewRat(1, 83)      // 1 INR = 1/83 USD
+	rateFractional := big.NewRat(8325, 100) // 1 USD = 83.25 INR
+
+	tests := []struct {
+		name           string
+		amountMinor    int
+		fromDef        money.CurrencyDefinition
+		toDef          money.CurrencyDefinition
+		rate           *big.Rat
+		expectedAmount int
+		expectedPolicy money.RoundingPolicy
+		expectErr      bool
+	}{
+		{
+			name:           "USD to INR whole rupee rounding",
+			amountMinor:    1999, // $19.99 * 83 = 1659.17 -> 165900 (₹1659.00)
+			fromDef:        usdDef,
+			toDef:          inrDef,
+			rate:           rateUsdToInr,
+			expectedAmount: 165900,
+			expectedPolicy: money.RoundingPolicyWholeUnit,
+			expectErr:      false,
+		},
+		{
+			name:           "INR to USD marketplace .99 rounding",
+			amountMinor:    149900, // ₹1499.00 / 83 = $18.06 -> $17.99 (1799 cents)
+			fromDef:        inrDef,
+			toDef:          usdDef,
+			rate:           rateInrToUsd,
+			expectedAmount: 1799,
+			expectedPolicy: money.RoundingPolicyMarketplace99,
+			expectErr:      false,
+		},
+		{
+			name:           "INR to USD rounds up to .99",
+			amountMinor:    156500, // ₹1565 / 83 = $18.855 -> $18.99 (1899 cents)
+			fromDef:        inrDef,
+			toDef:          usdDef,
+			rate:           rateInrToUsd,
+			expectedAmount: 1899,
+			expectedPolicy: money.RoundingPolicyMarketplace99,
+			expectErr:      false,
+		},
+		{
+			name:           "tiny INR to USD clamps to 99 cents",
+			amountMinor:    100, // ₹1.00 / 83 = $0.012 -> clamps to $0.99 (99 cents)
+			fromDef:        inrDef,
+			toDef:          usdDef,
+			rate:           rateInrToUsd,
+			expectedAmount: 99,
+			expectedPolicy: money.RoundingPolicyMarketplace99,
+			expectErr:      false,
+		},
+		{
+			name:           "tiny USD to INR clamps to 1 whole rupee",
+			amountMinor:    1, // 1 cent * 83 = 0.83 paise -> rounds to 100 paise (₹1.00)
+			fromDef:        usdDef,
+			toDef:          inrDef,
+			rate:           rateUsdToInr,
+			expectedAmount: 100,
+			expectedPolicy: money.RoundingPolicyWholeUnit,
+			expectErr:      false,
+		},
+		{
+			name:           "identity conversion returns exact same amount",
+			amountMinor:    1999,
+			fromDef:        usdDef,
+			toDef:          usdDef,
+			rate:           big.NewRat(1, 1),
+			expectedAmount: 1999,
+			expectedPolicy: money.RoundingPolicyNone,
+			expectErr:      false,
+		},
+		{
+			name:           "custom currency with scale 1 and none policy",
+			amountMinor:    100,
+			fromDef:        usdDef,
+			toDef:          money.CurrencyDefinition{Code: "JPY", MinorUnitScale: 1},
+			rate:           big.NewRat(150, 1),
+			expectedAmount: 150,
+			expectedPolicy: money.RoundingPolicyNone,
+			expectErr:      false,
+		},
+		{
+			name:           "fractional rate conversion",
+			amountMinor:    1999,
+			fromDef:        usdDef,
+			toDef:          inrDef,
+			rate:           rateFractional,
+			expectedAmount: 166400, // 19.99 * 83.25 = 1664.1675 -> 166400
+			expectedPolicy: money.RoundingPolicyWholeUnit,
+			expectErr:      false,
+		},
+		{
+			name:        "zero amount returns error",
+			amountMinor: 0,
+			fromDef:     usdDef,
+			toDef:       inrDef,
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "negative amount returns error",
+			amountMinor: -50,
+			fromDef:     usdDef,
+			toDef:       inrDef,
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "amount overflow returns error",
+			amountMinor: money.MaxAmountMinor + 1,
+			fromDef:     usdDef,
+			toDef:       inrDef,
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "empty fromDef code returns error",
+			amountMinor: 100,
+			fromDef:     money.CurrencyDefinition{Code: ""},
+			toDef:       inrDef,
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "empty toDef code returns error",
+			amountMinor: 100,
+			fromDef:     usdDef,
+			toDef:       money.CurrencyDefinition{Code: ""},
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "invalid scale returns error",
+			amountMinor: 100,
+			fromDef:     money.CurrencyDefinition{Code: "USD", MinorUnitScale: 0},
+			toDef:       inrDef,
+			rate:        rateUsdToInr,
+			expectErr:   true,
+		},
+		{
+			name:        "nil rate returns error",
+			amountMinor: 100,
+			fromDef:     usdDef,
+			toDef:       inrDef,
+			rate:        nil,
+			expectErr:   true,
+		},
+		{
+			name:        "negative rate returns error",
+			amountMinor: 100,
+			fromDef:     usdDef,
+			toDef:       inrDef,
+			rate:        big.NewRat(-1, 1),
+			expectErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, policy, err := money.SuggestSecondaryPrice(tt.amountMinor, tt.fromDef, tt.toDef, tt.rate)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedAmount, got)
+				assert.Equal(t, tt.expectedPolicy, policy)
+			}
+		})
+	}
+}

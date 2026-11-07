@@ -1,12 +1,14 @@
 package http
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/application"
 	"github.com/saransh1220/blueprint-audio/internal/modules/catalog/domain"
+	"github.com/saransh1220/blueprint-audio/internal/shared/money"
 )
 
 type CreateSpecMetadataRequest struct {
@@ -31,13 +33,20 @@ type CreateGenreRequest struct {
 	Slug string `json:"slug"`
 }
 
+type PriceInputRequest struct {
+	Currency    string `json:"currency"`
+	AmountMinor int    `json:"amount_minor"`
+	IsActive    *bool  `json:"is_active,omitempty"`
+}
+
 type CreateLicenseRequest struct {
-	Type          domain.LicenseType `json:"type"`
-	Name          string             `json:"name"`
-	Price         float64            `json:"price"`
-	PriceCurrency string             `json:"price_currency"`
-	Features      []string           `json:"features"`
-	FileTypes     []string           `json:"file_types"`
+	Type          domain.LicenseType  `json:"type"`
+	Name          string              `json:"name"`
+	Price         float64             `json:"price"`
+	PriceCurrency string              `json:"price_currency"`
+	Features      []string            `json:"features"`
+	FileTypes     []string            `json:"file_types"`
+	Prices        []PriceInputRequest `json:"prices,omitempty"`
 }
 
 type CreateUploadFileRequest struct {
@@ -102,6 +111,23 @@ func (r CreateSpecMetadataRequest) toSpec() domain.Spec {
 		spec.Genres[i] = domain.Genre{Name: genre.Name, Slug: genre.Slug}
 	}
 	for i, license := range r.Licenses {
+		var storedPrices []money.StoredPrice
+		if len(license.Prices) > 0 {
+			storedPrices = make([]money.StoredPrice, len(license.Prices))
+			for j, p := range license.Prices {
+				isActive := true
+				if p.IsActive != nil {
+					isActive = *p.IsActive
+				}
+				storedPrices[j] = money.StoredPrice{
+					Currency:    strings.ToUpper(strings.TrimSpace(p.Currency)),
+					AmountMinor: p.AmountMinor,
+					IsActive:    isActive,
+					Source:      "owner",
+					Revision:    1,
+				}
+			}
+		}
 		spec.Licenses[i] = domain.LicenseOption{
 			LicenseType:   license.Type,
 			Name:          license.Name,
@@ -109,6 +135,7 @@ func (r CreateSpecMetadataRequest) toSpec() domain.Spec {
 			PriceCurrency: license.PriceCurrency,
 			Features:      pq.StringArray(license.Features),
 			FileTypes:     pq.StringArray(license.FileTypes),
+			Prices:        storedPrices,
 		}
 	}
 	return spec
